@@ -139,7 +139,6 @@ pub struct Options {
     pub threads: usize,
     /// 0 = retry indefinitely.
     pub frag_max_tries: u32,
-    #[allow(dead_code)] // --sqlite: storage backend not implemented yet
     pub storage: StorageMode,
     /// Write out-of-order fragments to temp files instead of RAM.
     pub frag_files: bool,

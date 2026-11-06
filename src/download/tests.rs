@@ -214,6 +214,63 @@ async fn skips_permanently_failing_fragment() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+fn sqlite_opts(threads: usize) -> Options {
+    Options {
+        storage: crate::types::StorageMode::Sqlite,
+        ..opts(threads, true)
+    }
+}
+
+#[tokio::test]
+async fn sqlite_downloads_and_exports_in_order() {
+    let url = serve(20, vec![]).await;
+    let dir = temp_dir("sqlite");
+    let s = Session::for_test(sqlite_opts(4), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (p, _rx) = params(&dir, 20, DownloadState::default());
+    let out = download_stream(s, p).await.unwrap();
+    let want: Vec<u8> = (0..20).flat_map(|i| expected(i, i == 0)).collect();
+    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(out.state.fragments, 20);
+    assert!(dir.join("out.f140.sqlite").exists());
+    // No temp fragment files are used in SQLite mode.
+    assert!(!std::fs::read_dir(&dir)
+        .unwrap()
+        .any(|e| e.unwrap().file_name().to_string_lossy().contains(".frag")));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_resume_fills_gap() {
+    let dir = temp_dir("sqlite-resume");
+
+    // First run: fragment 3 always fails and is skipped.
+    let url = serve(10, vec![3]).await;
+    let s = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (p, _rx) = params(&dir, 10, DownloadState::default());
+    let first = download_stream(s, p).await.unwrap();
+    assert_eq!(first.skipped, [3]);
+    assert_eq!(first.state.fragments, 9);
+
+    // Second run against a healthy server resumes from the saved state and
+    // only needs the missing fragment.
+    let url = serve(10, vec![]).await;
+    let saved = load_state(&dir.join("out.f140.state")).unwrap();
+    let s = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (p, mut rx) = params(&dir, 10, saved);
+    let second = download_stream(s, p).await.unwrap();
+    assert!(second.skipped.is_empty());
+    assert_eq!(second.state.fragments, 10);
+    let mut fetched = 0;
+    while rx.try_recv().is_ok() {
+        fetched += 1;
+    }
+    assert_eq!(fetched, 1, "only the gap should be downloaded again");
+
+    let want: Vec<u8> = (0..10).flat_map(|i| expected(i, i == 0)).collect();
+    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Hits YouTube: downloads 3 real audio fragments from a 24/7 stream.
 /// Run with `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored live_fragments`.
 #[tokio::test]

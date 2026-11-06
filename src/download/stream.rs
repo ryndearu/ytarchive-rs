@@ -1,30 +1,29 @@
-//! Downloading one stream (audio or video): parallel fragment workers and an
-//! in-order writer with resumable state.
+//! Downloading one stream (audio or video): parallel fragment workers feeding
+//! a storage sink, with resumable state.
 
-use std::collections::BTreeMap;
-use std::io::SeekFrom;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
 use super::fragment::download_fragment;
+use super::sink::{self, Event};
+use super::ts_sink::remove_frag_file;
 use crate::error::Result;
 use crate::live_from::seekable_start_sq;
-use crate::mp4_atoms::strip_for_concat;
 use crate::session::Session;
-use crate::types::{DataType, DownloadState, FragData, FragThreadState, Fragment, ProgressInfo};
+use crate::types::{DataType, DownloadState, FragThreadState, Fragment, ProgressInfo, StorageMode};
 use crate::util::set_mode;
-use crate::{log_debug, log_info, log_warn};
+use crate::{log_debug, log_error, log_warn};
 
 /// How long a worker waits when it's ahead of the newest fragment.
 const AHEAD_WAIT: Duration = Duration::from_millis(500);
 
 pub struct StreamParams {
     pub data_type: DataType,
-    /// The `.ts` file fragments are appended to.
+    /// The `.ts` file fragments end up in.
     pub data_file: PathBuf,
     /// Prefix for temp fragment files (`{prefix}.frag{seq}.ts`).
     pub frag_prefix: PathBuf,
@@ -50,7 +49,7 @@ pub struct StreamOutcome {
 
 enum Msg {
     Done(Fragment),
-    /// Given up on; the writer skips it instead of stalling forever.
+    /// Given up on; the sink skips it instead of stalling forever.
     Missing(u64),
 }
 
@@ -62,6 +61,8 @@ struct Dispatch {
     max_seq: Option<u64>,
     end_seq: Option<u64>,
     in_flight: usize,
+    /// Already stored (SQLite resume).
+    skip: HashSet<u64>,
 }
 
 enum Take {
@@ -72,6 +73,9 @@ enum Take {
 
 impl Dispatch {
     fn take(&mut self, live: bool) -> Take {
+        while self.skip.remove(&self.next) {
+            self.next += 1;
+        }
         if self.end_seq.is_some_and(|e| self.next >= e) {
             log_debug!("Reached the maximum duration specified by --capture-duration.");
             return Take::Done;
@@ -98,50 +102,22 @@ impl Dispatch {
     }
 }
 
-/// Opens the data file. Returns the sequence to start at and whether a
-/// previous download is being continued.
-async fn open_data_file(p: &mut StreamParams, s: &Session) -> Result<(tokio::fs::File, u64)> {
+/// Where a fresh download starts: `--live-from`/`--start-delay`, else the
+/// beginning (or as far back as YouTube still serves).
+fn fresh_start(p: &StreamParams, target_duration: u32) -> u64 {
     let name = p.data_type.as_str();
-    if p.state.fragments > 0 {
-        if p.start_sq.is_some() {
-            log_warn!("{name}: Options --live-from/--start-delay are ignored as a download is being resumed.");
-        }
-        match tokio::fs::OpenOptions::new().read(true).write(true).open(&p.data_file).await {
-            Ok(mut f) => {
-                let len = f.metadata().await?.len();
-                if len >= p.state.size {
-                    // Drop anything written after the last saved state.
-                    f.set_len(p.state.size).await?;
-                    f.seek(SeekFrom::End(0)).await?;
-                    let cur = p.state.start_frag + p.state.fragments;
-                    log_info!("{name}: Resuming download from sequence {cur}");
-                    return Ok((f, cur));
-                }
-                log_warn!("{name}: {} is smaller than the saved state; starting from the beginning", p.data_file.display());
-            }
-            Err(e) => {
-                log_warn!("{name}: Failed to open {} to resume download: {e}", p.data_file.display());
-                log_warn!("{name}: Will start from the beginning");
-            }
-        }
-        let temp_dir = std::mem::take(&mut p.state.temp_dir);
-        p.state = DownloadState { temp_dir, ..Default::default() };
-    }
-
-    let mut cur = p.last_sq.map_or(0, |l| seekable_start_sq(l, s.target_duration()));
     if let Some(start) = p.start_sq {
-        cur = start;
         log_debug!("{name}: Starting from sequence {start} (latest is {:?})", p.last_sq);
-    } else if cur > 0 {
+        return start;
+    }
+    let cur = p.last_sq.map_or(0, |l| seekable_start_sq(l, target_duration));
+    if cur > 0 {
         log_warn!(
             "{name}: YT only retains the livestream 7 days past for seeking, starting from sequence {cur} (latest is {:?})",
             p.last_sq
         );
     }
-    p.state.start_frag = cur;
-    let f = tokio::fs::File::create(&p.data_file).await?;
-    let _ = set_mode(&p.data_file, s.opts.file_mode);
-    Ok((f, cur))
+    cur
 }
 
 fn save_state(p: &StreamParams, mode: u32) {
@@ -202,46 +178,45 @@ async fn worker(
     log_debug!("{name}: exiting");
 }
 
-async fn fragment_bytes(data: &FragData) -> std::io::Result<Vec<u8>> {
-    match data {
-        FragData::Memory(b) => Ok(b.to_vec()),
-        FragData::File(p) => tokio::fs::read(p).await,
-    }
-}
-
-async fn remove_frag_file(data: &FragData) {
-    if let FragData::File(p) = data {
-        let _ = tokio::fs::remove_file(p).await;
-    }
-}
-
-/// Downloads one stream until it ends, is stopped, or fails to write.
+/// Downloads one stream until it ends, is stopped, or fails to store data.
 pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<StreamOutcome> {
     let dt = p.data_type;
     let name = format!("{}-download", dt.as_str());
-    let (mut file, cur) = match open_data_file(&mut p, &s).await {
-        Ok(v) => v,
+    let sqlite = s.opts.storage == StorageMode::Sqlite;
+    let mode = s.opts.file_mode;
+
+    if p.state.fragments > 0 && p.start_sq.is_some() {
+        log_warn!("{name}: Options --live-from/--start-delay are ignored as a download is being resumed.");
+    }
+    let td = s.target_duration();
+    let state = std::mem::take(&mut p.state);
+    let opened = sink::open(sqlite, &p.data_file, state, || fresh_start(&p, td), mode, &name).await;
+    let opened = match opened {
+        Ok(o) => o,
         Err(e) => {
-            crate::log_error!("{name}: Error opening {} for writing: {e}", p.data_file.display());
+            log_error!("{name}: Error opening storage for {}: {e}", p.data_file.display());
             s.stop();
             return Err(e);
         }
     };
-    save_state(&p, s.opts.file_mode);
+    let mut sink = opened.sink;
+    let cur = opened.cur;
+    p.state = opened.state;
+    save_state(&p, mode);
 
-    let end_seq = p.capture_duration.map(|d| {
-        cur + d.as_secs().div_ceil(u64::from(s.target_duration()))
-    });
+    let end_seq = p.capture_duration.map(|d| cur + d.as_secs().div_ceil(u64::from(td)));
     let dispatch = Arc::new(Mutex::new(Dispatch {
         next: cur,
         max_seq: p.last_sq,
         end_seq,
         in_flight: 0,
+        skip: opened.skip,
     }));
 
     let threads = s.opts.threads.max(1);
     let (tx, mut rx) = mpsc::channel::<Msg>(threads * 2);
-    let frag_prefix = s.opts.frag_files.then(|| p.frag_prefix.clone());
+    // SQLite stores fragments as they arrive, so nothing waits in temp files.
+    let frag_prefix = (s.opts.frag_files && !sqlite).then(|| p.frag_prefix.clone());
     let mut workers = Vec::with_capacity(threads);
     for i in 1..=threads {
         workers.push(tokio::spawn(worker(
@@ -256,58 +231,43 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     }
     drop(tx);
 
-    let mut next_write = cur;
-    let mut pending: BTreeMap<u64, Option<Fragment>> = BTreeMap::new();
     let mut skipped = Vec::new();
-    let mut write_err = None;
-
-    'recv: while let Some(msg) = rx.recv().await {
-        match msg {
-            Msg::Done(f) => pending.insert(f.seq, Some(f)),
-            Msg::Missing(seq) => pending.insert(seq, None),
+    let mut store_err = None;
+    while let Some(msg) = rx.recv().await {
+        let (seq, frag) = match msg {
+            Msg::Done(f) => (f.seq, Some(f)),
+            Msg::Missing(seq) => (seq, None),
         };
-        while let Some(entry) = pending.remove(&next_write) {
-            let Some(frag) = entry else {
-                // Fragments near the head of an ended stream often never
-                // existed; only report real gaps.
-                let max = dispatch.lock().unwrap().max_seq;
-                if !s.is_stopping() && max.is_none_or(|m| next_write + 2 < m) {
-                    log_warn!("{name}: Fragment {next_write} could not be downloaded and was skipped");
-                    skipped.push(next_write);
-                }
-                next_write += 1;
-                continue;
-            };
-            let written = async {
-                let raw = fragment_bytes(&frag.data).await?;
-                let first = next_write == p.state.start_frag;
-                let data = strip_for_concat(&raw, &frag.mime_type, first).unwrap_or(raw);
-                file.write_all(&data).await?;
-                Ok::<_, std::io::Error>(data.len() as u64)
+        let events = match sink.push(seq, frag).await {
+            Ok(ev) => ev,
+            Err(e) => {
+                log_error!("{name}: Error storing fragment {seq} for {}: {e}", p.data_file.display());
+                store_err = Some(e);
+                s.stop();
+                break;
             }
-            .await;
-            remove_frag_file(&frag.data).await;
-            match written {
-                Ok(n) => {
+        };
+        for ev in events {
+            match ev {
+                Event::Wrote(n) => {
                     p.state.fragments += 1;
                     p.state.size += n;
-                    save_state(&p, s.opts.file_mode);
+                    save_state(&p, mode);
                     let _ = p.progress.send(ProgressInfo {
                         data_type: dt,
                         byte_count: n,
                         max_seq: dispatch.lock().unwrap().max_seq,
                         start_frag: p.state.start_frag,
                     });
-                    next_write += 1;
                 }
-                Err(e) => {
-                    crate::log_error!(
-                        "{name}: Error writing fragment {next_write} to {}: {e}",
-                        p.data_file.display()
-                    );
-                    write_err = Some(e);
-                    s.stop();
-                    break 'recv;
+                Event::Gap(gap) => {
+                    // Fragments near the head of an ended stream often never
+                    // existed; only report real gaps.
+                    let max = dispatch.lock().unwrap().max_seq;
+                    if !s.is_stopping() && max.is_none_or(|m| gap + 2 < m) {
+                        log_warn!("{name}: Fragment {gap} could not be downloaded and was skipped");
+                        skipped.push(gap);
+                    }
                 }
             }
         }
@@ -323,18 +283,11 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     for w in workers {
         let _ = w.await;
     }
-    let mut leftover = 0;
-    for f in pending.into_values().flatten() {
-        remove_frag_file(&f.data).await;
-        leftover += 1;
+    sink.finish(&name, mode).await?;
+    if let Some(e) = store_err {
+        return Err(e);
     }
-    if leftover > 0 {
-        log_debug!("{name}: {leftover} downloaded fragment(s) after a gap were not written");
-    }
-    file.flush().await?;
-    if let Some(e) = write_err {
-        return Err(e.into());
-    }
+    skipped.sort_unstable();
     log_debug!("{name} thread closing");
     Ok(StreamOutcome { state: p.state, skipped })
 }
