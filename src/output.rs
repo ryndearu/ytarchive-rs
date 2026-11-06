@@ -55,6 +55,15 @@ pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, Strin
     if !Path::new(&opts.output_format).is_absolute() {
         dir = dir.components().filter(|c| !matches!(c, std::path::Component::RootDir)).collect();
     }
+    // Folder names from the template (e.g. %(channel)s) must be valid on
+    // Windows too; drive prefixes, roots, `.` and `..` are kept as-is.
+    dir = dir
+        .components()
+        .map(|c| match c {
+            std::path::Component::Normal(s) => PathBuf::from(portable_file_name(&s.to_string_lossy())),
+            other => PathBuf::from(other.as_os_str()),
+        })
+        .collect();
     if dir.as_os_str().is_empty() {
         dir = PathBuf::from(".");
     }
@@ -172,6 +181,22 @@ mod tests {
         assert!(final_location(&o, &fi(".")).is_err());
         assert_eq!(final_location(&o, &fi("aux")).unwrap().1, "_aux");
         assert_eq!(final_location(&o, &fi("Why?")).unwrap().1, "Why_");
+    }
+
+    #[test]
+    fn folder_names_are_windows_safe() {
+        let o = Options { output_format: "out/%(channel)s/%(title)s".into(), ..Default::default() };
+        let mut f = fi("t");
+        f.insert("channel".into(), "Con".into());
+        let (dir, _) = final_location(&o, &f).unwrap();
+        assert!(dir.ends_with("out/_Con"), "{}", dir.display());
+        f.insert("channel".into(), "Mr. ".into());
+        let (dir, _) = final_location(&o, &f).unwrap();
+        assert!(dir.ends_with("out/Mr__"), "{}", dir.display());
+        // `..` in the template itself is kept.
+        let up = Options { output_format: "../%(title)s".into(), ..Default::default() };
+        let (dir, _) = final_location(&up, &f).unwrap();
+        assert_eq!(dir, std::path::absolute("..").unwrap());
     }
 
     #[test]
