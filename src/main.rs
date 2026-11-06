@@ -1,3 +1,6 @@
+// Unsafe code is only allowed where it's truly necessary; there is none now.
+#![forbid(unsafe_code)]
+
 mod cli;
 mod cookies;
 mod download;
