@@ -15,7 +15,27 @@ pub const DEFAULT_FRAG_MAX_TRIES: u32 = 10;
 /// Background URL refresh interval (dreammu: 5h).
 pub const URL_REFRESH_INTERVAL_SECS: u64 = 5 * 3600;
 
-/// Format-info keys that must not be used in filename templates.
+/// Every key available to the `%(key)s` output template.
+pub const FORMAT_INFO_KEYS: &[&str] = &[
+    "id",
+    "title",
+    "channel_id",
+    "channel",
+    "upload_date",
+    "start_date",
+    "year",
+    "month",
+    "day",
+    "start_time",
+    "hours",
+    "minutes",
+    "seconds",
+    "publish_date",
+    "description",
+    "url",
+];
+
+/// Format-info keys that expand to nothing in filename templates.
 pub const FILENAME_FORMAT_BLACKLIST: &[&str] = &["description"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

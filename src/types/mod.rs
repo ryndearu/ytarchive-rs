@@ -8,7 +8,9 @@ pub mod ytcfg;
 pub mod ytdlp;
 
 pub use consts::*;
-pub use download_info::{DownloadInfo, DownloadProgress, FormatInfo, MetaInfo, StreamInfo};
+pub use download_info::{
+    new_format_info, DownloadInfo, DownloadProgress, FormatInfo, MetaInfo, StreamInfo,
+};
 pub use download_state::DownloadState;
 pub use fragment::{DataType, FragThreadState, Fragment, ProgressInfo, SeqInfo};
 pub use media::MediaDlInfo;
