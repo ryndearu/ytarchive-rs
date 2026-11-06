@@ -1,7 +1,6 @@
 use thiserror::Error;
 
-/// Crate-wide error type. Fragment-level errors carry enough context for the
-/// retry/refresh policy to decide what to do next.
+/// Crate-wide error type.
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("http error: {0}")]
@@ -22,26 +21,14 @@ pub enum Error {
     #[error("yt-dlp failed: {0}")]
     Ytdlp(String),
 
-    #[error("video details not found; video is likely private or does not exist")]
-    VideoUnavailable,
-
     #[error("no download urls found for {0}")]
     NoUrls(String),
-
-    #[error("invalid quality selection: {0}")]
-    InvalidQuality(String),
 
     #[error("invalid filename format: {0}")]
     InvalidFormat(String),
 
     #[error("invalid argument: {0}")]
     InvalidArg(String),
-
-    #[error("ump parse error: {0}")]
-    Ump(String),
-
-    #[error("ffmpeg exited with status {0}")]
-    Ffmpeg(i32),
 
     #[error("cancelled")]
     Cancelled,

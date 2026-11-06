@@ -20,19 +20,3 @@ pub struct NetscapeCookie {
 pub struct CookieSet {
     pub cookies: Vec<NetscapeCookie>,
 }
-
-impl CookieSet {
-    pub fn is_empty(&self) -> bool {
-        self.cookies.is_empty()
-    }
-
-    /// First cookie with `name` whose domain is youtube.com or a subdomain.
-    pub fn youtube_cookie(&self, name: &str) -> Option<&NetscapeCookie> {
-        self.cookies.iter().find(|c| {
-            c.name == name && {
-                let d = c.domain.trim_start_matches('.');
-                d == "youtube.com" || d.ends_with(".youtube.com")
-            }
-        })
-    }
-}

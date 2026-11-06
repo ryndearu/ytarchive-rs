@@ -448,8 +448,6 @@ impl Cli {
             video_url: self.video_url,
             audio_url: self.audio_url,
             cookies_file: self.cookies,
-            po_token: self.potoken,
-            visitor_data: self.visitor_data,
             ytdlp_path: self.ytdlp_path,
             ytdlp_opts: self
                 .ytdlp_opts

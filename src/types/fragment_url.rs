@@ -20,13 +20,6 @@ impl FragmentUrl {
         }
     }
 
-    pub fn from_parts(prefix: impl Into<String>, suffix: impl Into<String>) -> Self {
-        Self {
-            prefix: prefix.into(),
-            suffix: suffix.into(),
-        }
-    }
-
     pub fn for_seq(&self, seq: u64) -> String {
         format!("{}{seq}{}", self.prefix, self.suffix)
     }
@@ -96,12 +89,6 @@ mod tests {
         let u = FragmentUrl::with_sq_param("https://h/p");
         assert_eq!(u.for_seq(1), "https://h/p?sq=1");
         assert_eq!(u.base(), "https://h/p");
-    }
-
-    #[test]
-    fn parts() {
-        let u = FragmentUrl::from_parts("https://h/base/sq/", "/pot/TOKEN");
-        assert_eq!(u.for_seq(3), "https://h/base/sq/3/pot/TOKEN");
     }
 
     #[test]

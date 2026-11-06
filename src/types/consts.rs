@@ -2,8 +2,6 @@
 //! Itag source: https://gist.github.com/AgentOak/34d47c65b1d28829bb17c24c04a0096f
 
 pub const AUDIO_ITAG: u32 = 140;
-pub const AUDIO_ONLY_QUALITY: u32 = 0;
-pub const BUFFER_SIZE: usize = 8192;
 pub const DEFAULT_FILENAME_FORMAT: &str = "%(title)s-%(id)s";
 /// Furthest back YouTube lets you seek in a live stream (7 days).
 pub const LIVE_MAXIMUM_SEEKABLE_SECS: u64 = 86_400 * 7;

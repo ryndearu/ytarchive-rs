@@ -50,7 +50,6 @@ pub struct Fragment {
 #[derive(Debug, Clone, Copy)]
 pub struct ProgressInfo {
     pub data_type: DataType,
-    pub itag: u32,
     pub byte_count: u64,
     pub max_seq: Option<u64>,
     pub start_frag: u64,

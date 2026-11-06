@@ -1,11 +1,17 @@
 //! Leveled, colored logging to stderr, matching Go ytarchive's output format:
 //! `2006/01/02 15:04:05 LEVEL: message`.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use crate::types::LogLevel;
 
 static LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Warning as u8);
+/// When false (default), log lines start with `\r` to overwrite the status line.
+static NEWLINES: AtomicBool = AtomicBool::new(false);
+
+pub fn set_newlines(on: bool) {
+    NEWLINES.store(on, Ordering::Relaxed);
+}
 
 pub fn set_level(level: LogLevel) {
     LEVEL.store(level as u8, Ordering::Relaxed);
@@ -55,7 +61,8 @@ pub fn write(at: LogLevel, general: bool, args: std::fmt::Arguments<'_>) {
         return;
     }
     let ts = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
-    eprintln!("{ts} {}", format_line(at, general, &args.to_string()));
+    let cr = if NEWLINES.load(Ordering::Relaxed) { "" } else { "\r" };
+    eprintln!("{cr}{ts} {}", format_line(at, general, &args.to_string()));
 }
 
 /// Status line while polling for a stream. Rewrites the same line unless

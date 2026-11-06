@@ -30,7 +30,6 @@ const HTTP2_MAX_HEADER_LIST_SIZE: u32 = 1 << 20;
 #[derive(Debug, Clone)]
 pub struct Http {
     pub client: Client,
-    pub cookies: Arc<CookieSet>,
 }
 
 impl Http {
@@ -65,13 +64,7 @@ impl Http {
 
         Ok(Self {
             client: builder.build()?,
-            cookies: Arc::new(cookies),
         })
-    }
-
-    /// `Authorization` value for authenticated InnerTube requests.
-    pub fn sapisid_hash(&self) -> Option<String> {
-        cookies::sapisid_hash(&self.cookies, chrono::Utc::now().timestamp())
     }
 
     /// GETs `url` and returns the body; non-2xx statuses are errors.

@@ -1,16 +1,20 @@
-#![allow(dead_code, unused_imports)] // scaffold: types defined ahead of the modules that use them
-
 mod cli;
 mod cookies;
 mod download;
 mod duration;
 mod error;
+mod finish;
 mod formats;
+mod gvideo;
 mod http;
 mod input_url;
 mod live_from;
 mod log;
 mod mp4_atoms;
+mod mux;
+mod output;
+mod prepare;
+mod progress;
 mod prompt;
 mod run;
 mod session;
@@ -37,6 +41,7 @@ async fn main() -> ExitCode {
         }
     };
     log::set_level(options.log_level);
+    log::set_newlines(options.status_newlines);
     for w in warnings {
         log_warn!("{w}");
     }

@@ -101,7 +101,6 @@ fn params(
     (
         StreamParams {
             data_type: DataType::Audio,
-            itag: 140,
             data_file: dir.join("out.f140.ts"),
             frag_prefix: dir.join("out.f140"),
             state,

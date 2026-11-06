@@ -1,14 +1,13 @@
-//! Netscape cookies.txt loading and YouTube SAPISIDHASH auth.
+//! Netscape cookies.txt loading.
+//! (Go's SAPISIDHASH auth was only used by its unreachable InnerTube
+//! request, so it isn't ported.)
 
 use std::path::Path;
-
-use sha1::{Digest, Sha1};
 
 use crate::error::Result;
 use crate::types::{CookieSet, NetscapeCookie};
 
 const HTTPONLY_PREFIX: &str = "#httponly_";
-const YOUTUBE_ORIGIN: &str = "https://www.youtube.com";
 
 /// Parses cookies.txt content. Lines without exactly 7 tab-separated fields
 /// (comments, blanks) are skipped, as are values containing `"` (Google's
@@ -82,16 +81,6 @@ pub fn to_set_cookie(c: &NetscapeCookie) -> String {
     s
 }
 
-/// `Authorization` header for InnerTube requests made with cookies, or `None`
-/// if there's no SAPISID (or `__Secure-3PAPISID` fallback) cookie.
-pub fn sapisid_hash(cookies: &CookieSet, unix_now: i64) -> Option<String> {
-    let sapisid = cookies
-        .youtube_cookie("SAPISID")
-        .or_else(|| cookies.youtube_cookie("__Secure-3PAPISID"))?;
-    let digest = Sha1::digest(format!("{unix_now} {} {YOUTUBE_ORIGIN}", sapisid.value));
-    Some(format!("SAPISIDHASH {unix_now}_{}", hex::encode(digest)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,19 +129,5 @@ mod tests {
         );
         assert_eq!(to_set_cookie(&set.cookies[2]), "PREF=f6=40000000; Path=/watch; Expires=Tue, 01 Jan 2030 00:00:00 GMT");
         assert_eq!(cookie_url(&set.cookies[2]).unwrap().as_str(), "https://www.youtube.com/watch");
-    }
-
-    #[test]
-    fn sapisid() {
-        let set = parse_netscape(SAMPLE);
-        // printf '1700000000 abc/def https://www.youtube.com' | sha1sum
-        assert_eq!(
-            sapisid_hash(&set, 1_700_000_000).unwrap(),
-            "SAPISIDHASH 1700000000_747622f274182ecf105054645d6a0093199ab03d"
-        );
-
-        let fallback = parse_netscape(".youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PAPISID\tzzz\n");
-        assert!(sapisid_hash(&fallback, 1).is_some());
-        assert!(sapisid_hash(&CookieSet::default(), 1).is_none());
     }
 }

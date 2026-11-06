@@ -24,7 +24,6 @@ const AHEAD_WAIT: Duration = Duration::from_millis(500);
 
 pub struct StreamParams {
     pub data_type: DataType,
-    pub itag: u32,
     /// The `.ts` file fragments are appended to.
     pub data_file: PathBuf,
     /// Prefix for temp fragment files (`{prefix}.frag{seq}.ts`).
@@ -295,7 +294,6 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
                     save_state(&p, s.opts.file_mode);
                     let _ = p.progress.send(ProgressInfo {
                         data_type: dt,
-                        itag: p.itag,
                         byte_count: n,
                         max_seq: dispatch.lock().unwrap().max_seq,
                         start_frag: p.state.start_frag,

@@ -5,4 +5,4 @@ mod stream;
 #[cfg(test)]
 mod tests;
 
-pub use stream::{download_stream, load_state, StreamOutcome, StreamParams};
+pub use stream::{download_stream, load_state, StreamParams};

@@ -107,8 +107,6 @@ pub struct Options {
 
     // Auth / extraction
     pub cookies_file: Option<PathBuf>,
-    pub po_token: Option<String>,
-    pub visitor_data: Option<String>,
     pub ytdlp_path: String,
     /// Extra yt-dlp args, already whitespace-split.
     pub ytdlp_opts: Vec<String>,
@@ -141,6 +139,7 @@ pub struct Options {
     pub threads: usize,
     /// 0 = retry indefinitely.
     pub frag_max_tries: u32,
+    #[allow(dead_code)] // --sqlite: storage backend not implemented yet
     pub storage: StorageMode,
     /// Write out-of-order fragments to temp files instead of RAM.
     pub frag_files: bool,
@@ -158,6 +157,7 @@ pub struct Options {
     pub capture_duration: Option<Duration>,
 
     // Monitoring
+    #[allow(dead_code)] // channel monitor loop not implemented yet
     pub monitor_channel: bool,
     pub members_only: bool,
 
