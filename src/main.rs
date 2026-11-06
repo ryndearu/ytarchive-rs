@@ -8,6 +8,7 @@ mod http;
 mod log;
 mod types;
 mod util;
+mod ytdlp;
 
 use std::process::ExitCode;
 
