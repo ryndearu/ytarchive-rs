@@ -2,6 +2,7 @@
 
 mod cli;
 mod cookies;
+mod download;
 mod duration;
 mod error;
 mod formats;
@@ -9,8 +10,10 @@ mod http;
 mod input_url;
 mod live_from;
 mod log;
+mod mp4_atoms;
 mod prompt;
 mod run;
+mod session;
 mod stream_meta;
 mod types;
 mod util;
