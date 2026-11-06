@@ -27,16 +27,40 @@ const FORBIDDEN: [(char, char); 9] = [
     ('*', '＊'),
 ];
 
+/// How file and folder names are sanitized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NameStyle {
+    /// Replace forbidden characters with full-width lookalikes instead of `_`.
+    pub lookalike: bool,
+    /// Make names valid on Windows (`--windows-filenames`). When off, only
+    /// path separators and NUL are replaced (`--no-windows-filenames`).
+    pub windows: bool,
+}
+
+/// Characters replaced when Windows rules are off: path separators (both, on
+/// Windows) and NUL, which no filesystem accepts.
+fn minimal_forbidden(c: char) -> bool {
+    c == '/' || c == '\0' || (cfg!(windows) && c == '\\')
+}
+
 /// Replaces characters that are illegal in filenames with `_`, or with
-/// yt-dlp's full-width lookalikes when `lookalike` is set. Control
-/// characters (invalid on Windows; Go kept them) always become `_`.
-pub fn sterilize_filename(s: &str, lookalike: bool) -> String {
+/// yt-dlp's full-width lookalikes when `style.lookalike` is set. With Windows
+/// rules, that's `<>:"/\|?*` plus control characters (Go kept control
+/// characters); otherwise only path separators and NUL.
+pub fn sterilize_filename(s: &str, style: NameStyle) -> String {
     s.chars()
-        .map(|c| match FORBIDDEN.iter().find(|(f, _)| *f == c) {
-            Some((_, look)) if lookalike => *look,
-            Some(_) => '_',
-            None if c.is_control() => '_',
-            None => c,
+        .map(|c| {
+            let lookalike = FORBIDDEN.iter().find(|(f, _)| *f == c).map(|(_, l)| *l);
+            let replace = if style.windows {
+                lookalike.is_some() || c.is_control()
+            } else {
+                minimal_forbidden(c)
+            };
+            match (replace, lookalike) {
+                (false, _) => c,
+                (true, Some(look)) if style.lookalike => look,
+                (true, _) => '_',
+            }
         })
         .collect()
 }
@@ -48,9 +72,9 @@ const WINDOWS_RESERVED: &[&str] = &[
     "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
 ];
 
-/// Makes a single file name valid on Windows as well (applied on every OS so
-/// files can be moved between systems): no trailing dots/spaces, and no
-/// reserved device names like `CON` or `nul.txt`.
+/// Makes a single file or folder name valid on Windows (used with
+/// `--windows-filenames`): no trailing dots/spaces, and no reserved device
+/// names like `CON` or `nul.txt`.
 pub fn portable_file_name(name: &str) -> String {
     let trimmed = name.trim_end_matches(['.', ' ']);
     let mut out = format!("{trimmed}{}", "_".repeat(name.len() - trimmed.len()));
@@ -99,7 +123,7 @@ pub fn format_python_map(format: &str, vals: &BTreeMap<String, String>) -> Resul
 pub fn format_filename(
     format: &str,
     vals: &BTreeMap<String, String>,
-    lookalike: bool,
+    style: NameStyle,
 ) -> Result<String> {
     let mut fname_vals: BTreeMap<String, String> = vals
         .iter()
@@ -110,7 +134,7 @@ pub fn format_filename(
             let v = if blacklisted {
                 String::new()
             } else {
-                sterilize_filename(v, lookalike)
+                sterilize_filename(v, style)
             };
             (k.clone(), v)
         })
@@ -151,12 +175,27 @@ mod tests {
             .collect()
     }
 
+    const WIN: NameStyle = NameStyle { lookalike: false, windows: true };
+    const WIN_LOOK: NameStyle = NameStyle { lookalike: true, windows: true };
+    const MIN: NameStyle = NameStyle { lookalike: false, windows: false };
+    const MIN_LOOK: NameStyle = NameStyle { lookalike: true, windows: false };
+
     #[test]
-    fn sterilize() {
-        assert_eq!(sterilize_filename(r#"a<b>c:d"e/f\g|h?i*j"#, false), "a_b_c_d_e_f_g_h_i_j");
-        assert_eq!(sterilize_filename("a/b?", true), "a⧸b？");
-        assert_eq!(sterilize_filename("日本語 ok", false), "日本語 ok");
-        assert_eq!(sterilize_filename("a\tb\nc", true), "a_b_c");
+    fn sterilize_windows() {
+        assert_eq!(sterilize_filename(r#"a<b>c:d"e/f\g|h?i*j"#, WIN), "a_b_c_d_e_f_g_h_i_j");
+        assert_eq!(sterilize_filename("a/b?", WIN_LOOK), "a⧸b？");
+        assert_eq!(sterilize_filename("日本語 ok", WIN), "日本語 ok");
+        assert_eq!(sterilize_filename("a\tb\nc", WIN_LOOK), "a_b_c");
+    }
+
+    #[test]
+    fn sterilize_minimal() {
+        // Only the path separator (and NUL) is replaced.
+        assert_eq!(sterilize_filename("a<b>:\"|?*\tc", MIN), "a<b>:\"|?*\tc");
+        assert_eq!(sterilize_filename("a/b\0c", MIN), "a_b_c");
+        assert_eq!(sterilize_filename("a/b", MIN_LOOK), "a⧸b");
+        let backslash = if cfg!(windows) { "a_b" } else { r"a\b" };
+        assert_eq!(sterilize_filename(r"a\b", MIN), backslash);
     }
 
     #[test]
@@ -200,24 +239,26 @@ mod tests {
     fn filename_blacklist_and_sanitize() {
         let v = vals(&[("title", "a/b"), ("id", "x"), ("description", "secret")]);
         assert_eq!(
-            format_filename("%(title)s-%(id)s%(description)s", &v, false).unwrap(),
+            format_filename("%(title)s-%(id)s%(description)s", &v, WIN).unwrap(),
             "a_b-x"
         );
         // Directory separators in the template itself are kept.
-        assert_eq!(format_filename("dir/%(id)s", &v, false).unwrap(), "dir/x");
+        assert_eq!(format_filename("dir/%(id)s", &v, MIN).unwrap(), "dir/x");
+        // A separator inside a value is always replaced.
+        assert_eq!(format_filename("%(title)s", &v, MIN).unwrap(), "a_b");
     }
 
     #[test]
     fn filename_truncates_long_title() {
         let title = "あ".repeat(200); // 600 bytes
         let v = vals(&[("title", &title), ("id", "abcdefghijk")]);
-        let out = format_filename("out/%(title)s [%(id)s]", &v, false).unwrap();
+        let out = format_filename("out/%(title)s [%(id)s]", &v, WIN).unwrap();
         let base = Path::new(&out).file_name().unwrap().to_str().unwrap();
         assert!(base.len() <= MAX_FILENAME_LEN, "{}", base.len());
         assert!(base.ends_with(" [abcdefghijk]"));
 
         let v = vals(&[("title", &title)]);
-        let out = format_filename("%(title)s %(title)s", &v, false).unwrap();
+        let out = format_filename("%(title)s %(title)s", &v, MIN).unwrap();
         assert!(out.len() <= MAX_FILENAME_LEN, "{}", out.len());
     }
 }

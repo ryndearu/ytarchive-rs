@@ -130,6 +130,12 @@ pub struct Cli {
     /// Use lookalike characters in place of forbidden filename characters.
     #[arg(short = 'l', long)]
     pub lookalike_chars: bool,
+    /// Force filenames to be Windows-compatible (default on Windows).
+    #[arg(long, conflicts_with = "no_windows_filenames")]
+    pub windows_filenames: bool,
+    /// Sanitize filenames only minimally (default on other than Windows).
+    #[arg(long)]
+    pub no_windows_filenames: bool,
     /// Write basic metadata to the final file.
     #[arg(long)]
     pub add_metadata: bool,
@@ -461,6 +467,9 @@ impl Cli {
             output_format: self.output,
             temp_dir: self.temporary_dir,
             lookalike_chars: self.lookalike_chars,
+            // Explicit flag wins; otherwise on for Windows builds only.
+            windows_filenames: self.windows_filenames
+                || (!self.no_windows_filenames && cfg!(windows)),
             add_metadata: self.add_metadata,
             metadata_overrides,
             write_description: self.write_description,
@@ -563,6 +572,14 @@ mod tests {
         assert_eq!(o.wait, Action::Ask);
         assert!(o.frag_files);
         assert_eq!(o.storage, StorageMode::DirectTs);
+        assert_eq!(o.windows_filenames, cfg!(windows));
+    }
+
+    #[test]
+    fn windows_filenames_flags() {
+        assert!(opts(&["y", "--windows-filenames", "u"]).unwrap().0.windows_filenames);
+        assert!(!opts(&["y", "--no-windows-filenames", "u"]).unwrap().0.windows_filenames);
+        assert!(Cli::try_parse_from(os(&["y", "--windows-filenames", "--no-windows-filenames"])).is_err());
     }
 
     #[test]

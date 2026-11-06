@@ -6,7 +6,9 @@ use crate::download::load_state;
 use crate::error::{Error, Result};
 use crate::types::{DownloadState, FormatInfo, Options};
 use crate::util::filename::MAX_FILENAME_LEN;
-use crate::util::{create_temp_dir, format_filename, portable_file_name, sterilize_filename};
+use crate::util::{
+    create_temp_dir, format_filename, portable_file_name, sterilize_filename, NameStyle,
+};
 use crate::{log_error, log_warn};
 
 #[derive(Debug, Clone)]
@@ -48,22 +50,26 @@ impl OutputPlan {
 
 /// Final directory and base file name from the output template.
 pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, String)> {
-    let full = format_filename(&opts.output_format, fi, opts.lookalike_chars)?;
+    let style = NameStyle { lookalike: opts.lookalike_chars, windows: opts.windows_filenames };
+    let full = format_filename(&opts.output_format, fi, style)?;
     let full_path = Path::new(&full);
     let mut dir = full_path.parent().map(Path::to_path_buf).unwrap_or_default();
     // Relative templates must stay relative (a value can't make them absolute).
     if !Path::new(&opts.output_format).is_absolute() {
         dir = dir.components().filter(|c| !matches!(c, std::path::Component::RootDir)).collect();
     }
-    // Folder names from the template (e.g. %(channel)s) must be valid on
-    // Windows too; drive prefixes, roots, `.` and `..` are kept as-is.
-    dir = dir
-        .components()
-        .map(|c| match c {
-            std::path::Component::Normal(s) => PathBuf::from(portable_file_name(&s.to_string_lossy())),
-            other => PathBuf::from(other.as_os_str()),
-        })
-        .collect();
+    // With --windows-filenames, folder names from the template (e.g.
+    // %(channel)s) must be valid on Windows too; drive prefixes, roots, `.`
+    // and `..` are kept as-is.
+    if style.windows {
+        dir = dir
+            .components()
+            .map(|c| match c {
+                std::path::Component::Normal(s) => PathBuf::from(portable_file_name(&s.to_string_lossy())),
+                other => PathBuf::from(other.as_os_str()),
+            })
+            .collect();
+    }
     if dir.as_os_str().is_empty() {
         dir = PathBuf::from(".");
     }
@@ -71,7 +77,7 @@ pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, Strin
 
     let mut name = sterilize_filename(
         full_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default().as_str(),
-        opts.lookalike_chars,
+        style,
     );
     if name.starts_with('-') {
         name.insert(0, '_');
@@ -80,7 +86,7 @@ pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, Strin
         log_error!("Expanded output file path: {full}");
         return Err(Error::InvalidFormat("output file name appears to be empty after formatting".into()));
     }
-    let name = portable_file_name(&name);
+    let name = if style.windows { portable_file_name(&name) } else { name };
     if name.len() > MAX_FILENAME_LEN {
         return Err(Error::InvalidFormat(format!("output file name is too long ({} bytes)", name.len())));
     }
@@ -164,9 +170,14 @@ mod tests {
         f
     }
 
+    /// Options with `--windows-filenames` on or off.
+    fn opts(format: &str, windows: bool) -> Options {
+        Options { output_format: format.into(), windows_filenames: windows, ..Default::default() }
+    }
+
     #[test]
     fn location_from_template() {
-        let o = Options { output_format: "%(channel)s/%(title)s-%(id)s".into(), ..Default::default() };
+        let o = opts("%(channel)s/%(title)s-%(id)s", true);
         let (dir, name) = final_location(&o, &fi("A: B")).unwrap();
         assert_eq!(name, "A_ B-vid");
         assert!(dir.is_absolute());
@@ -174,8 +185,20 @@ mod tests {
     }
 
     #[test]
+    fn minimal_sanitizing() {
+        let o = opts("%(channel)s/%(title)s", false);
+        let mut f = fi("Why? A: B.");
+        let (dir, name) = final_location(&o, &f).unwrap();
+        assert_eq!(name, "Why? A: B.");
+        // A separator in a value still can't create a folder.
+        assert!(dir.ends_with("Chan_nel"));
+        f.insert("channel".into(), "Con".into());
+        assert!(final_location(&o, &f).unwrap().0.ends_with("Con"));
+    }
+
+    #[test]
     fn leading_dash_and_empty_names() {
-        let o = Options { output_format: "%(title)s".into(), ..Default::default() };
+        let o = opts("%(title)s", true);
         assert_eq!(final_location(&o, &fi("-x")).unwrap().1, "_-x");
         assert!(final_location(&o, &fi("")).is_err());
         assert!(final_location(&o, &fi(".")).is_err());
@@ -185,7 +208,7 @@ mod tests {
 
     #[test]
     fn folder_names_are_windows_safe() {
-        let o = Options { output_format: "out/%(channel)s/%(title)s".into(), ..Default::default() };
+        let o = opts("out/%(channel)s/%(title)s", true);
         let mut f = fi("t");
         f.insert("channel".into(), "Con".into());
         let (dir, _) = final_location(&o, &f).unwrap();
@@ -194,7 +217,7 @@ mod tests {
         let (dir, _) = final_location(&o, &f).unwrap();
         assert!(dir.ends_with("out/Mr__"), "{}", dir.display());
         // `..` in the template itself is kept.
-        let up = Options { output_format: "../%(title)s".into(), ..Default::default() };
+        let up = opts("../%(title)s", true);
         let (dir, _) = final_location(&up, &f).unwrap();
         assert_eq!(dir, std::path::absolute("..").unwrap());
     }

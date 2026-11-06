@@ -122,6 +122,8 @@ pub struct Options {
     pub output_format: String,
     pub temp_dir: Option<PathBuf>,
     pub lookalike_chars: bool,
+    /// Make file/folder names valid on Windows (default on Windows only).
+    pub windows_filenames: bool,
     pub add_metadata: bool,
     /// `--metadata KEY=VALUE` overrides; empty value omits the key.
     pub metadata_overrides: Vec<(String, String)>,
