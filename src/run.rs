@@ -1,8 +1,8 @@
 //! Top-level flow for one stream: resolve the URL, fetch info, download,
 //! and finish (merge or handle an interrupt).
 
+use std::collections::HashSet;
 use std::process::ExitCode;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,55 +12,54 @@ use tokio_util::sync::CancellationToken;
 use crate::download::{download_stream, StreamParams};
 use crate::finish::{Finish, Moved};
 use crate::http::Http;
-use crate::input_url::parse_input_url;
+use crate::input_url::InputUrl;
+use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
 use crate::mux::{command_line, ffmpeg_args, MuxInput};
 use crate::output::{ensure_dir, final_location, load_states, temp_dir, OutputPlan};
 use crate::prepare::{prepare, print_info, Prepared};
 use crate::progress::{self, Totals};
-use crate::prompt::get_user_input;
 use crate::session::Session;
 use crate::types::{DataType, Options, AUDIO_ITAG, DEFAULT_POLL_SECS};
 use crate::util::{seconds_to_duration_and_time_str, write_file_with_mode};
 use crate::{log_debug, log_error, log_general, log_info, log_warn};
 
-fn exit(code: i32) -> ExitCode {
+pub fn exit_code(code: i32) -> ExitCode {
     ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
-/// First Ctrl-C stops the download gracefully; prompts afterwards exit on
-/// the next one.
-fn watch_ctrl_c(cancel: CancellationToken) -> Arc<AtomicBool> {
-    let flag = Arc::new(AtomicBool::new(false));
-    let f = flag.clone();
-    tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            f.store(true, Ordering::SeqCst);
-            eprintln!();
-            log_warn!("User Interrupt, Stopping download...");
-            cancel.cancel();
-        }
-    });
-    flag
+/// Result of one run: exit code, the video it was for (if resolved), and
+/// whether a download was attempted.
+pub struct RunResult {
+    pub code: i32,
+    pub video_id: Option<String>,
+    pub downloaded: bool,
 }
 
-pub async fn run(opts: Arc<Options>, http: Http, cancel: CancellationToken) -> ExitCode {
-    let interrupted = watch_ctrl_c(cancel.clone());
-    let raw_url = match &opts.url {
-        Some(u) => u.clone(),
-        None => get_user_input("Enter a youtube livestream URL: ").await,
-    };
-    let input = match parse_input_url(&raw_url) {
-        Ok(i) => i,
-        Err(e) => {
-            log_error!("{e}");
-            return ExitCode::FAILURE;
-        }
-    };
+impl RunResult {
+    fn code(code: i32) -> Self {
+        Self { code, video_id: None, downloaded: false }
+    }
+}
 
-    let Some(prepared) = prepare(&opts, &http, &cancel, &input).await else {
-        return exit(if interrupted.load(Ordering::SeqCst) { 2 } else { 1 });
+/// Downloads one stream. `skip_ids`: videos already recorded by the channel
+/// monitor, which are not downloaded again.
+pub async fn run(
+    opts: Arc<Options>,
+    http: Http,
+    input: &InputUrl,
+    interrupt: Arc<Interrupt>,
+    skip_ids: &HashSet<String>,
+) -> RunResult {
+    let cancel = interrupt.child_token();
+    let Some(prepared) = prepare(&opts, &http, &cancel, input).await else {
+        return RunResult::code(if interrupt.is_set() { 2 } else { 1 });
     };
+    if skip_ids.contains(&prepared.video_id) {
+        log_info!("{} was already downloaded; not downloading it again", prepared.video_id);
+        return RunResult { code: 0, video_id: Some(prepared.video_id), downloaded: false };
+    }
+    let video_id = Some(prepared.video_id.clone());
 
     let live_from_sq = match (&opts.live_from, prepared.last_sq) {
         (None, _) => None,
@@ -71,20 +70,21 @@ pub async fn run(opts: Arc<Options>, http: Http, cancel: CancellationToken) -> E
             }
             Err(e) => {
                 log_error!("{e}");
-                return ExitCode::FAILURE;
+                return RunResult::code(1);
             }
         },
         (Some(_), None) => {
             log_error!("--live-from needs the current stream position, which could not be determined");
-            return ExitCode::FAILURE;
+            return RunResult::code(1);
         }
     };
 
     if opts.info_only {
-        print_info(&prepared, &input);
-        return ExitCode::SUCCESS;
+        print_info(&prepared, input);
+        return RunResult { code: 0, video_id, downloaded: false };
     }
-    exit(download(opts, http, cancel, prepared, live_from_sq, interrupted).await)
+    let code = download(opts, http, cancel, prepared, live_from_sq, interrupt).await;
+    RunResult { code, video_id, downloaded: true }
 }
 
 async fn download(
@@ -93,7 +93,7 @@ async fn download(
     cancel: CancellationToken,
     mut p: Prepared,
     live_from_sq: Option<u64>,
-    interrupted: Arc<AtomicBool>,
+    interrupt: Arc<Interrupt>,
 ) -> i32 {
     let (dir, file_name) = match final_location(&opts, &p.format_info) {
         Ok(v) => v,
@@ -301,7 +301,7 @@ async fn download(
         audio_frags: frags[DataType::Audio.idx()],
         video_frags: frags[DataType::Video.idx()],
     };
-    if interrupted.load(Ordering::SeqCst)
+    if interrupt.is_set()
         && let Some(code) = fin.on_cancel().await
     {
         return code;

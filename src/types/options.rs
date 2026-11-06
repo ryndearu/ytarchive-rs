@@ -157,7 +157,6 @@ pub struct Options {
     pub capture_duration: Option<Duration>,
 
     // Monitoring
-    #[allow(dead_code)] // channel monitor loop not implemented yet
     pub monitor_channel: bool,
     pub members_only: bool,
 

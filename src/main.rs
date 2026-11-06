@@ -8,8 +8,10 @@ mod formats;
 mod gvideo;
 mod http;
 mod input_url;
+mod interrupt;
 mod live_from;
 mod log;
+mod monitor;
 mod mp4_atoms;
 mod mux;
 mod output;
@@ -27,8 +29,6 @@ mod ytdlp;
 
 use std::process::ExitCode;
 use std::sync::Arc;
-
-use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -77,6 +77,6 @@ async fn main() -> ExitCode {
     };
 
     log_debug!("{options:#?}");
-    let cancel = CancellationToken::new();
-    run::run(Arc::new(options), http, cancel).await
+    let interrupt = interrupt::Interrupt::install();
+    monitor::start(Arc::new(options), http, interrupt).await
 }
