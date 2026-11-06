@@ -192,8 +192,13 @@ mod tests {
         assert_eq!(name, "Why? A: B.");
         // A separator in a value still can't create a folder.
         assert!(dir.ends_with("Chan_nel"));
-        f.insert("channel".into(), "Con".into());
-        assert!(final_location(&o, &f).unwrap().0.ends_with("Con"));
+        // Reserved names are left alone. (Not checked on Windows, where
+        // making "Con" absolute yields the device path `\\.\Con`, which is
+        // why --windows-filenames is the default there.)
+        if cfg!(not(windows)) {
+            f.insert("channel".into(), "Con".into());
+            assert!(final_location(&o, &f).unwrap().0.ends_with("Con"));
+        }
     }
 
     #[test]
