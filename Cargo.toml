@@ -1,0 +1,32 @@
+[package]
+name = "ytarchive"
+version = "0.1.0"
+edition = "2024"
+description = "Archive YouTube livestreams from the start (Rust port of dreammu/ytarchive)"
+license = "MIT"
+
+[dependencies]
+anyhow = "1.0.104"
+bytes = "1.12.1"
+chrono = { version = "0.4.45", features = ["serde"] }
+clap = { version = "4.6.7", features = ["derive"] }
+futures-util = "0.3.34"
+hex = "0.4.3"
+quick-xml = { version = "0.42.0", features = ["serialize"] }
+regex = "1.13.1"
+reqwest = { version = "0.13.5", features = ["cookies", "gzip", "json", "stream", "socks"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha1 = "0.11.0"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
+tokio-util = "0.7.20"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
