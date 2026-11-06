@@ -1,7 +1,7 @@
 name: Nightly
 
 # Daily pre-release from main. Skipped when main hasn't changed since the last
-# nightly. The previous nightly pre-release (and its tag) is replaced, and the
+# nightly, or when every new commit is a docs commit ("docs: ..."). The previous nightly pre-release (and its tag) is replaced, and the
 # description lists the commits since the last manual v* release.
 on:
   schedule:
@@ -28,18 +28,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
       - id: check
         shell: bash
         run: |
           sha=$(git rev-parse HEAD)
           prev=$(git ls-remote --tags origin "refs/tags/$TAG" | cut -f1)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          changed=true
           if [ "$sha" = "$prev" ]; then
             echo "main ($sha) is unchanged since the last nightly; skipping."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+            changed=false
+          elif [ -n "$prev" ] && git cat-file -e "$prev^{commit}" 2>/dev/null; then
+            # Skip when every new commit is docs-only ("docs: ..." titles).
+            code=$(git log --format=%s "$prev..$sha" | grep -cv '^docs[:(/]' || true)
+            if [ "$code" -eq 0 ]; then
+              echo "Only docs commits since the last nightly; skipping."
+              changed=false
+            fi
           fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
   build:
     needs: check
