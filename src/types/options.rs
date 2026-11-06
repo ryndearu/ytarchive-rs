@@ -166,6 +166,8 @@ pub struct Options {
     pub proxy: Option<url::Url>,
 
     // Output/logging
+    /// Print stream info (title, quality, start time, duration) and exit.
+    pub info_only: bool,
     pub log_level: LogLevel,
     pub status_newlines: bool,
 }

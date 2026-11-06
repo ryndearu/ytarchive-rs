@@ -207,6 +207,9 @@ pub struct Cli {
     pub proxy: Option<url::Url>,
 
     // ---- logging ----
+    /// Print stream information (title, selected quality, start time, duration) and exit.
+    #[arg(long)]
+    pub info_only: bool,
     /// Print nothing except prompts.
     #[arg(short = 'q', long)]
     pub quiet: bool,
@@ -499,6 +502,7 @@ impl Cli {
                 IpVersion::Any
             },
             proxy: self.proxy,
+            info_only: self.info_only,
             log_level,
             status_newlines: self.newline,
         };

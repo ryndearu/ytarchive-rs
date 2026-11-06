@@ -7,14 +7,21 @@ mod error;
 mod formats;
 mod http;
 mod input_url;
+mod live_from;
 mod log;
 mod prompt;
+mod run;
+mod stream_meta;
 mod types;
 mod util;
+mod video_info;
 mod watch_page;
 mod ytdlp;
 
 use std::process::ExitCode;
+use std::sync::Arc;
+
+use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -53,7 +60,7 @@ async fn main() -> ExitCode {
         None => types::CookieSet::default(),
     };
 
-    let _http = match http::Http::new(&options, cookie_set) {
+    let http = match http::Http::new(&options, cookie_set) {
         Ok(h) => h,
         Err(e) => {
             log_error!("Failed to create HTTP client: {e}");
@@ -61,8 +68,7 @@ async fn main() -> ExitCode {
         }
     };
 
-    // Download pipeline not ported yet; show the resolved options.
     log_debug!("{options:#?}");
-    log_general!("ytarchive-rs: download pipeline not implemented yet");
-    ExitCode::SUCCESS
+    let cancel = CancellationToken::new();
+    run::run(Arc::new(options), http, cancel).await
 }

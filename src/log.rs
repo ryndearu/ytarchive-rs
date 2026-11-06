@@ -58,6 +58,21 @@ pub fn write(at: LogLevel, general: bool, args: std::fmt::Arguments<'_>) {
     eprintln!("{ts} {}", format_line(at, general, &args.to_string()));
 }
 
+/// Status line while polling for a stream. Rewrites the same line unless
+/// `newlines` (`--newline`) is set.
+pub fn retry_status(retries: u32, total_waited_secs: u64, newlines: bool) {
+    if level() <= LogLevel::Quiet {
+        return;
+    }
+    let now = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
+    let msg = format!("Retries: {retries} (Last retry: {now}), Total time waited: {total_waited_secs} seconds");
+    if newlines {
+        eprintln!("{msg}");
+    } else {
+        eprint!("\r{msg}");
+    }
+}
+
 /// Shown at every level except quiet, without a label.
 #[macro_export]
 macro_rules! log_general {
