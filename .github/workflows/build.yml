@@ -1,0 +1,91 @@
+name: Build
+
+# Reusable: builds release archives for every platform and uploads them as
+# workflow artifacts named "dist-<target>". Used by release.yml and nightly.yml.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version string used in archive names (e.g. v0.1.0, nightly)
+        required: true
+        type: string
+      ref:
+        description: Commit to build
+        required: false
+        type: string
+        default: ""
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Static musl builds run on any Linux distribution.
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            cross: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+
+      - name: Package
+        shell: bash
+        run: |
+          name="ytarchive-${{ inputs.version }}-${{ matrix.target }}"
+          mkdir -p "$name" dist
+          cp README.md LICENSE "$name/"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            cp "target/${{ matrix.target }}/release/ytarchive.exe" "$name/"
+            7z a "dist/$name.zip" "$name" > /dev/null
+          else
+            cp "target/${{ matrix.target }}/release/ytarchive" "$name/"
+            tar czf "dist/$name.tar.gz" "$name"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+          retention-days: 3

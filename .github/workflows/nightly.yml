@@ -1,0 +1,100 @@
+name: Nightly
+
+# Daily pre-release from main. Skipped when main hasn't changed since the last
+# nightly. The previous nightly pre-release (and its tag) is replaced, and the
+# description lists the commits since the last manual v* release.
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  TAG: nightly
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - id: check
+        shell: bash
+        run: |
+          sha=$(git rev-parse HEAD)
+          prev=$(git ls-remote --tags origin "refs/tags/$TAG" | cut -f1)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if [ "$sha" = "$prev" ]; then
+            echo "main ($sha) is unchanged since the last nightly; skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      version: nightly
+      ref: ${{ needs.check.outputs.sha }}
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.check.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          # Latest manual release tag reachable from this commit, if any.
+          last=$(git describe --tags --abbrev=0 --match 'v*' "$SHA" 2>/dev/null || true)
+          {
+            echo "Automated nightly build of \`${SHA:0:7}\` ($(date -u +%Y-%m-%d))."
+            echo
+            if [ -n "$last" ]; then
+              echo "## Changes since $last"
+              range="$last..$SHA"
+            else
+              echo "## Changes (no release yet)"
+              range="$SHA"
+            fi
+            echo
+            git log --no-merges --format='- %h %s' $range
+          } > notes.md
+          cat notes.md
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: Replace nightly pre-release
+        shell: bash
+        run: |
+          gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
+          # Make sure the old tag is gone even if the release wasn't.
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+          gh release create "$TAG" dist/* \
+            --prerelease \
+            --target "$SHA" \
+            --title "Nightly $(date -u +%Y-%m-%d) (${SHA:0:7})" \
+            --notes-file notes.md
