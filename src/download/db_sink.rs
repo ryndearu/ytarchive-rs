@@ -137,6 +137,8 @@ mod tests {
         let out = dir.join("x.f140.ts");
         assert_eq!(sink.export(&out, 0o644).unwrap(), (3, 9));
         assert_eq!(std::fs::read(&out).unwrap(), b"<1><2><3>");
+        // Windows can't delete the database while the connection is open.
+        drop(sink);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
