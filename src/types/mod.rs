@@ -7,7 +7,7 @@ pub mod fragment_url;
 pub mod media;
 pub mod options;
 pub mod selection;
-pub mod ytcfg;
+pub mod player_response;
 pub mod ytdlp;
 
 pub use consts::*;
@@ -20,6 +20,6 @@ pub use fragment::{DataType, FragThreadState, Fragment, ProgressInfo, SeqInfo};
 pub use media::MediaDlInfo;
 pub use options::{Action, CodecPrefs, IpVersion, LogLevel, Options, StorageMode, VideoCodec};
 pub use selection::FormatSelection;
-pub use ytcfg::YtCfg;
+pub use player_response::{PlayerResponse, YtInitialData};
 pub use fragment_url::{is_fragmented, FragmentUrl};
 pub use ytdlp::{LiveStatus, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo};

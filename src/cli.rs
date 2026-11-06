@@ -383,11 +383,13 @@ impl Cli {
                     "--ytdlp-info is not compatible with --members-only; use cookies and a direct member stream URL instead".into(),
                 ));
             }
-            if self.potoken.is_some() || self.visitor_data.is_some() {
-                warnings.push(
-                    "--potoken and --visitor-data are ignored by --ytdlp-info; pass yt-dlp PO token options through --ytdlp-opts if needed".into(),
-                );
-            }
+        }
+        // dreammu accepted these but never used them (its InnerTube request
+        // code is unreachable); yt-dlp does the extraction now.
+        if self.potoken.is_some() || self.visitor_data.is_some() {
+            warnings.push(
+                "--potoken and --visitor-data are ignored; pass PO token options to yt-dlp through --ytdlp-opts, e.g. --ytdlp-opts '--extractor-args youtube:po_token=web.gvs+TOKEN'".into(),
+            );
         }
 
         let mut metadata_overrides = Vec::with_capacity(self.metadata.len());

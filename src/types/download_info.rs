@@ -14,7 +14,6 @@ use super::download_state::DownloadState;
 use super::fragment::DataType;
 use super::media::MediaDlInfo;
 use super::options::Options;
-use super::ytcfg::YtCfg;
 
 /// Values exposed to the `%(key)s` filename template.
 pub type FormatInfo = BTreeMap<String, String>;
@@ -46,7 +45,6 @@ pub struct StreamInfo {
     pub live_from_sq: Option<u64>,
     pub format_info: FormatInfo,
     pub metadata: MetaInfo,
-    pub ytcfg: Option<YtCfg>,
 }
 
 /// Download progress and URL bookkeeping.

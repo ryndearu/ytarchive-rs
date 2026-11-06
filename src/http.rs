@@ -23,6 +23,9 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(45);
 const TCP_KEEPALIVE: Duration = Duration::from_secs(30);
+/// YouTube sends ~20 KB of response headers to Firefox user agents, above
+/// hyper's 16 KB HTTP/2 default, which fails with PROTOCOL_ERROR.
+const HTTP2_MAX_HEADER_LIST_SIZE: u32 = 1 << 20;
 
 #[derive(Debug, Clone)]
 pub struct Http {
@@ -45,7 +48,8 @@ impl Http {
             .connect_timeout(CONNECT_TIMEOUT)
             .read_timeout(READ_TIMEOUT)
             .pool_idle_timeout(POOL_IDLE_TIMEOUT)
-            .tcp_keepalive(TCP_KEEPALIVE);
+            .tcp_keepalive(TCP_KEEPALIVE)
+            .http2_max_header_list_size(HTTP2_MAX_HEADER_LIST_SIZE);
 
         // Binding to the unspecified address of a family forces that family.
         builder = match opts.ip_version {

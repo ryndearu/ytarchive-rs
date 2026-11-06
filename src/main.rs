@@ -11,6 +11,7 @@ mod log;
 mod prompt;
 mod types;
 mod util;
+mod watch_page;
 mod ytdlp;
 
 use std::process::ExitCode;
