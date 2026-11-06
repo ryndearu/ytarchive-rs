@@ -33,6 +33,37 @@ pub struct CodecPrefs {
     pub h264: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoCodec {
+    Av1,
+    Vp9,
+    H264,
+}
+
+impl VideoCodec {
+    pub fn name(self) -> &'static str {
+        match self {
+            VideoCodec::Av1 => "AV1",
+            VideoCodec::Vp9 => "VP9",
+            VideoCodec::H264 => "H264",
+        }
+    }
+}
+
+impl CodecPrefs {
+    /// Flagged codecs first (in av1 > vp9 > h264 order), then the rest.
+    pub fn priority_order(self) -> Vec<VideoCodec> {
+        let base = [
+            (VideoCodec::Av1, self.av1),
+            (VideoCodec::Vp9, self.vp9),
+            (VideoCodec::H264, self.h264),
+        ];
+        let preferred = base.iter().filter(|(_, on)| *on).map(|(c, _)| *c);
+        let rest = base.iter().filter(|(_, on)| !*on).map(|(c, _)| *c);
+        preferred.chain(rest).collect()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IpVersion {
     #[default]
