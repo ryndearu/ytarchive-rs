@@ -1,4 +1,5 @@
 pub mod consts;
+pub mod cookie;
 pub mod download_info;
 pub mod download_state;
 pub mod fragment;
@@ -8,6 +9,7 @@ pub mod ytcfg;
 pub mod ytdlp;
 
 pub use consts::*;
+pub use cookie::{CookieSet, NetscapeCookie};
 pub use download_info::{
     new_format_info, DownloadInfo, DownloadProgress, FormatInfo, MetaInfo, StreamInfo,
 };

@@ -1,15 +1,18 @@
 #![allow(dead_code, unused_imports)] // scaffold: types defined ahead of the modules that use them
 
 mod cli;
+mod cookies;
 mod duration;
 mod error;
+mod http;
 mod log;
 mod types;
 mod util;
 
 use std::process::ExitCode;
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let cli = cli::Cli::parse_normalized();
     let (options, warnings) = match cli.into_options() {
         Ok(v) => v,
@@ -30,6 +33,28 @@ fn main() -> ExitCode {
         log_error!("{e}");
         return ExitCode::FAILURE;
     }
+
+    let cookie_set = match &options.cookies_file {
+        Some(path) => match cookies::load_file(path) {
+            Ok(set) => {
+                log_info!("Loaded cookie file {}", path.display());
+                set
+            }
+            Err(e) => {
+                log_error!("Failed to load cookies file: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+        None => types::CookieSet::default(),
+    };
+
+    let _http = match http::Http::new(&options, cookie_set) {
+        Ok(h) => h,
+        Err(e) => {
+            log_error!("Failed to create HTTP client: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     // Download pipeline not ported yet; show the resolved options.
     log_debug!("{options:#?}");
