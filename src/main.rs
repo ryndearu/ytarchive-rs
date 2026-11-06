@@ -15,6 +15,7 @@ mod monitor;
 mod mp4_atoms;
 mod mux;
 mod output;
+mod platform;
 mod prepare;
 mod progress;
 mod prompt;
@@ -32,6 +33,8 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    // Restored when main returns.
+    let _console = platform::setup();
     let cli = cli::Cli::parse_normalized();
     let (options, warnings) = match cli.into_options() {
         Ok(v) => v,

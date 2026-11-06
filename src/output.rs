@@ -6,7 +6,7 @@ use crate::download::load_state;
 use crate::error::{Error, Result};
 use crate::types::{DownloadState, FormatInfo, Options};
 use crate::util::filename::MAX_FILENAME_LEN;
-use crate::util::{create_temp_dir, format_filename, sterilize_filename};
+use crate::util::{create_temp_dir, format_filename, portable_file_name, sterilize_filename};
 use crate::{log_error, log_warn};
 
 #[derive(Debug, Clone)]
@@ -71,6 +71,7 @@ pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, Strin
         log_error!("Expanded output file path: {full}");
         return Err(Error::InvalidFormat("output file name appears to be empty after formatting".into()));
     }
+    let name = portable_file_name(&name);
     if name.len() > MAX_FILENAME_LEN {
         return Err(Error::InvalidFormat(format!("output file name is too long ({} bytes)", name.len())));
     }
@@ -168,6 +169,9 @@ mod tests {
         let o = Options { output_format: "%(title)s".into(), ..Default::default() };
         assert_eq!(final_location(&o, &fi("-x")).unwrap().1, "_-x");
         assert!(final_location(&o, &fi("")).is_err());
+        assert!(final_location(&o, &fi(".")).is_err());
+        assert_eq!(final_location(&o, &fi("aux")).unwrap().1, "_aux");
+        assert_eq!(final_location(&o, &fi("Why?")).unwrap().1, "Why_");
     }
 
     #[test]
@@ -190,11 +194,9 @@ mod tests {
         let o = Options { temp_dir: Some(dir.clone()), ..Default::default() };
         let path = state_file(&o, "vid", 140);
         assert_eq!(path, dir.join("vid.f140.state"));
-        std::fs::write(
-            &path,
-            format!(r#"{{"StartFrag":5,"Fragments":2,"Size":10,"TempDir":"{}"}}"#, dir.display()),
-        )
-        .unwrap();
+        // serde_json escapes Windows backslashes in the path.
+        let json = serde_json::json!({"StartFrag": 5, "Fragments": 2, "Size": 10, "TempDir": dir});
+        std::fs::write(&path, json.to_string()).unwrap();
         let (states, prev) = load_states(&o, "vid", &[140, 299]);
         assert_eq!(states[0].start_frag, 5);
         assert_eq!(states[0].file, path);

@@ -10,7 +10,18 @@ bytes = "1.12.1"
 chrono = "0.4.45"
 clap = { version = "4.6.7", features = ["derive"] }
 regex = "1.13.1"
-reqwest = { version = "0.13.5", features = ["cookies", "gzip", "socks"] }
+# rustls with the `ring` provider: no OpenSSL/cmake/nasm needed on Linux,
+# Windows, or macOS; certificates come from the OS store.
+reqwest = { version = "0.13.5", default-features = false, features = [
+    "rustls-no-provider",
+    "http2",
+    "charset",
+    "system-proxy",
+    "cookies",
+    "gzip",
+    "socks",
+] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rusqlite = { version = "0.41.1", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -18,6 +29,13 @@ thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = "0.7.20"
 url = "2.5.8"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+    "Win32_System_Power",
+] }
 
 [profile.release]
 lto = "thin"

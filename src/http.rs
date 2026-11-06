@@ -34,6 +34,9 @@ pub struct Http {
 
 impl Http {
     pub fn new(opts: &Options, cookies: CookieSet) -> Result<Self> {
+        // Errors only if a provider is already installed, which is fine.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
         let jar = Arc::new(Jar::default());
         for c in &cookies.cookies {
             if let Some(url) = cookies::cookie_url(c) {

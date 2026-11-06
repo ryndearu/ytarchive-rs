@@ -28,15 +28,36 @@ const FORBIDDEN: [(char, char); 9] = [
 ];
 
 /// Replaces characters that are illegal in filenames with `_`, or with
-/// yt-dlp's full-width lookalikes when `lookalike` is set.
+/// yt-dlp's full-width lookalikes when `lookalike` is set. Control
+/// characters (invalid on Windows; Go kept them) always become `_`.
 pub fn sterilize_filename(s: &str, lookalike: bool) -> String {
     s.chars()
         .map(|c| match FORBIDDEN.iter().find(|(f, _)| *f == c) {
             Some((_, look)) if lookalike => *look,
             Some(_) => '_',
+            None if c.is_control() => '_',
             None => c,
         })
         .collect()
+}
+
+/// Device names Windows reserves regardless of extension.
+const WINDOWS_RESERVED: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// Makes a single file name valid on Windows as well (applied on every OS so
+/// files can be moved between systems): no trailing dots/spaces, and no
+/// reserved device names like `CON` or `nul.txt`.
+pub fn portable_file_name(name: &str) -> String {
+    let trimmed = name.trim_end_matches(['.', ' ']);
+    let mut out = format!("{trimmed}{}", "_".repeat(name.len() - trimmed.len()));
+    let stem = out.split('.').next().unwrap_or("");
+    if WINDOWS_RESERVED.iter().any(|r| r.eq_ignore_ascii_case(stem.trim_end())) {
+        out.insert(0, '_');
+    }
+    out
 }
 
 /// Truncates to at most `max_bytes` without splitting a UTF-8 character.
@@ -134,6 +155,19 @@ mod tests {
         assert_eq!(sterilize_filename(r#"a<b>c:d"e/f\g|h?i*j"#, false), "a_b_c_d_e_f_g_h_i_j");
         assert_eq!(sterilize_filename("a/b?", true), "a⧸b？");
         assert_eq!(sterilize_filename("日本語 ok", false), "日本語 ok");
+        assert_eq!(sterilize_filename("a\tb\nc", true), "a_b_c");
+    }
+
+    #[test]
+    fn portable_names() {
+        assert_eq!(portable_file_name("normal title"), "normal title");
+        assert_eq!(portable_file_name("ends with dot."), "ends with dot_");
+        assert_eq!(portable_file_name("dots.. "), "dots___");
+        assert_eq!(portable_file_name("CON"), "_CON");
+        assert_eq!(portable_file_name("nul.txt"), "_nul.txt");
+        assert_eq!(portable_file_name("Com1"), "_Com1");
+        assert_eq!(portable_file_name("CONSOLE"), "CONSOLE");
+        assert_eq!(portable_file_name("LPT10"), "LPT10");
     }
 
     #[test]

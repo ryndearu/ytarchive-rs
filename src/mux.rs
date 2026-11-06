@@ -102,8 +102,9 @@ pub fn ffmpeg_args(m: &MuxInput<'_>) -> MuxCommand {
     MuxCommand { args: a, output }
 }
 
-/// POSIX shell quoting, for the human-readable `.ffmpeg.txt` command.
-pub fn shell_quote(arg: &str) -> String {
+/// POSIX shell quoting, for the human-readable `.ffmpeg.txt` command on
+/// Linux/macOS.
+pub fn posix_quote(arg: &str) -> String {
     let safe = !arg.is_empty()
         && arg
             .chars()
@@ -115,25 +116,59 @@ pub fn shell_quote(arg: &str) -> String {
     }
 }
 
+/// Windows command-line quoting (the rules ffmpeg's argument parser uses),
+/// so the `.ffmpeg.txt` command can be pasted into cmd or PowerShell.
+pub fn windows_quote(arg: &str) -> String {
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"', '&', '|', '<', '>', '^']) {
+        return arg.to_string();
+    }
+    let mut out = String::from("\"");
+    let mut backslashes = 0;
+    for c in arg.chars() {
+        match c {
+            '\\' => backslashes += 1,
+            '"' => {
+                out.push_str(&"\\".repeat(backslashes * 2 + 1));
+                out.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                out.push_str(&"\\".repeat(backslashes));
+                out.push(c);
+                backslashes = 0;
+            }
+        }
+    }
+    out.push_str(&"\\".repeat(backslashes * 2));
+    out.push('"');
+    out
+}
+
 pub fn command_line(program: &str, args: &[String]) -> String {
+    let quote = if cfg!(windows) { windows_quote } else { posix_quote };
     std::iter::once(program)
         .chain(args.iter().map(String::as_str))
-        .map(shell_quote)
+        .map(quote)
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-/// Whether `program` can be run: a path that exists, or a name on PATH.
+/// Whether `program` can be run: a path that exists, a name on PATH, or (as
+/// Windows users often do) a file next to the ytarchive executable.
 pub fn program_exists(program: &str) -> bool {
     let p = Path::new(program);
     if p.components().count() > 1 {
-        return p.is_file();
+        return p.is_file() || cfg!(windows) && p.with_extension("exe").is_file();
     }
-    std::env::var_os("PATH").is_some_and(|paths| {
-        std::env::split_paths(&paths).any(|dir| {
-            let c = dir.join(program);
-            c.is_file() || cfg!(windows) && c.with_extension("exe").is_file()
-        })
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf));
+    let path_dirs = std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .unwrap_or_default();
+    exe_dir.into_iter().chain(path_dirs).any(|dir| {
+        let c = dir.join(program);
+        c.is_file() || cfg!(windows) && c.with_extension("exe").is_file()
     }) || p.is_file()
 }
 
@@ -245,16 +280,38 @@ mod tests {
     }
 
     #[test]
-    fn quoting() {
-        assert_eq!(shell_quote("a.ts"), "a.ts");
-        assert_eq!(shell_quote("my file's.ts"), r"'my file'\''s.ts'");
-        assert_eq!(shell_quote(""), "''");
-        assert_eq!(command_line("ffmpeg", &["-i".into(), "a b".into()]), "ffmpeg -i 'a b'");
+    fn posix_quoting() {
+        assert_eq!(posix_quote("a.ts"), "a.ts");
+        assert_eq!(posix_quote("my file's.ts"), r"'my file'\''s.ts'");
+        assert_eq!(posix_quote(""), "''");
+    }
+
+    #[test]
+    fn windows_quoting() {
+        assert_eq!(windows_quote(r"C:\dir\a.ts"), r"C:\dir\a.ts");
+        assert_eq!(windows_quote(r"C:\my dir\a.ts"), r#""C:\my dir\a.ts""#);
+        assert_eq!(windows_quote(r"C:\my dir\"), r#""C:\my dir\\""#);
+        assert_eq!(windows_quote(r#"say "hi""#), r#""say \"hi\"""#);
+        assert_eq!(windows_quote("TITLE=a&b"), r#""TITLE=a&b""#);
+        assert_eq!(windows_quote(""), r#""""#);
+    }
+
+    #[test]
+    fn command_line_uses_platform_quoting() {
+        let line = command_line("ffmpeg", &["-i".into(), "a b".into()]);
+        if cfg!(windows) {
+            assert_eq!(line, r#"ffmpeg -i "a b""#);
+        } else {
+            assert_eq!(line, "ffmpeg -i 'a b'");
+        }
     }
 
     #[test]
     fn finds_programs() {
-        assert!(program_exists("sh"));
+        // The test binary itself always exists next to itself.
+        let me = std::env::current_exe().unwrap();
+        assert!(program_exists(me.to_str().unwrap()));
+        assert!(program_exists(me.file_name().unwrap().to_str().unwrap()));
         assert!(!program_exists("definitely-not-a-real-program-xyz"));
     }
 }
