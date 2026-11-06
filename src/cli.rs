@@ -78,10 +78,10 @@ pub struct Cli {
     /// Netscape-format cookies file (needed for members-only streams).
     #[arg(short = 'c', long, value_name = "FILE")]
     pub cookies: Option<PathBuf>,
-    /// PO token from your browser.
+    /// Ignored (accepted for compatibility); pass PO tokens to yt-dlp via --ytdlp-opts.
     #[arg(long, value_name = "TOKEN")]
     pub potoken: Option<String>,
-    /// YouTube visitor data; with --potoken allows downloading without cookies.
+    /// Ignored (accepted for compatibility); pass visitor data to yt-dlp via --ytdlp-opts.
     #[arg(long, value_name = "VISITOR_DATA")]
     pub visitor_data: Option<String>,
     /// Googlevideo URL to use for the video stream.
