@@ -34,6 +34,9 @@ pub enum Error {
     #[error("invalid filename format: {0}")]
     InvalidFormat(String),
 
+    #[error("invalid argument: {0}")]
+    InvalidArg(String),
+
     #[error("ump parse error: {0}")]
     Ump(String),
 

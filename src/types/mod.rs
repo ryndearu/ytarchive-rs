@@ -12,6 +12,6 @@ pub use download_info::{DownloadInfo, DownloadProgress, FormatInfo, MetaInfo, St
 pub use download_state::DownloadState;
 pub use fragment::{DataType, FragThreadState, Fragment, ProgressInfo, SeqInfo};
 pub use media::MediaDlInfo;
-pub use options::{Action, Codec, IpVersion, Options, StorageMode};
+pub use options::{Action, CodecPrefs, IpVersion, LogLevel, Options, StorageMode};
 pub use ytcfg::YtCfg;
 pub use ytdlp::{YtdlpExtraction, YtdlpFormat, YtdlpRawInfo};
