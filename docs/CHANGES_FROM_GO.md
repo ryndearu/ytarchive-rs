@@ -5,8 +5,10 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 ## New features
 
 - **`--sqlite` storage** (idea from [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl)). Fragments are stored in `{name}.f{itag}.sqlite` in the temp directory as soon as they arrive, then exported in order to the `.ts` file at the end. Resuming skips fragments already stored, so a later run only fetches the gaps.
-- **`--info-only` works.** dreammu's README documents it, but neither Go codebase implements it. It prints the video ID, title, channel, selected quality, live status, and duration so far, then exits.
+- **`--info-only` works.** dreammu's README documents it, but neither Go codebase implements it. It needs only the URL and never prompts (quality defaults to `best`). It prints the video ID, title, channel, the available qualities with their codecs, the selected quality, live status, and duration so far, then exits. For a scheduled stream it prints the scheduled start time instead of waiting.
+- **`--codec LIST`** picks the video codec order, e.g. `--codec vp9/h264`; `best` means AV1 > VP9 > H.264. Codecs not listed are kept as fallbacks. Go's `--av1`/`--vp9`/`--h264` still work and can't be combined with `--codec`.
 - **The channel monitor remembers recorded streams.** After a stream ends, a channel's `/live` page can keep pointing to it for a while, and Go could download the same stream again. The monitor now skips video IDs it has already recorded in the session.
+- **Ended streams whose live download is gone are reported.** Whether an ended stream can still be downloaded is decided from yt-dlp's live (fragmented) URLs, not from the stream's ended or processed status. When none are left, ytarchive prints "Livestream has already ended; its live download no longer exists. Use yt-dlp instead." Go looked only at the watch page's first format and printed "Livestream has been processed" or "is being processed", and an ended stream that YouTube reported as unplayable while processing it got the members-only/cookies hints instead.
 - **Missing fragments are skipped and reported.** When a fragment well behind the head of an ended stream can't be downloaded, Go stopped the whole download there. The port skips that one fragment, keeps going, and lists the missing sequence numbers at the end.
 
 ## Changed behavior
@@ -19,10 +21,16 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - `--no-video` together with `--no-audio`, and `--threads 0`, are errors.
 - `--potoken` and `--visitor-data` are accepted but ignored, with a warning. In dreammu they were also never used: the InnerTube request that consumed them (`DownloadWebAPIPlayerResponse`) is never called. Pass PO token settings to yt-dlp with `--ytdlp-opts` instead.
 - `--ytdlp-info` asks for the quality while waiting for a scheduled stream, as the default mode does. Go asked only once the stream started.
+- **The default video codec is H.264**, falling back to AV1 and then VP9, unless a codec option is given. Quality `best` without a codec option uses AV1 > VP9 > H.264, as dreammu did for every quality. The codec is never prompted for.
+- The version shown at startup (unless `-q`) and by `--version` includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)` for releases, `v0.1.0-abc1234 (2026-11-07)` for nightly and other builds.
+- `--help` groups the options under headings (General, Waiting, Download, Format Selection, Filesystem, Post-Processing, Interrupt, Extraction, Network, Verbosity).
+- Command-line arguments that aren't valid UTF-8 are converted (invalid bytes replaced) instead of rejected, and cookie files are read the same way.
 
 ### Downloading
 
 - The URL is passed to yt-dlp after `--`, so a URL can never be read as a yt-dlp option.
+- yt-dlp runs with `--encoding utf-8` (and `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`), so titles and other text arrive as UTF-8 whatever the console's code page is. `--ytdlp-opts` can still override it.
+- **Downloads from a channel URL are pinned to the stream they started on** in `--ytdlp-info` mode too: once `/live` resolves, URL refreshes use the stream's watch URL. Go's yt-dlp mode kept refreshing through `/live` and could switch to a different stream mid-download. `--monitor-channel` still starts each check from `/live`.
 - Requests that return non-2xx statuses are errors (Go's page/thumbnail fetches accepted any response). Error messages omit URL query strings, which contain signatures and your IP.
 - A connection that stops sending data for 30 seconds is dropped. Go had no limit once a response had started.
 - Fragment URLs are stored as a prefix/suffix around the sequence number instead of `Sprintf` templates with `%` escaped as `%%`.
@@ -45,8 +53,9 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 Windows, Linux, and macOS are supported. Go built for more targets but only supported Linux and Windows builds.
 
 - **TLS uses rustls** (with the `ring` crypto library) on every platform instead of Go's built-in TLS. Certificates come from the operating system's store. No OpenSSL is needed, so the Linux release builds are static and run on any distribution.
-- **Windows console handling** (port of `util_windows.go`): the system is kept awake while ytarchive runs, and ANSI colors are enabled (Go used go-colorable). Both go through safe wrapper crates; the port contains no `unsafe` code.
-- **`--windows-filenames` / `--no-windows-filenames`** (new). With Windows names (default on Windows), `<>:"/\|?*` and control characters are replaced, and names Windows reserves (`CON`, `NUL`, `CONIN$`, `COM1`, `COM¹`, …, also with an extension) or that end in a dot or space are adjusted, in the file name and in every folder created from the output template (e.g. `%(channel)s/`). Without them (default elsewhere), only path separators and NUL are replaced. Go always replaced `<>:"/\|?*`, only in the file name, and nothing else.
+- **Windows console handling** (port of `util_windows.go`): the system is kept awake while ytarchive runs, ANSI colors are enabled (Go used go-colorable), and QuickEdit mode is turned off (see the bug fix below) and restored on exit. All of it goes through safe wrapper crates; the port contains no `unsafe` code.
+- **`--windows-filenames` / `--no-windows-filenames`** (new). With Windows names (default on Windows), `<>:"/\|?*` and control characters are replaced, and names Windows reserves (`CON`, `NUL`, `CONIN$`, `COM1`, `COM¹`, …, also with an extension) or that end in a dot or space are adjusted, in the file name and in every folder created from the output template (e.g. `%(channel)s/`), and the title is shortened so every path ytarchive writes (final and temporary files, including `.f{itag}.frag{seq}.ts` fragments and the `{id}__XXXXXXXX` temp folder) fits in Windows' 260-character MAX_PATH. Without them (default elsewhere), only path separators and NUL are replaced. Go always replaced `<>:"/\|?*`, only in the file name, and nothing else.
+- **x64 and arm64 builds for every platform**, published as plain executables (`ytarchive_windows_x64.exe`, `ytarchive_linux_arm64`, …) instead of archives. Go's releases had no Windows arm64 build.
 - **The `.ffmpeg.txt` command uses the platform's quoting**: POSIX shell quoting on Linux/macOS, Windows command-line quoting on Windows. Go always used POSIX quoting.
 - **`ffmpeg`/`yt-dlp` next to the executable are found**, in addition to `PATH` (handy on Windows). Go also allowed binaries in the current directory.
 
@@ -65,7 +74,8 @@ Windows, Linux, and macOS are supported. Go built for more targets but only supp
 11. **MP4 box scanning could hang and was incomplete.** A zero-length box made `GetAtoms` loop forever, and only the first 8 KiB of each fragment was scanned for `sidx`/`ftyp`.
 12. **The ffmpeg command could reference a missing thumbnail.** The arguments were built before the thumbnail download, so a failed download broke the merge. They are now built afterwards.
 13. **The audio/video mismatch warning never fired.** The fragment counts it compared were never incremented.
-14. **Page downloads failed with HTTP/2 errors** (port-specific, found while testing). With a Firefox user agent YouTube sends ~20 KB of response headers, above the HTTP library's 16 KB default. The limit is raised.
+14. **Disabling QuickEdit never worked.** Go cleared `ENABLE_QUICK_EDIT_MODE` without the `ENABLE_EXTENDED_FLAGS` bit Windows requires, so a click in the console could still pause the download. The port sets both, and restores the original console mode on exit.
+15. **Page downloads failed with HTTP/2 errors** (port-specific, found while testing). With a Firefox user agent YouTube sends ~20 KB of response headers, above the HTTP library's 16 KB default. The limit is raised.
 
 ## Not ported
 
@@ -75,8 +85,3 @@ These parts of the Go source were unreachable or unused there, so they were left
 - **DASH manifest parsing** (`GetUrlsFromManifest`, `MPD` types): never called in dreammu, since yt-dlp provides the URLs.
 - **UMP parsing** (`yt_ump.go`): never called.
 - **Slow-fragment URL refresh**: Go counted slow fragments, but the refresh call is commented out.
-- **Disabling the Windows console's QuickEdit mode** (`util_windows.go`): Go changed the mode without the `ENABLE_EXTENDED_FLAGS` bit Windows requires, so it never took effect.
-
-Not ported although it worked in Go:
-
-- **Version banner**: Go printed its version at startup; use `--version`.

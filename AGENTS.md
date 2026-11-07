@@ -16,8 +16,8 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 
 ## Platforms
 
-- **Windows, Linux, and macOS are supported**; every change must build and pass tests on all three.
-- **File names**: anything that becomes a file or folder name goes through `util::sterilize_filename` with a `NameStyle`, and through `util::portable_file_name` when `--windows-filenames` is on (default on Windows: forbidden and control characters, reserved names like `CON`/`NUL`/`COM1`, trailing dots and spaces). `--no-windows-filenames` (default elsewhere) only replaces path separators and NUL.
+- **Windows, Linux, and macOS are supported**, each as x64 and arm64; every change must build and pass tests on all three.
+- **File names**: anything that becomes a file or folder name goes through `util::sterilize_filename` with a `NameStyle`, and through `util::portable_file_name` when `--windows-filenames` is on (default on Windows: forbidden and control characters, reserved names like `CON`/`NUL`/`COM1`, trailing dots and spaces). `--no-windows-filenames` (default elsewhere) only replaces path separators and NUL. With Windows names, `output::final_location` also shortens the title so every path fits in MAX_PATH; if you add a longer file suffix than `.f{itag}.frag{seq}.ts`, raise `SUFFIX_ROOM`.
 - Don't assume Unix in code or tests: no hard-coded `/tmp`, `sh`, or unescaped paths in JSON; gate platform code with `#[cfg(windows)]` / `#[cfg(unix)]` (see `src/platform.rs`, `util::set_mode`).
 - TLS is rustls with the `ring` provider and the OS certificate store; don't add OpenSSL.
 - Only the platforms above are supported; don't add code or docs for others.
@@ -62,5 +62,6 @@ cargo build --release --locked   # when dependencies or build config change
 
 - **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release.
 - **Nightly** (`nightly.yml`) runs daily at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a `docs:` commit, otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release. Docs commits must use the `docs:` scope for this to work.
-- Both use `build.yml` (static Linux musl x86_64/arm64, Windows x64, macOS arm64/x86_64).
+- Both use `build.yml`, which publishes plain executables named `ytarchive_<windows|linux|macos>_<x64|arm64>[.exe]` (Linux builds are static musl). It sets `YTARCHIVE_CHANNEL`/`YTARCHIVE_VERSION`/`YTARCHIVE_COMMIT`/`YTARCHIVE_DATE` for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
+- Workflows force JavaScript actions onto the newest Node GitHub's runners provide (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`); bump it when GitHub adds a newer one.
 - **CI** doesn't run for pushes that only touch `*.md`, `docs/`, or `LICENSE`.
