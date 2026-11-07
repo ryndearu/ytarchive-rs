@@ -2,6 +2,15 @@
 
 Keep this file current: when something listed under "Not tested" gets verified, move it to "Tested" (and say how).
 
+## Assessment (v0.1.0)
+
+A good port for Linux x64 and Windows x64, with the gaps listed under "Not tested".
+
+- About 150 real-stream cases on both platforms passed, covering every flag, post-live and scheduled streams, resume, proxy, file names, and Windows path handling.
+- Testing found one real bug (`--file-permissions` didn't reach the final file). Go had the same bug; it's fixed and re-verified. Every other difference from Go was either the same behavior as Go or caused by the test setup.
+- It uses less memory than Go on both platforms (about 12.8 MB against 18–19 MB on Linux) and less CPU on Linux and Windows, and memory didn't grow over a 5-minute soak.
+- 109 unit tests and 3 network tests pass, and CI is green on Windows, Linux, and macOS.
+
 ## Tested
 
 - **Unit and integration tests** (`cargo test`) pass on Windows, Linux, and macOS in CI, including the downloader tests against a local fake googlevideo server (ordering, resume, gaps, `--capture-duration`, `--sqlite`).
@@ -27,6 +36,13 @@ Keep this file current: when something listed under "Not tested" gets verified, 
   - `--monitor-channel`: recorded a stream, kept monitoring, and stopped cleanly on Ctrl-C.
   - Ctrl-C (SIGINT after 15 seconds) with `--merge`, `--no-merge` (asks), `--no-merge --save`, `--no-merge --no-save`, `--no-save --save-state` (temp dir and `.state` files left for resuming), and `--no-save-state`.
   - `--video-url`/`--audio-url` with googlevideo URLs from `yt-dlp -g`. The capture was 4 seconds instead of 10 because fragment length is assumed to be 5 seconds without stream info (same as Go; noted in the README).
+- **Second round on Linux x64 (after the permissions fix) and the same suite on Windows x64** (nightly build, about 150 cases in total):
+  - `--file-permissions 0600` on the final `.mp4`, `.mkv`, and `--separate-audio` files (default stays `644`).
+  - `--live-from` with a time string, a googlevideo URL as the input URL, `--mkv` with an embedded thumbnail, `--proxy` through a working HTTP proxy.
+  - Waiting for a scheduled stream in both modes, post-live downloads (ended streams that still have their live download, from the start, middle, and a negative `--live-from`).
+  - `--sqlite` resume after a real interruption, and the Ctrl-C prompts answered through piped input.
+  - On Windows: real downloads, Windows file names (forbidden characters, reserved names), and the MAX_PATH limit.
+  - Resource use against the Go binary with `--threads 4`: about 12.8 MB peak memory against 18–19 MB for Go on Linux, lower CPU on Linux and Windows, and no memory growth over a 5-minute soak.
 - **Ended streams whose live download is gone** (both modes) print "Livestream has already ended; its live download no longer exists. Use yt-dlp instead."
 - **Version stamping**: release (`YTARCHIVE_CHANNEL=release`), commit/date overrides, and the default local string, checked locally with `--version`.
 - **A regular (non-live) video** is rejected with the right message.
@@ -36,23 +52,17 @@ Keep this file current: when something listed under "Not tested" gets verified, 
 
 ## Not tested
 
-- **Real downloads on Windows and macOS.** Only CI tests have run there; no live stream has been downloaded on either.
-- **Windows console behavior**: keeping the PC awake, ANSI colors, and turning QuickEdit off and restoring it on exit (compiled in CI, never observed running).
-- **The release workflow** (`release.yml`, on a `v*` tag) has never run, so the release version string (`v0.1.0 (date)` from the tag) has only been checked locally, and the arm64 and macOS x64 builds have never been zipped.
-- **The scheduled nightly** (00:00 UTC) and its skip logic (unchanged `main`, docs-only commits) haven't triggered yet; the nightly was only run by hand.
-- **The Windows and macOS builds** from the workflows haven't been run on a real machine (only Linux x64 was).
-- **The workflow files haven't been linted** (e.g. with actionlint); they've only been checked by running.
-- **Ended streams that still have their live download** (post-live), and an ended stream whose processed VOD is already playable, in default mode.
-- **The Windows MAX_PATH limit on real Windows** (verified only with `--windows-filenames` on Linux).
-- **Scheduled streams**: waiting for an upcoming stream (wait/poll/no prompt, sleeping until the start time, late streams), in both modes.
-- **Channel monitoring of a channel going live** while being watched.
+- **Other platforms**: no real run on macOS, Windows arm64, or Linux arm64. CI covers only building and tests there.
+- **Windows items that need a person**: turning QuickEdit off and restoring it on exit, the Ctrl-C prompts answered by hand, and keeping the PC awake while waiting for a scheduled stream.
 - **Members-only streams and cookies** with a real account.
-- **A googlevideo URL as the input URL** (only `--video-url`/`--audio-url` were tested).
-- **`--live-from` with a time string** (e.g. `01:30:00`).
-- **Long-running behavior**: the 5-hour background URL refresh, URL refresh after repeated 403s, and streams that end mid-download (post-live).
-- **`--sqlite` resume** after a real interruption (covered only by the fake-server test).
-- **Interactive prompts** after Ctrl-C (merge / save files / keep state) answered by a person; tested only through the equivalent flags and with no input.
-- **`--mkv` with an embedded thumbnail**: only the generated ffmpeg arguments are unit-tested.
-- **`-6`** (the test machine had no IPv6) and **`--proxy` with a working proxy**.
+- **A stream that ends mid-download.**
+- **Long-running behavior**: the 5-hour background URL refresh and URL refresh after repeated 403s. The longest real run was 5 minutes.
+- **Channel monitoring of a channel going live** while being watched.
+- **Retry exhaustion**: whether exiting with code 0 after saving a partial file, when fragment retries run out, matches Go.
+- **The release workflow** (`release.yml`, on a `v*` tag) hadn't run before v0.1.0, so the arm64 and macOS x64 zips and the release version string had only been checked locally.
+- **The nightly skip for docs-only commits.** The scheduled run has triggered and correctly skipped an unchanged `main` (after a manual run had already built it).
+- **The workflow files haven't been linted** (e.g. with actionlint); they've only been checked by running.
+- **An ended stream whose processed VOD is already playable**, in default mode.
+- **`-6`** (the test machines had no IPv6) and a **SOCKS5 proxy**.
 - **`--no-windows-filenames` on Windows** in real downloads (unit-tested only).
 - **Non-UTF-8 command-line arguments and cookie files** (converted lossily; not exercised).
