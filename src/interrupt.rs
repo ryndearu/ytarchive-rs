@@ -31,6 +31,7 @@ impl Interrupt {
             m.token.cancel();
             if tokio::signal::ctrl_c().await.is_ok() {
                 eprintln!("\nExiting...");
+                crate::platform::restore();
                 std::process::exit(130);
             }
         });

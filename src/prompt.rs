@@ -13,6 +13,7 @@ pub async fn get_user_input(prompt: &str) -> String {
         line = read => line.unwrap_or_default(),
         _ = tokio::signal::ctrl_c() => {
             println!("\nExiting...");
+            crate::platform::restore();
             std::process::exit(1);
         }
     }
