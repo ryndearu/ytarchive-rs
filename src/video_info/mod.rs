@@ -19,7 +19,7 @@ use crate::stream_meta::{
 };
 use crate::types::{
     new_format_info, Action, FormatInfo, FormatSelection, MetaInfo, Options, VideoCodec,
-    DEFAULT_CODEC_ORDER, DEFAULT_POLL_SECS,
+    DEFAULT_POLL_SECS,
 };
 use crate::{log_debug, log_error, log_general, ytdlp};
 
@@ -44,7 +44,7 @@ pub struct Extractor {
     pub retry_secs: Option<u64>,
     /// Qualities from the CLI (or prompted while waiting).
     pub selected: Vec<String>,
-    /// Codec preference; `None` until given or asked for.
+    /// Codec preference from the CLI; `None` = default per quality.
     pub codecs: Option<Vec<VideoCodec>>,
     /// Video itag once chosen: `Some(None)` = audio only. Later refreshes
     /// reuse it instead of selecting again.
@@ -113,16 +113,11 @@ impl Extractor {
             && self.last_updated.is_none_or(|t| t.elapsed() >= MIN_UPDATE_INTERVAL)
     }
 
-    /// Before waiting for a scheduled stream, ask for the quality (and the
-    /// codec, unless audio only) so nobody needs to be around when it starts.
+    /// Before waiting for a scheduled stream, ask for the quality so nobody
+    /// needs to be around when it starts.
     async fn ask_ahead(&mut self) {
         if self.selected.is_empty() && self.fixed_itag.is_none() {
             self.selected = formats::prompt_quality(&formats::all_qualities(), true).await;
-        }
-        let audio_only =
-            self.fixed_itag == Some(None) || formats::is_audio_only_selection(&self.selected);
-        if self.codecs.is_none() && !audio_only {
-            self.codecs = Some(formats::prompt_codecs(&DEFAULT_CODEC_ORDER, true).await);
         }
     }
 
@@ -217,7 +212,7 @@ impl Extractor {
                 let sel = formats::select_interactive(
                     urls,
                     std::mem::take(&mut self.selected),
-                    &mut self.codecs,
+                    self.codecs.as_deref(),
                     video_only,
                     !self.opts.info_only,
                 )

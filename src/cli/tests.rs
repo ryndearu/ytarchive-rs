@@ -79,7 +79,7 @@ fn defaults() {
     assert!(o.frag_files);
     assert_eq!(o.storage, StorageMode::DirectTs);
     assert_eq!(o.windows_filenames, cfg!(windows));
-    assert_eq!(o.codecs, None, "codec is asked for when not given");
+    assert_eq!(o.codecs, None, "default codec depends on the quality");
 }
 
 #[test]

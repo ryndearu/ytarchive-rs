@@ -6,12 +6,12 @@ mod tests;
 
 use std::collections::HashMap;
 
-pub use interactive::{prompt_codecs, prompt_quality, select_interactive};
+pub use interactive::{prompt_quality, select_interactive};
 
 use crate::error::{Error, Result};
 use crate::types::{
-    itags_for_label, FormatSelection, FragmentUrl, VideoCodec, VideoItag, AUDIO_ITAG,
-    DEFAULT_CODEC_ORDER, VIDEO_QUALITIES,
+    codec_order_for, itags_for_label, FormatSelection, FragmentUrl, VideoCodec, VideoItag,
+    AUDIO_ITAG, BEST_CODEC_ORDER, VIDEO_QUALITIES,
 };
 use crate::log_debug;
 
@@ -46,11 +46,6 @@ pub fn parse_quality_selection(quality: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether a quality list asks for audio only (no codec needed).
-pub fn is_audio_only_selection(selected: &[String]) -> bool {
-    selected.first().is_some_and(|q| q == "audio" || q == "audio_only")
-}
-
 /// 60fps labels share their AV1 itag with the base quality (AV1 itags don't
 /// encode frame rate). If the base quality has H264/VP9, an AV1 match for the
 /// 60fps label is really the 30fps stream, so treat it as unavailable.
@@ -77,7 +72,7 @@ pub fn codecs_for_label(urls: &UrlMap, label: &str) -> Vec<VideoCodec> {
     let Some(itags) = itags_for_label(label) else {
         return Vec::new();
     };
-    DEFAULT_CODEC_ORDER
+    BEST_CODEC_ORDER
         .into_iter()
         .filter(|&c| !(c == VideoCodec::Av1 && av1_ambiguous(label, itags, urls)))
         .filter(|&c| urls.contains_key(&itag_for(itags, c)))
@@ -95,12 +90,13 @@ pub fn available_qualities(urls: &UrlMap) -> Vec<&'static str> {
     out
 }
 
-/// First of `selected` that is available, using `order` to pick the codec.
-/// Returns `None` if none are available.
+/// First of `selected` that is available. The codec comes from `codecs`
+/// (the user's order) or, if `None`, the default for each entry
+/// (`codec_order_for`). Returns `None` if none are available.
 pub fn try_select(
     urls: &UrlMap,
     selected: &[String],
-    order: &[VideoCodec],
+    codecs: Option<&[VideoCodec]>,
     video_only: bool,
 ) -> Option<FormatSelection> {
     let available = available_qualities(urls);
@@ -109,12 +105,9 @@ pub fn try_select(
     } else {
         urls.get(&AUDIO_ITAG).cloned()
     };
-    log_debug!(
-        "Codec priority order: {}",
-        order.iter().map(|c| c.name()).collect::<Vec<_>>().join(", ")
-    );
 
     for q in selected {
+        let order = codec_order_for(q.trim(), codecs);
         let label = match q.trim() {
             "best" => *available.last()?,
             "audio" => "audio_only",
@@ -133,6 +126,10 @@ pub fn try_select(
             });
         }
         let offered = codecs_for_label(urls, label);
+        log_debug!(
+            "Codec priority order for {label}: {}",
+            order.iter().map(|c| c.name()).collect::<Vec<_>>().join(", ")
+        );
         if let Some(&codec) = order.iter().find(|c| offered.contains(c)) {
             let itag = itag_for(itags, codec);
             return Some(FormatSelection {

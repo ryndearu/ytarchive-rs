@@ -24,8 +24,6 @@ fn parse_selection() {
     assert_eq!(parse_quality_selection("audio"), ["audio"]);
     assert!(parse_quality_selection("nope").is_empty());
     assert_eq!(quality_list_string(&["audio_only", "720p"]), "audio_only, 720p, best");
-    assert!(is_audio_only_selection(&sel(&["audio"])));
-    assert!(!is_audio_only_selection(&sel(&["720p", "audio"])));
 }
 
 #[test]
@@ -58,34 +56,55 @@ fn codecs_offered_per_label() {
 #[test]
 fn picks_best_with_codec_priority() {
     let u = urls(&[140, 136, 247, 398]);
-    let s = try_select(&u, &sel(&["best"]), &DEFAULT_CODEC_ORDER, false).unwrap();
+    let s = try_select(&u, &sel(&["best"]), Some(&BEST_CODEC_ORDER), false).unwrap();
     // 398 is 720p AV1; base 720p has h264/vp9 so "720p60" is not offered; best = 720p.
     assert_eq!(s.label, "720p");
     assert_eq!(s.codec, Some(Av1));
     assert_eq!(s.video_itag, Some(398));
     assert!(s.audio_url.is_some());
 
-    let s = try_select(&u, &sel(&["720p"]), &complete_codec_order(&[H264]), false).unwrap();
-    assert_eq!(s.video_itag, Some(136));
+    let s = try_select(&u, &sel(&["720p"]), Some(&complete_codec_order(&[Vp9])), false).unwrap();
+    assert_eq!(s.video_itag, Some(247));
+}
+
+#[test]
+fn default_codec_is_h264_except_for_best() {
+    use crate::types::codec_order_for;
+    assert_eq!(codec_order_for("720p", None), [H264, Av1, Vp9]);
+    assert_eq!(codec_order_for("best", None), [Av1, Vp9, H264]);
+    assert_eq!(codec_order_for("best", Some(&[Vp9, H264, Av1])), [Vp9, H264, Av1]);
+
+    let u = urls(&[140, 136, 247, 398]);
+    let s = try_select(&u, &sel(&["720p"]), None, false).unwrap();
+    assert_eq!(s.codec, Some(H264));
+    let s = try_select(&u, &sel(&["best"]), None, false).unwrap();
+    assert_eq!(s.codec, Some(Av1));
+    // The order follows the entry that matched: 1080p isn't offered, so
+    // "best" picks 720p with the best codec.
+    let s = try_select(&u, &sel(&["1080p", "best"]), None, false).unwrap();
+    assert_eq!(s.codec, Some(Av1));
+    // Without H.264, the fallback is AV1 then VP9.
+    let s = try_select(&urls(&[140, 247, 398]), &sel(&["720p"]), None, false).unwrap();
+    assert_eq!(s.codec, Some(Av1));
 }
 
 #[test]
 fn av1_not_used_for_60fps_when_base_has_other_codecs() {
     let u = urls(&[140, 136, 398]);
-    assert!(try_select(&u, &sel(&["720p60"]), &DEFAULT_CODEC_ORDER, false).is_none());
-    let s = try_select(&u, &sel(&["720p60", "720p"]), &DEFAULT_CODEC_ORDER, false).unwrap();
+    assert!(try_select(&u, &sel(&["720p60"]), None, false).is_none());
+    let s = try_select(&u, &sel(&["720p60", "720p"]), None, false).unwrap();
     assert_eq!(s.label, "720p");
 }
 
 #[test]
 fn audio_only_and_video_only() {
     let u = urls(&[140, 136]);
-    let s = try_select(&u, &sel(&["audio"]), &DEFAULT_CODEC_ORDER, false).unwrap();
+    let s = try_select(&u, &sel(&["audio"]), None, false).unwrap();
     assert!(s.is_audio_only());
     assert!(s.audio_url.is_some());
     assert!(validate(&s, false).is_ok());
 
-    let s = try_select(&u, &sel(&["720p"]), &DEFAULT_CODEC_ORDER, true).unwrap();
+    let s = try_select(&u, &sel(&["720p"]), None, true).unwrap();
     assert!(s.audio_url.is_none());
     assert!(validate(&s, true).is_ok());
     assert!(validate(&s, false).is_err());
@@ -105,28 +124,24 @@ fn fixed_selection() {
 
 #[tokio::test]
 async fn info_only_selects_without_asking() {
+    // best, so the best codec: VP9 over H.264.
     let u = urls(&[140, 136, 247]);
-    let mut codecs = None;
-    let s = select_interactive(&u, Vec::new(), &mut codecs, false, false).await.unwrap();
+    let s = select_interactive(&u, Vec::new(), None, false, false).await.unwrap();
     assert_eq!(s.label, "720p");
     assert_eq!(s.codec, Some(Vp9));
-    assert_eq!(codecs, None, "nothing chosen interactively");
 }
 
 #[tokio::test]
-async fn single_offered_codec_is_not_asked() {
-    // Only H264 offered for 720p: no prompt, default order is stored.
-    let u = urls(&[140, 136]);
-    let mut codecs = None;
-    let s = select_interactive(&u, sel(&["720p"]), &mut codecs, false, true).await.unwrap();
+async fn codec_is_not_asked_for() {
+    let u = urls(&[140, 136, 247, 398]);
+    let s = select_interactive(&u, sel(&["720p"]), None, false, true).await.unwrap();
     assert_eq!(s.video_itag, Some(136));
-    assert_eq!(codecs, Some(DEFAULT_CODEC_ORDER.to_vec()));
 }
 
 #[tokio::test]
 async fn given_codecs_are_used() {
     let u = urls(&[140, 136, 247, 398]);
-    let mut codecs = Some(complete_codec_order(&[H264]));
-    let s = select_interactive(&u, sel(&["720p"]), &mut codecs, false, true).await.unwrap();
-    assert_eq!(s.codec, Some(H264));
+    let codecs = complete_codec_order(&[Vp9]);
+    let s = select_interactive(&u, sel(&["720p"]), Some(&codecs), false, true).await.unwrap();
+    assert_eq!(s.codec, Some(Vp9));
 }

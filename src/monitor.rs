@@ -6,13 +6,12 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::formats::{is_audio_only_selection, parse_quality_selection, prompt_codecs};
 use crate::http::Http;
 use crate::input_url::{parse_input_url, InputUrl};
 use crate::interrupt::Interrupt;
 use crate::prompt::get_user_input;
 use crate::run::{exit_code, run};
-use crate::types::{Options, DEFAULT_CODEC_ORDER, DEFAULT_MONITOR_SECS};
+use crate::types::{Options, DEFAULT_MONITOR_SECS};
 use crate::{log_debug, log_error, log_general, log_warn};
 
 pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) -> ExitCode {
@@ -32,19 +31,6 @@ pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) ->
     if opts.monitor_channel && !monitor {
         log_warn!("--monitor-channel only works with channel URLs; downloading this video once.");
     }
-    // Monitoring is unattended: ask for the codec once now rather than when
-    // each stream starts.
-    let opts = if monitor && opts.codecs.is_none() && !opts.audio_only && !opts.info_only {
-        let selected = opts.quality.as_deref().map(parse_quality_selection).unwrap_or_default();
-        if is_audio_only_selection(&selected) {
-            opts
-        } else {
-            let codecs = prompt_codecs(&DEFAULT_CODEC_ORDER, true).await;
-            Arc::new(Options { codecs: Some(codecs), ..(*opts).clone() })
-        }
-    } else {
-        opts
-    };
     let interval = opts.retry_stream.unwrap_or(Duration::from_secs(DEFAULT_MONITOR_SECS));
     // Go re-ran /live right after a stream ended and could download the same
     // stream again; remember what was recorded instead.

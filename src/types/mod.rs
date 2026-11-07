@@ -16,8 +16,8 @@ pub use format_info::{new_format_info, FormatInfo, MetaInfo};
 pub use fragment::{DataType, FragData, FragThreadState, Fragment, ProgressInfo};
 pub use fragment_url::{is_fragmented, FragmentUrl};
 pub use options::{
-    complete_codec_order, parse_codec_list, Action, IpVersion, LogLevel, Options, StorageMode,
-    VideoCodec, DEFAULT_CODEC_ORDER,
+    codec_order_for, complete_codec_order, parse_codec_list, Action, IpVersion, LogLevel, Options, StorageMode,
+    VideoCodec, BEST_CODEC_ORDER,
 };
 pub use player_response::{PlayerResponse, YtInitialData};
 pub use selection::FormatSelection;
