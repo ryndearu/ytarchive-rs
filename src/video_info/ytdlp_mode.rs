@@ -182,6 +182,14 @@ impl Extractor {
             log_error!("No video ID found");
             return None;
         }
+        // Pin a channel's /live URL to the stream it resolved to, so URL
+        // refreshes keep following this stream even if the channel starts
+        // another one. The channel monitor starts each run from /live again.
+        if self.is_channel {
+            self.page_url = format!("https://www.youtube.com/watch?v={}", self.video_id);
+            self.is_channel = false;
+            log_debug!("Pinned the download to {}", self.page_url);
+        }
         self.last_sq = info.last_sq;
         if info.target_duration > 0 {
             self.target_duration = info.target_duration;
