@@ -15,7 +15,10 @@ pub use download_state::DownloadState;
 pub use format_info::{new_format_info, FormatInfo, MetaInfo};
 pub use fragment::{DataType, FragData, FragThreadState, Fragment, ProgressInfo};
 pub use fragment_url::{is_fragmented, FragmentUrl};
-pub use options::{Action, CodecPrefs, IpVersion, LogLevel, Options, StorageMode, VideoCodec};
+pub use options::{
+    complete_codec_order, parse_codec_list, Action, IpVersion, LogLevel, Options, StorageMode,
+    VideoCodec, DEFAULT_CODEC_ORDER,
+};
 pub use player_response::{PlayerResponse, YtInitialData};
 pub use selection::FormatSelection;
 pub use ytdlp::{LiveStatus, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo};

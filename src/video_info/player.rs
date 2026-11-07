@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use super::wait::{sleep_or_cancel, sleep_until_unix};
 use super::{Extractor, MAX_RETRIES, RETRY_DELAY};
-use crate::formats::{all_qualities, prompt_quality};
 use crate::stream_meta::local_timestamp;
 use crate::types::player_response::{
     PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE,
@@ -49,11 +48,11 @@ impl Extractor {
             let pr = match parsed {
                 Ok(pr) => pr,
                 Err(err) => {
-                    if wait_on_channel {
+                    if wait_on_channel && !self.opts.info_only {
                         let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
-                        if self.selected.is_empty() {
+                        if live_waited == 0 {
                             eprintln!();
-                            self.selected = prompt_quality(&all_qualities(), true).await;
+                            self.ask_ahead().await;
                         }
                         if live_waited == 0 {
                             log_general!(
@@ -154,6 +153,23 @@ impl Extractor {
                         log_debug!("Livestream status is {PLAYABLE_OFFLINE} mid-download");
                         return Outcome::NotUsable;
                     }
+                    // --info-only reports a scheduled stream instead of waiting.
+                    if self.opts.info_only {
+                        let start = pr
+                            .playability_status
+                            .live_streamability
+                            .live_streamability_renderer
+                            .offline_slate
+                            .live_stream_offline_slate_renderer
+                            .scheduled_start_time
+                            .parse::<i64>()
+                            .ok()
+                            .map(crate::stream_meta::local_unix_timestamp);
+                        self.format_info = crate::stream_meta::format_info_from_player_response(&pr);
+                        self.video_id = vd.video_id.clone();
+                        self.upcoming = Some(start.unwrap_or_else(|| "unknown".into()));
+                        return Outcome::NotUsable;
+                    }
                     if self.opts.live_from.as_deref().is_some_and(|v| v.trim().starts_with('-')) {
                         log_error!("Option --live-from with a negative duration is not valid for a scheduled stream.");
                         return Outcome::NotUsable;
@@ -168,8 +184,8 @@ impl Extractor {
                             return Outcome::NotUsable;
                         }
                     }
-                    if first_wait && self.selected.is_empty() {
-                        self.selected = prompt_quality(&all_qualities(), true).await;
+                    if first_wait {
+                        self.ask_ahead().await;
                     }
 
                     if let Some(secs) = self.retry_secs {

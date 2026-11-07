@@ -24,21 +24,15 @@ impl Action {
     }
 }
 
-/// Preferred codecs; any combination may be set. Priority when several are
-/// set is av1 > vp9 > h264, then the remaining codecs in that order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct CodecPrefs {
-    pub av1: bool,
-    pub vp9: bool,
-    pub h264: bool,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodec {
     Av1,
     Vp9,
     H264,
 }
+
+/// Order used when nothing else is chosen (dreammu's default).
+pub const DEFAULT_CODEC_ORDER: [VideoCodec; 3] = [VideoCodec::Av1, VideoCodec::Vp9, VideoCodec::H264];
 
 impl VideoCodec {
     pub fn name(self) -> &'static str {
@@ -48,20 +42,47 @@ impl VideoCodec {
             VideoCodec::H264 => "H264",
         }
     }
+
+    /// Lowercase name as typed on the command line.
+    pub fn arg(self) -> &'static str {
+        match self {
+            VideoCodec::Av1 => "av1",
+            VideoCodec::Vp9 => "vp9",
+            VideoCodec::H264 => "h264",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "av1" | "av01" => Some(VideoCodec::Av1),
+            "vp9" | "vp09" => Some(VideoCodec::Vp9),
+            "h264" | "h.264" | "avc" | "avc1" => Some(VideoCodec::H264),
+            _ => None,
+        }
+    }
 }
 
-impl CodecPrefs {
-    /// Flagged codecs first (in av1 > vp9 > h264 order), then the rest.
-    pub fn priority_order(self) -> Vec<VideoCodec> {
-        let base = [
-            (VideoCodec::Av1, self.av1),
-            (VideoCodec::Vp9, self.vp9),
-            (VideoCodec::H264, self.h264),
-        ];
-        let preferred = base.iter().filter(|(_, on)| *on).map(|(c, _)| *c);
-        let rest = base.iter().filter(|(_, on)| !*on).map(|(c, _)| *c);
-        preferred.chain(rest).collect()
+/// `preferred` first, then the remaining codecs in default order, so a
+/// stream without the preferred codecs can still be downloaded.
+pub fn complete_codec_order(preferred: &[VideoCodec]) -> Vec<VideoCodec> {
+    let mut out: Vec<VideoCodec> = Vec::with_capacity(3);
+    for c in preferred.iter().chain(DEFAULT_CODEC_ORDER.iter()) {
+        if !out.contains(c) {
+            out.push(*c);
+        }
     }
+    out
+}
+
+/// Parses a slash-delimited codec list (`vp9/h264`); `best`/`any`/empty
+/// mean the default order.
+pub fn parse_codec_list(s: &str) -> Option<Vec<VideoCodec>> {
+    let parts: Vec<&str> = s.split('/').map(str::trim).filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() || parts.iter().any(|p| p.eq_ignore_ascii_case("best") || p.eq_ignore_ascii_case("any")) {
+        return Some(DEFAULT_CODEC_ORDER.to_vec());
+    }
+    let codecs: Option<Vec<VideoCodec>> = parts.iter().map(|p| VideoCodec::parse(p)).collect();
+    codecs.map(|c| complete_codec_order(&c))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -113,7 +134,9 @@ pub struct Options {
     pub ytdlp_info: bool,
 
     // Format
-    pub codecs: CodecPrefs,
+    /// Video codec preference order; `None` = not chosen yet (the user is
+    /// asked when a video quality is selected).
+    pub codecs: Option<Vec<VideoCodec>>,
     pub mkv: bool,
     pub audio_only: bool,
     pub video_only: bool,

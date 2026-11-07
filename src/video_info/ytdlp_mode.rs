@@ -86,11 +86,19 @@ impl Extractor {
             }
 
             if info.live_status == LiveStatus::IsUpcoming {
+                // --info-only reports a scheduled stream instead of waiting.
+                if self.opts.info_only {
+                    let page = format!("https://www.youtube.com/watch?v={}", info.id);
+                    self.format_info = format_info_from_ytdlp(&info, &page);
+                    self.video_id = info.id.clone();
+                    self.upcoming =
+                        Some(info.start_unix.map_or_else(|| "unknown".into(), local_unix_timestamp));
+                    return None;
+                }
                 self.print_info(&info.channel, &info.title);
                 let interval = self.upcoming_wait_interval(info.start_unix).await?;
-                if self.selected.is_empty() && self.fixed_itag.is_none() {
-                    self.selected =
-                        crate::formats::prompt_quality(&crate::formats::all_qualities(), true).await;
+                if !polling_announced {
+                    self.ask_ahead().await;
                 }
                 let secs = interval.as_secs().max(1);
                 let mut polling = true;

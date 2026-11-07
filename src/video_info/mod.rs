@@ -18,7 +18,8 @@ use crate::stream_meta::{
     apply_metadata, default_metadata, format_info_from_player_response, local_timestamp,
 };
 use crate::types::{
-    new_format_info, Action, FormatInfo, FormatSelection, MetaInfo, Options, DEFAULT_POLL_SECS,
+    new_format_info, Action, FormatInfo, FormatSelection, MetaInfo, Options, VideoCodec,
+    DEFAULT_CODEC_ORDER, DEFAULT_POLL_SECS,
 };
 use crate::{log_debug, log_error, log_general, ytdlp};
 
@@ -43,9 +44,16 @@ pub struct Extractor {
     pub retry_secs: Option<u64>,
     /// Qualities from the CLI (or prompted while waiting).
     pub selected: Vec<String>,
+    /// Codec preference; `None` until given or asked for.
+    pub codecs: Option<Vec<VideoCodec>>,
     /// Video itag once chosen: `Some(None)` = audio only. Later refreshes
     /// reuse it instead of selecting again.
     pub fixed_itag: Option<Option<u32>>,
+    /// Qualities the stream offers and their codecs (for `--info-only`).
+    pub available: Vec<(&'static str, Vec<VideoCodec>)>,
+    /// Set instead of waiting when `--info-only` meets a scheduled stream:
+    /// the scheduled start time, if known.
+    pub upcoming: Option<String>,
 
     pub info_printed: bool,
     pub in_progress: bool,
@@ -79,7 +87,10 @@ impl Extractor {
             wait: opts.wait,
             retry_secs: opts.retry_stream.map(|d| d.as_secs()),
             selected,
+            codecs: opts.codecs.clone(),
             fixed_itag: opts.audio_only.then_some(None),
+            available: Vec::new(),
+            upcoming: None,
             info_printed: false,
             in_progress: false,
             live: false,
@@ -100,6 +111,19 @@ impl Extractor {
         !self.unavailable
             && !self.cancel.is_cancelled()
             && self.last_updated.is_none_or(|t| t.elapsed() >= MIN_UPDATE_INTERVAL)
+    }
+
+    /// Before waiting for a scheduled stream, ask for the quality (and the
+    /// codec, unless audio only) so nobody needs to be around when it starts.
+    async fn ask_ahead(&mut self) {
+        if self.selected.is_empty() && self.fixed_itag.is_none() {
+            self.selected = formats::prompt_quality(&formats::all_qualities(), true).await;
+        }
+        let audio_only =
+            self.fixed_itag == Some(None) || formats::is_audio_only_selection(&self.selected);
+        if self.codecs.is_none() && !audio_only {
+            self.codecs = Some(formats::prompt_codecs(&DEFAULT_CODEC_ORDER, true).await);
+        }
     }
 
     fn print_info(&mut self, channel: &str, title: &str) {
@@ -183,14 +207,19 @@ impl Extractor {
             return None;
         }
         let video_only = self.opts.video_only;
+        self.available = formats::available_qualities(urls)
+            .into_iter()
+            .map(|q| (q, formats::codecs_for_label(urls, q)))
+            .collect();
         let sel = match self.fixed_itag {
             Some(itag) => formats::select_fixed(urls, itag, video_only),
             None => {
                 let sel = formats::select_interactive(
                     urls,
                     std::mem::take(&mut self.selected),
-                    self.opts.codecs,
+                    &mut self.codecs,
                     video_only,
+                    !self.opts.info_only,
                 )
                 .await
                 .inspect_err(|e| log_error!("{e}"))

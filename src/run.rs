@@ -17,7 +17,7 @@ use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
 use crate::mux::{command_line, ffmpeg_args, MuxInput};
 use crate::output::{ensure_dir, final_location, load_states, temp_dir, OutputPlan};
-use crate::prepare::{prepare, print_info, Prepared};
+use crate::prepare::{prepare, print_info, print_upcoming, PrepareError, Prepared};
 use crate::progress::{self, Totals};
 use crate::session::Session;
 use crate::types::{DataType, Options, AUDIO_ITAG, DEFAULT_POLL_SECS};
@@ -52,8 +52,15 @@ pub async fn run(
     skip_ids: &HashSet<String>,
 ) -> RunResult {
     let cancel = interrupt.child_token();
-    let Some(prepared) = prepare(&opts, &http, &cancel, input).await else {
-        return RunResult::code(if interrupt.is_set() { 2 } else { 1 });
+    let prepared = match prepare(&opts, &http, &cancel, input).await {
+        Ok(p) => p,
+        Err(PrepareError::Upcoming(u)) => {
+            print_upcoming(&u);
+            return RunResult { code: 0, video_id: Some(u.video_id), downloaded: false };
+        }
+        Err(PrepareError::Failed) => {
+            return RunResult::code(if interrupt.is_set() { 2 } else { 1 });
+        }
     };
     if skip_ids.contains(&prepared.video_id) {
         log_info!("{} was already downloaded; not downloading it again", prepared.video_id);
