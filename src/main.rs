@@ -27,6 +27,7 @@ mod session;
 mod stream_meta;
 mod types;
 mod util;
+mod version;
 mod video_info;
 mod watch_page;
 mod ytdlp;
@@ -48,6 +49,10 @@ async fn main() -> ExitCode {
     };
     log::set_level(options.log_level);
     log::set_newlines(options.status_newlines);
+    // Go printed its version at startup too.
+    if options.log_level > types::LogLevel::Quiet {
+        eprintln!("{}", version::banner());
+    }
     for w in warnings {
         log_warn!("{w}");
     }

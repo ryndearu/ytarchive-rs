@@ -32,7 +32,7 @@ const GO_SHORT_ALIASES: &[(&str, &str)] = &[
 #[derive(Debug, Parser)]
 #[command(
     name = "ytarchive",
-    version,
+    version = crate::version::VERSION,
     about = "Archive a YouTube livestream from the start",
     after_help = AFTER_HELP
 )]
