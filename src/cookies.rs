@@ -52,7 +52,8 @@ pub fn parse_netscape(text: &str) -> CookieSet {
 }
 
 pub fn load_file(path: &Path) -> Result<CookieSet> {
-    Ok(parse_netscape(&std::fs::read_to_string(path)?))
+    // Lossy so a cookie file with stray non-UTF-8 bytes still loads.
+    Ok(parse_netscape(&String::from_utf8_lossy(&std::fs::read(path)?)))
 }
 
 /// URL the cookie belongs to, for inserting into a cookie jar.

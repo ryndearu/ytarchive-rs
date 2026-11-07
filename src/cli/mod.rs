@@ -290,6 +290,9 @@ fn parse_codecs(s: &str) -> std::result::Result<CodecList, String> {
 
 impl Cli {
     pub fn parse_normalized() -> Self {
-        Cli::parse_from(normalize_args(std::env::args_os()))
+        // Arguments that aren't valid UTF-8 (e.g. typed in a legacy code
+        // page) are converted lossily instead of being rejected.
+        let args = std::env::args_os().map(|a| a.to_string_lossy().into_owned().into());
+        Cli::parse_from(normalize_args(args))
     }
 }

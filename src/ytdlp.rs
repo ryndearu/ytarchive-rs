@@ -23,7 +23,9 @@ pub const DEFAULT_ATTEMPTS: u32 = 3;
 /// Arguments for one yt-dlp invocation. `ignore_no_formats` keeps yt-dlp from
 /// failing on upcoming streams so we can still read their status.
 pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<String> {
-    let mut args = vec!["--live-from-start".to_string()];
+    // UTF-8 output regardless of the console code page (Windows), so titles
+    // aren't mangled; user --ytdlp-opts come later and can override it.
+    let mut args = vec!["--encoding".to_string(), "utf-8".into(), "--live-from-start".into()];
     if let Some(c) = &opts.cookies_file {
         args.push("--cookies".into());
         args.push(c.to_string_lossy().into_owned());
@@ -51,6 +53,8 @@ pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool) -> Result<S
 
     let child = Command::new(&opts.ytdlp_path)
         .args(&args)
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -250,8 +254,10 @@ mod tests {
         };
         let a = build_args(&opts, "https://youtu.be/x", true);
         assert_eq!(
-            &a[..8],
+            &a[..10],
             [
+                "--encoding",
+                "utf-8",
                 "--live-from-start",
                 "--cookies",
                 "c.txt",
