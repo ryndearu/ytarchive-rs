@@ -1,7 +1,9 @@
 name: Build
 
-# Reusable: builds a plain executable for every platform (x64 and arm64 each)
-# and uploads them as workflow artifacts named "dist-<target>". Used by
+# Reusable: builds every platform and uploads one zip per platform
+# (ytarchive_<os>_<arch>.zip, containing only ytarchive or ytarchive.exe) as
+# workflow artifacts named "dist-<target>". Releases build x64 and arm64 for
+# each OS; nightly builds only Windows x64, Linux x64, and macOS arm64. Used by
 # release.yml and nightly.yml.
 on:
   workflow_call:
@@ -20,6 +22,11 @@ on:
         required: false
         type: string
         default: ""
+      all_targets:
+        description: Build every target (false = Windows x64, Linux x64, macOS arm64 only)
+        required: false
+        type: boolean
+        default: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,43 +35,18 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.asset }}
+    name: ${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Static musl builds run on any Linux distribution.
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            asset: ytarchive_linux_x64
-            cross: false
-            runnable: true
-          - target: aarch64-unknown-linux-musl
-            os: ubuntu-latest
-            asset: ytarchive_linux_arm64
-            cross: true
-            runnable: false
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            asset: ytarchive_windows_x64.exe
-            cross: false
-            runnable: true
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
-            asset: ytarchive_windows_arm64.exe
-            cross: false
-            runnable: false
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            asset: ytarchive_macos_x64
-            cross: false
-            runnable: false
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            asset: ytarchive_macos_arm64
-            cross: false
-            runnable: true
-    runs-on: ${{ matrix.os }}
+        # Linux builds are static musl and run on any distribution.
+        target: ${{ fromJSON(inputs.all_targets && '["x86_64-pc-windows-msvc","aarch64-pc-windows-msvc","x86_64-unknown-linux-musl","aarch64-unknown-linux-musl","aarch64-apple-darwin","x86_64-apple-darwin"]' || '["x86_64-pc-windows-msvc","x86_64-unknown-linux-musl","aarch64-apple-darwin"]') }}
+    runs-on: ${{ contains(matrix.target, 'windows') && 'windows-latest' || contains(matrix.target, 'apple') && 'macos-latest' || 'ubuntu-latest' }}
+    env:
+      # aarch64 Linux is built in a cross container; the rest natively.
+      CROSS: ${{ matrix.target == 'aarch64-unknown-linux-musl' }}
+      # Targets the runner can execute, to print --version.
+      RUNNABLE: ${{ contains(fromJSON('["x86_64-pc-windows-msvc","x86_64-unknown-linux-musl","aarch64-apple-darwin"]'), matrix.target) }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -81,7 +63,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install cross
-        if: matrix.cross
+        if: env.CROSS == 'true'
         run: cargo install cross --locked
 
       - name: Version stamp
@@ -97,24 +79,39 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
+          if [ "$CROSS" = "true" ]; then
             cross build --release --locked --target ${{ matrix.target }}
           else
             cargo build --release --locked --target ${{ matrix.target }}
           fi
 
-      - name: Rename executable
+      - name: Version
+        if: env.RUNNABLE == 'true'
+        shell: bash
+        run: target/${{ matrix.target }}/release/ytarchive --version
+
+      - name: Zip
         shell: bash
         run: |
+          target=${{ matrix.target }}
+          case "$target" in
+            *windows*) os=windows ;;
+            *linux*) os=linux ;;
+            *apple*) os=macos ;;
+          esac
+          case "$target" in
+            x86_64-*) arch=x64 ;;
+            aarch64-*) arch=arm64 ;;
+          esac
+          zipfile="$GITHUB_WORKSPACE/dist/ytarchive_${os}_${arch}.zip"
           mkdir -p dist
-          exe=ytarchive
-          [[ "${{ matrix.target }}" == *windows* ]] && exe=ytarchive.exe
-          cp "target/${{ matrix.target }}/release/$exe" "dist/${{ matrix.asset }}"
-
-      - name: Version
-        if: matrix.runnable
-        shell: bash
-        run: dist/${{ matrix.asset }} --version
+          cd "target/$target/release"
+          if [ "$os" = windows ]; then
+            7z a "$zipfile" ytarchive.exe > /dev/null
+          else
+            # zip keeps the executable bit.
+            zip -q "$zipfile" ytarchive
+          fi
 
       - uses: actions/upload-artifact@v7
         with:

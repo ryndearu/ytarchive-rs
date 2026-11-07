@@ -2,7 +2,7 @@ name: Release
 
 # Manual releases: push a tag like v0.1.0 to build every platform and publish
 # a normal (non-pre) GitHub release with generated notes. The assets are
-# plain executables (ytarchive_<os>_<arch>[.exe]).
+# zips (ytarchive_<os>_<arch>.zip) holding the executable.
 on:
   push:
     tags: ["v*"]

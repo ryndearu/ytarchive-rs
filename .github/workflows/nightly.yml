@@ -57,6 +57,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       channel: nightly
+      all_targets: false
       ref: ${{ needs.check.outputs.sha }}
 
   publish:
@@ -78,8 +79,10 @@ jobs:
           last=$(git describe --tags --abbrev=0 --match 'v*' "$SHA" 2>/dev/null || true)
           # Same string build.rs stamps for nightly builds.
           version="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)-${SHA:0:7} ($(git log -1 --format=%cs "$SHA"))"
+          # Commit hashes as links; GitHub doesn't link them in release notes.
+          commits="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit"
           {
-            echo "Automated nightly build: \`ytarchive $version\`."
+            echo "Automated nightly build of [\`${SHA:0:7}\`]($commits/$SHA): \`ytarchive $version\`."
             echo
             if [ -n "$last" ]; then
               echo "## Changes since $last"
@@ -89,7 +92,7 @@ jobs:
               range="$SHA"
             fi
             echo
-            git log --no-merges --format='- %h %s' $range
+            git log --no-merges --format="- [\`%h\`]($commits/%H) %s" $range
           } > notes.md
           cat notes.md
 
