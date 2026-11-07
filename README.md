@@ -34,18 +34,18 @@ ytarchive looks for `ffmpeg` and `yt-dlp` on your `PATH`. On Windows you can als
 
 ## Installing
 
-Download the executable for your platform from the [releases page](../../releases) and run it from a terminal. There is nothing to extract:
+Download the zip for your platform from the [releases page](../../releases), extract it, and run `ytarchive` (`ytarchive.exe` on Windows) from a terminal. Each zip holds just the executable:
 
 | Platform | x64 | arm64 |
 | --- | --- | --- |
-| Windows | `ytarchive_windows_x64.exe` | `ytarchive_windows_arm64.exe` |
-| Linux | `ytarchive_linux_x64` | `ytarchive_linux_arm64` |
-| macOS | `ytarchive_macos_x64` (Intel) | `ytarchive_macos_arm64` (Apple Silicon) |
+| Windows | `ytarchive_windows_x64.zip` | `ytarchive_windows_arm64.zip` |
+| Linux | `ytarchive_linux_x64.zip` | `ytarchive_linux_arm64.zip` |
+| macOS | `ytarchive_macos_x64.zip` (Intel) | `ytarchive_macos_arm64.zip` (Apple Silicon) |
 
-The Linux builds are static and run on any distribution. Rename the file to `ytarchive` (`ytarchive.exe` on Windows) if you like.
+The Linux builds are static and run on any distribution.
 
 - **Releases** (`v*`) are published manually and are the recommended builds. `ytarchive --version` shows the version and build date, e.g. `ytarchive v0.1.0 (2026-11-07)`.
-- **Nightly** is a pre-release rebuilt each day when `main` has new code commits (docs-only changes don't trigger it). It replaces the previous nightly, and its description lists the commits since the last release. Its version includes the commit, e.g. `ytarchive v0.1.0-abc1234 (2026-11-07)`.
+- **Nightly** is a pre-release rebuilt each day when `main` has new code commits (docs-only changes don't trigger it). It replaces the previous nightly, and its description lists the commits since the last release. Nightly is built only for Windows x64, Linux x64, and macOS arm64. Its version includes the commit, e.g. `ytarchive v0.1.0-abc1234 (2026-11-07)`.
 
 The version is also printed when ytarchive starts (unless `-q`).
 
@@ -57,8 +57,7 @@ The version is also printed when ytarchive starts (unless `-q`).
 # yt-dlp nightly (distro packages are stable-only and often old):
 #   download the yt-dlp binary from https://github.com/yt-dlp/yt-dlp-nightly-builds/releases, or
 #   pip install -U --pre "yt-dlp[default]"
-mv ytarchive_linux_x64 ytarchive   # arm64: ytarchive_linux_arm64
-chmod +x ytarchive
+unzip ytarchive_linux_x64.zip   # arm64: ytarchive_linux_arm64.zip
 ./ytarchive --help
 ```
 
@@ -67,8 +66,8 @@ chmod +x ytarchive
 ```powershell
 winget install Gyan.FFmpeg yt-dlp.yt-dlp DenoLand.Deno
 yt-dlp --update-to nightly
-# then, from PowerShell or cmd (arm64: ytarchive_windows_arm64.exe):
-.\ytarchive_windows_x64.exe --help
+# then extract ytarchive_windows_x64.zip (arm64: ytarchive_windows_arm64.zip) and, from PowerShell or cmd:
+.\ytarchive.exe --help
 ```
 
 While running on Windows, ytarchive keeps the PC from going to sleep and turns off the console's QuickEdit mode, so a stray click in the window can't pause the download. The console's previous setting is restored when ytarchive exits.
@@ -78,8 +77,7 @@ While running on Windows, ytarchive keeps the PC from going to sleep and turns o
 ```sh
 brew install ffmpeg deno
 # yt-dlp nightly: download yt-dlp_macos from https://github.com/yt-dlp/yt-dlp-nightly-builds/releases (Homebrew only has stable)
-mv ytarchive_macos_arm64 ytarchive   # Intel: ytarchive_macos_x64
-chmod +x ytarchive
+unzip ytarchive_macos_arm64.zip   # Intel: ytarchive_macos_x64.zip
 xattr -d com.apple.quarantine ytarchive   # unsigned binary
 ./ytarchive --help
 ```

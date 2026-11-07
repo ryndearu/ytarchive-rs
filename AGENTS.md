@@ -62,6 +62,6 @@ cargo build --release --locked   # when dependencies or build config change
 
 - **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release.
 - **Nightly** (`nightly.yml`) runs daily at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a `docs:` commit, otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release. Docs commits must use the `docs:` scope for this to work.
-- Both use `build.yml`, which publishes plain executables named `ytarchive_<windows|linux|macos>_<x64|arm64>[.exe]` (Linux builds are static musl). It sets `YTARCHIVE_CHANNEL`/`YTARCHIVE_VERSION`/`YTARCHIVE_COMMIT`/`YTARCHIVE_DATE` for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
+- Both use `build.yml`, which publishes one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only `ytarchive`/`ytarchive.exe` (Linux builds are static musl). Releases build x64 and arm64 for every OS; nightly (`all_targets: false`) builds only Windows x64, Linux x64, and macOS arm64. It sets `YTARCHIVE_CHANNEL`/`YTARCHIVE_VERSION`/`YTARCHIVE_COMMIT`/`YTARCHIVE_DATE` for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
 - Workflows force JavaScript actions onto the newest Node GitHub's runners provide (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`); bump it when GitHub adds a newer one.
 - **CI** doesn't run for pushes that only touch `*.md`, `docs/`, or `LICENSE`.
