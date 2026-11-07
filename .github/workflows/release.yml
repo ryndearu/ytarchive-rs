@@ -1,7 +1,9 @@
 name: Release
+run-name: Release ${{ github.ref_name }} (${{ github.sha }})
 
 # Manual releases: push a tag like v0.1.0 to build every platform and publish
-# a normal (non-pre) GitHub release with generated notes.
+# a normal (non-pre) GitHub release with generated notes. The assets are
+# plain executables (ytarchive_<os>_<arch>[.exe]).
 on:
   push:
     tags: ["v*"]
@@ -9,22 +11,27 @@ on:
 permissions:
   contents: write
 
+env:
+  # Run JavaScript actions on the newest Node GitHub's runners provide.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     uses: ./.github/workflows/build.yml
     with:
+      channel: release
       version: ${{ github.ref_name }}
 
   publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: dist-*
           merge-multiple: true
           path: dist
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true

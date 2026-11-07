@@ -5,7 +5,8 @@
 //! - Everything else (nightly, CI, local): `v0.1.0-abc1234 (2026-11-07)`.
 //!
 //! The date is the commit date, so rebuilding the same commit gives the same
-//! string.
+//! string. CI passes `YTARCHIVE_COMMIT` and `YTARCHIVE_DATE` too, since git
+//! isn't usable inside `cross` containers.
 
 use std::process::Command;
 
@@ -30,7 +31,9 @@ fn main() {
     let commit = env("YTARCHIVE_COMMIT")
         .or_else(|| git(&["rev-parse", "--short=7", "HEAD"]))
         .unwrap_or_else(|| "unknown".into());
-    let date = git(&["log", "-1", "--format=%cs"]).unwrap_or_else(|| "unknown date".into());
+    let date = env("YTARCHIVE_DATE")
+        .or_else(|| git(&["log", "-1", "--format=%cs"]))
+        .unwrap_or_else(|| "unknown date".into());
 
     let full = if release {
         format!("{version} ({date})")

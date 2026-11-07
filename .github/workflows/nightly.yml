@@ -1,4 +1,5 @@
 name: Nightly
+run-name: Nightly (${{ github.sha }})
 
 # Daily pre-release from main. Skipped when main hasn't changed since the last
 # nightly, or when every new commit is a docs commit ("docs: ..."). The previous nightly pre-release (and its tag) is replaced, and the
@@ -17,6 +18,8 @@ concurrency:
 
 env:
   TAG: nightly
+  # Run JavaScript actions on the newest Node GitHub's runners provide.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   check:
@@ -25,7 +28,7 @@ jobs:
       changed: ${{ steps.check.outputs.changed }}
       sha: ${{ steps.check.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -54,7 +57,7 @@ jobs:
     if: needs.check.outputs.changed == 'true'
     uses: ./.github/workflows/build.yml
     with:
-      version: nightly
+      channel: nightly
       ref: ${{ needs.check.outputs.sha }}
 
   publish:
@@ -64,7 +67,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       SHA: ${{ needs.check.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.check.outputs.sha }}
           fetch-depth: 0
@@ -74,8 +77,10 @@ jobs:
         run: |
           # Latest manual release tag reachable from this commit, if any.
           last=$(git describe --tags --abbrev=0 --match 'v*' "$SHA" 2>/dev/null || true)
+          # Same string build.rs stamps for nightly builds.
+          version="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)-${SHA:0:7} ($(git log -1 --format=%cs "$SHA"))"
           {
-            echo "Automated nightly build of \`${SHA:0:7}\` ($(date -u +%Y-%m-%d))."
+            echo "Automated nightly build: \`ytarchive $version\`."
             echo
             if [ -n "$last" ]; then
               echo "## Changes since $last"
@@ -89,7 +94,7 @@ jobs:
           } > notes.md
           cat notes.md
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: dist-*
           merge-multiple: true

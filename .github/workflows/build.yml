@@ -1,14 +1,20 @@
 name: Build
 
-# Reusable: builds release archives for every platform and uploads them as
-# workflow artifacts named "dist-<target>". Used by release.yml and nightly.yml.
+# Reusable: builds a plain executable for every platform (x64 and arm64 each)
+# and uploads them as workflow artifacts named "dist-<target>". Used by
+# release.yml and nightly.yml.
 on:
   workflow_call:
     inputs:
-      version:
-        description: Version string used in archive names (e.g. v0.1.0, nightly)
+      channel:
+        description: "release (version from the tag) or nightly (version-commit)"
         required: true
         type: string
+      version:
+        description: Version tag for release builds (e.g. v0.1.0)
+        required: false
+        type: string
+        default: ""
       ref:
         description: Commit to build
         required: false
@@ -17,10 +23,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Run JavaScript actions on the newest Node GitHub's runners provide.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    name: ${{ matrix.target }}
+    name: ${{ matrix.asset }}
     strategy:
       fail-fast: false
       matrix:
@@ -28,22 +36,37 @@ jobs:
           # Static musl builds run on any Linux distribution.
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+            asset: ytarchive_linux_x64
             cross: false
+            runnable: true
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
+            asset: ytarchive_linux_arm64
             cross: true
+            runnable: false
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+            asset: ytarchive_windows_x64.exe
             cross: false
-          - target: aarch64-apple-darwin
-            os: macos-latest
+            runnable: true
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            asset: ytarchive_windows_arm64.exe
             cross: false
+            runnable: false
           - target: x86_64-apple-darwin
             os: macos-latest
+            asset: ytarchive_macos_x64
             cross: false
+            runnable: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            asset: ytarchive_macos_arm64
+            cross: false
+            runnable: true
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@stable
@@ -61,6 +84,16 @@ jobs:
         if: matrix.cross
         run: cargo install cross --locked
 
+      - name: Version stamp
+        shell: bash
+        run: |
+          {
+            echo "YTARCHIVE_CHANNEL=${{ inputs.channel }}"
+            echo "YTARCHIVE_VERSION=${{ inputs.version }}"
+            echo "YTARCHIVE_COMMIT=$(git rev-parse --short=7 HEAD)"
+            echo "YTARCHIVE_DATE=$(git log -1 --format=%cs)"
+          } >> "$GITHUB_ENV"
+
       - name: Build
         shell: bash
         run: |
@@ -70,21 +103,20 @@ jobs:
             cargo build --release --locked --target ${{ matrix.target }}
           fi
 
-      - name: Package
+      - name: Rename executable
         shell: bash
         run: |
-          name="ytarchive-${{ inputs.version }}-${{ matrix.target }}"
-          mkdir -p "$name" dist
-          cp README.md LICENSE "$name/"
-          if [[ "${{ matrix.target }}" == *windows* ]]; then
-            cp "target/${{ matrix.target }}/release/ytarchive.exe" "$name/"
-            7z a "dist/$name.zip" "$name" > /dev/null
-          else
-            cp "target/${{ matrix.target }}/release/ytarchive" "$name/"
-            tar czf "dist/$name.tar.gz" "$name"
-          fi
+          mkdir -p dist
+          exe=ytarchive
+          [[ "${{ matrix.target }}" == *windows* ]] && exe=ytarchive.exe
+          cp "target/${{ matrix.target }}/release/$exe" "dist/${{ matrix.asset }}"
 
-      - uses: actions/upload-artifact@v4
+      - name: Version
+        if: matrix.runnable
+        shell: bash
+        run: dist/${{ matrix.asset }} --version
+
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.target }}
           path: dist/*

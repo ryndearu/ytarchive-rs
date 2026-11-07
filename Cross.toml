@@ -1,0 +1,3 @@
+# Version stamp variables (see build.rs) passed into cross's build container.
+[build.env]
+passthrough = ["YTARCHIVE_CHANNEL", "YTARCHIVE_VERSION", "YTARCHIVE_COMMIT", "YTARCHIVE_DATE"]
