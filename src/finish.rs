@@ -7,7 +7,7 @@ use crate::mux::{self, MuxCommand};
 use crate::output::OutputPlan;
 use crate::prompt::get_yes_no;
 use crate::types::{Action, Options};
-use crate::util::{try_delete, try_move};
+use crate::util::{set_mode, try_delete, try_move};
 use crate::{log_error, log_general, log_warn};
 
 /// A file produced in the temp dir and where it ends up.
@@ -151,6 +151,12 @@ impl Finish<'_> {
         }
         for f in &to_delete {
             try_delete(f);
+        }
+        // ffmpeg creates the final files with the default mode, so apply
+        // --file-permissions afterwards. Go never did.
+        let outputs = std::iter::once(&self.mux).chain(&self.audio_mux);
+        for out in outputs.map(|m| &m.output) {
+            let _ = set_mode(out, o.file_mode);
         }
         log_general!("Final file: {}", self.mux.output.display());
         if let Some(am) = &self.audio_mux {
