@@ -28,6 +28,10 @@ const MIN_UPDATE_INTERVAL: Duration = Duration::from_secs(DEFAULT_POLL_SECS);
 const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 
+/// Shown when a stream is over and its live (fragmented) download is gone,
+/// whether or not YouTube has finished processing it.
+const ENDED_MESSAGE: &str = "Livestream has already ended; its live download no longer exists. Use yt-dlp instead.";
+
 pub struct Extractor {
     pub opts: Arc<Options>,
     pub http: Http,
@@ -179,6 +183,10 @@ impl Extractor {
         }
         if info.target_duration > 0 {
             self.target_duration = info.target_duration;
+        }
+        if !self.in_progress && !details.is_live_now && info.urls.is_empty() {
+            log_general!("{ENDED_MESSAGE}");
+            return None;
         }
 
         let sel = self.select(&info.urls).await?;

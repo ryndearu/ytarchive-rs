@@ -4,12 +4,12 @@
 use std::time::Duration;
 
 use super::wait::{sleep_or_cancel, sleep_until_unix};
-use super::{Extractor, MAX_RETRIES, RETRY_DELAY};
+use super::{Extractor, ENDED_MESSAGE, MAX_RETRIES, RETRY_DELAY};
 use crate::stream_meta::local_timestamp;
 use crate::types::player_response::{
     PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE,
 };
-use crate::types::{is_fragmented, Action, PlayerResponse, DEFAULT_POLL_SECS};
+use crate::types::{Action, PlayerResponse, DEFAULT_POLL_SECS};
 use crate::watch_page::{get_video_html, parse_player_response, video_id_from_watch_page};
 use crate::{log, log_debug, log_error, log_general, log_info, log_warn};
 
@@ -138,6 +138,15 @@ impl Extractor {
                     return Outcome::NotUsable;
                 }
                 PLAYABLE_UNPLAYABLE => {
+                    // An ended stream is unplayable while YouTube processes
+                    // it, and its live download is gone by then.
+                    let ended = !pr.microformat.player_microformat_renderer.live_broadcast_details.end_timestamp.is_empty();
+                    if ended && !self.in_progress {
+                        log_general!("{ENDED_MESSAGE}");
+                        log_general!("Reason: {}", pr.playability_status.reason);
+                        self.unavailable = true;
+                        return Outcome::NotUsable;
+                    }
                     let logged_in = !pr.response_context.main_app_web_response_context.logged_out;
                     log_error!("Playability status: UNPLAYABLE.");
                     log_error!("Reason: {}", pr.playability_status.reason);
@@ -266,27 +275,16 @@ impl Extractor {
                     }
 
                     let details = &pr.microformat.player_microformat_renderer.live_broadcast_details;
-                    if !details.is_live_now && !self.in_progress {
-                        if !details.end_timestamp.is_empty() {
-                            match pr.streaming_data.adaptive_formats.first() {
-                                Some(f) if !is_fragmented(&f.url) => {
-                                    log_general!("Livestream has been processed. Use yt-dlp instead.");
-                                    return Outcome::NotUsable;
-                                }
-                                Some(_) => {}
-                                None => {
-                                    log_general!("Livestream has ended and is being processed. Download URLs not available.");
-                                    return Outcome::NotUsable;
-                                }
-                            }
-                        } else {
-                            log_general!("Livestream is offline, should have started, and does not have an end timestamp.");
-                            log_general!("Waiting {DEFAULT_POLL_SECS} seconds and trying again.");
-                            if !sleep_or_cancel(&self.cancel, POLL).await {
-                                return Outcome::NotUsable;
-                            }
-                            continue;
+                    // An ended stream is downloadable as long as its live
+                    // fragments still exist; that is decided from yt-dlp's
+                    // URLs afterwards, not from the watch page's formats.
+                    if !details.is_live_now && !self.in_progress && details.end_timestamp.is_empty() {
+                        log_general!("Livestream is offline, should have started, and does not have an end timestamp.");
+                        log_general!("Waiting {DEFAULT_POLL_SECS} seconds and trying again.");
+                        if !sleep_or_cancel(&self.cancel, POLL).await {
+                            return Outcome::NotUsable;
                         }
+                        continue;
                     }
                 }
                 other => {

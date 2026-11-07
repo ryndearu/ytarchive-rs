@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use super::wait::sleep_or_cancel;
-use super::{Extractor, MAX_RETRIES};
+use super::{Extractor, ENDED_MESSAGE, MAX_RETRIES};
 use crate::error::Error;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_ytdlp, local_unix_timestamp};
 use crate::types::{FormatSelection, LiveStatus, YtdlpExtraction};
@@ -28,7 +28,7 @@ impl Extractor {
         None
     }
 
-    /// Processed VOD: the download (if any) just finishes.
+    /// Ended stream without a live download: a running download just finishes.
     fn finish_live<T>(&mut self, message: &str) -> Option<T> {
         if self.in_progress {
             log_debug!("{message}");
@@ -142,9 +142,7 @@ impl Extractor {
                     LiveStatus::NotLive => {
                         return self.fail_info("This video is not a livestream. Use yt-dlp instead.");
                     }
-                    LiveStatus::WasLive => {
-                        return self.finish_live("Livestream has been processed. Use yt-dlp instead.");
-                    }
+                    LiveStatus::WasLive | LiveStatus::PostLive => return self.finish_live(ENDED_MESSAGE),
                     _ => {}
                 }
                 match self.retry_or_fail(&mut retries, "No fragmented download URLs found") {
@@ -159,9 +157,7 @@ impl Extractor {
                     LiveStatus::NotLive => {
                         return self.fail_info("This video is not a livestream. Use yt-dlp instead.");
                     }
-                    LiveStatus::WasLive => {
-                        return self.finish_live("Livestream has been processed. Use yt-dlp instead.");
-                    }
+                    LiveStatus::WasLive => return self.finish_live(ENDED_MESSAGE),
                     _ if info.is_live => "X-Head-Seqnum probe failed",
                     _ => "No fragment range found",
                 };
