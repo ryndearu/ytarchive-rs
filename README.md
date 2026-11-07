@@ -38,14 +38,16 @@ Download the zip for your platform from the [releases page](../../releases), ext
 
 | Platform | x64 | arm64 |
 | --- | --- | --- |
-| Windows | `ytarchive_windows_x64.zip` | `ytarchive_windows_arm64.zip` |
-| Linux | `ytarchive_linux_x64.zip` | `ytarchive_linux_arm64.zip` |
-| macOS | `ytarchive_macos_x64.zip` (Intel) | `ytarchive_macos_arm64.zip` (Apple Silicon) |
+| Windows | [`ytarchive_windows_x64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_windows_x64.zip) | [`ytarchive_windows_arm64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_windows_arm64.zip) |
+| Linux | [`ytarchive_linux_x64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_linux_x64.zip) | [`ytarchive_linux_arm64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_linux_arm64.zip) |
+| macOS | [`ytarchive_macos_x64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_macos_x64.zip) (Intel) | [`ytarchive_macos_arm64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_macos_arm64.zip) (Apple Silicon) |
+
+The links download the latest release directly. No release has been published yet, so they return 404 until the first `v*` release; until then use the nightly downloads: [Windows x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_windows_x64.zip), [Linux x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_linux_x64.zip), [macOS arm64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_macos_arm64.zip).
 
 The Linux builds are static and run on any distribution.
 
-- **Releases** (`v*`) are published manually and are the recommended builds. `ytarchive --version` shows the version and build date, e.g. `ytarchive v0.1.0 (2026-11-07)`.
-- **Nightly** is a pre-release rebuilt each day when `main` has new code commits (docs-only changes don't trigger it). It replaces the previous nightly, and its description lists the commits since the last release. Nightly is built only for Windows x64, Linux x64, and macOS arm64. Its version includes the commit, e.g. `ytarchive v0.1.0-abc1234 (2026-11-07)`.
+- **Releases** (`v*`) are published manually and are the recommended builds. None has been published yet, so for now use the nightly pre-release. `ytarchive --version` shows the version and build date, e.g. `ytarchive v0.1.0 (2026-11-07)`.
+- **Nightly** is a pre-release rebuilt each day when `main` has new code commits (docs-only changes don't trigger it). It replaces the previous nightly, and its description lists (and links) the commits since the last release. Nightly is built only for Windows x64, Linux x64, and macOS arm64. Its version includes the commit, e.g. `ytarchive v0.1.0-abc1234 (2026-11-07)`.
 
 The version is also printed when ytarchive starts (unless `-q`).
 
@@ -183,6 +185,8 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
         --newline  Print progress on new lines instead of updating one line
 
 Durations accept units (`1d8h10m`, `90s`) or time strings (`01:30:00`). `--live-from` also accepts negative durations (`-30m`) and `now`.
+
+With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-second fragments (like Go). On streams with shorter fragments, `--capture-duration` then records less than asked: `10s` gives 4 seconds with 2-second fragments.
 
 ### Quality and codec
 

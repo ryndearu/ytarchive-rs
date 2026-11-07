@@ -76,6 +76,7 @@ Windows, Linux, and macOS are supported. Go built for more targets but only supp
 13. **The audio/video mismatch warning never fired.** The fragment counts it compared were never incremented.
 14. **Disabling QuickEdit never worked.** Go cleared `ENABLE_QUICK_EDIT_MODE` without the `ENABLE_EXTENDED_FLAGS` bit Windows requires, so a click in the console could still pause the download. The port sets both, and restores the original console mode on exit.
 15. **Page downloads failed with HTTP/2 errors** (port-specific, found while testing). With a Firefox user agent YouTube sends ~20 KB of response headers, above the HTTP library's 16 KB default. The limit is raised.
+16. **`--file-permissions` skipped the final file.** Go applied it only to files it wrote itself (thumbnail, description, mux file, state and fragment files); the muxed file and the `--separate-audio` file kept ffmpeg's default mode. The port sets the mode on both after muxing.
 
 ## Not ported
 
