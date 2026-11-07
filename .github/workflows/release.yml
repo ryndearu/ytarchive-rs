@@ -1,5 +1,4 @@
 name: Release
-run-name: Release ${{ github.ref_name }} (${{ github.sha }})
 
 # Manual releases: push a tag like v0.1.0 to build every platform and publish
 # a normal (non-pre) GitHub release with generated notes. The assets are

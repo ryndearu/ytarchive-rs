@@ -204,8 +204,20 @@ ytarchive https://www.youtube.com/watch?v=VIDEO_ID best
 # Wait for a scheduled stream, 4 threads, embed thumbnail, add metadata
 ytarchive -w --threads 4 -t --add-metadata URL 1080p60/best
 
+# 1080p in H.264 (the default codec; AV1, then VP9 if H.264 isn't offered)
+ytarchive URL 1080p
+
 # 1080p in VP9, falling back to H.264
 ytarchive --codec vp9/h264 URL 1080p
+
+# Best quality, but in H.264 instead of the best codec
+ytarchive --codec h264 URL best
+
+# 1440p60, else 1080p60, in the best codec offered (AV1 > VP9 > H.264)
+ytarchive --codec best URL 1440p60/1080p60
+
+# Go-style flag, same as --codec av1
+ytarchive --av1 URL 1080p
 
 # Only the last 30 minutes, then 10 more minutes of the stream
 ytarchive --live-from -30m --capture-duration 40m URL best

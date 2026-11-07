@@ -1,5 +1,4 @@
 name: CI
-run-name: CI ${{ github.ref_name }} (${{ github.event.pull_request.head.sha || github.sha }})
 
 # Docs-only changes don't run CI.
 on:

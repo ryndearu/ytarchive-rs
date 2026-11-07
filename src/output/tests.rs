@@ -78,8 +78,9 @@ fn title_is_cut_to_fit_windows_max_path() {
     let temp = dir.join("vid__ffffffff").join(format!("{name}.f399.frag12345678.ts"));
     assert!(units(&temp) < WINDOWS_MAX_PATH, "{}", units(&temp));
 
-    // A longer --temporary-dir leaves less room.
-    let temp_dir = std::env::temp_dir().join("t".repeat(150));
+    // A longer --temporary-dir leaves less room. Nested inside the output
+    // folder so it's longer whatever the working directory is.
+    let temp_dir = PathBuf::from(format!("{deep}/{}", "t".repeat(30)));
     let o = Options { temp_dir: Some(temp_dir.clone()), ..o };
     let (_, short) = final_location(&o, &fi(&"t".repeat(200))).unwrap();
     assert!(short.len() < name.len());

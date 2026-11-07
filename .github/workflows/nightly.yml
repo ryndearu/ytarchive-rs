@@ -1,5 +1,4 @@
 name: Nightly
-run-name: Nightly (${{ github.sha }})
 
 # Daily pre-release from main. Skipped when main hasn't changed since the last
 # nightly, or when every new commit is a docs commit ("docs: ..."). The previous nightly pre-release (and its tag) is replaced, and the
