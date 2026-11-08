@@ -22,7 +22,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - `--metadata` without `=` is an error. Go crashed (index out of range).
 - `--no-video` together with `--no-audio`, and `--threads 0`, are errors.
 - `--potoken` and `--visitor-data` are removed, so passing them is an error. In dreammu they were accepted but never used: the InnerTube request that consumed them (`DownloadWebAPIPlayerResponse`) is never called. Pass PO token settings to yt-dlp with `--ytdlp-opts` instead.
-- **The scheduled-stream question is numbered and Enter waits**: `1) wait  2) poll  3) no (default 1):` (the words `wait`/`poll` still work). Go asked `wait/poll/[no]:`, where Enter meant don't wait. When stdin is closed (scripts, cron) the answer is still no, so such runs don't wait unattended; use `-w` for that.
+- **The scheduled-stream question is numbered**: `1) wait  2) poll  3) no (default 3):` (the words `wait`/`poll` still work). Go asked `wait/poll/[no]:`. Enter and closed stdin still mean no, as in Go.
 - `--ytdlp-info` asks for the quality while waiting for a scheduled stream, as the default mode does. Go asked only once the stream started.
 - **The default video codec is H.264**, falling back to AV1 and then VP9, unless a codec option is given. Quality `best` without a codec option uses AV1 > VP9 > H.264, as dreammu did for every quality. The codec is never prompted for.
 - The version shown at startup (unless `-q`) and by `--version` includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)` for releases, `v0.1.0-abc1234 (2026-11-07)` for nightly and other builds.

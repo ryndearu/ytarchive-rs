@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::Extractor;
 use crate::log_general;
-use crate::prompt::{get_line_or_eof, get_user_input};
+use crate::prompt::get_user_input;
 use crate::types::{Action, DEFAULT_POLL_SECS};
 
 /// Sleeps unless cancelled first. Returns `false` if cancelled.
@@ -47,13 +47,12 @@ pub enum WaitChoice {
     No,
 }
 
-/// Reads the scheduled-stream answer. Unlike Go (`wait/poll/[no]`, Enter =
-/// no), Enter means wait; the old words still work. `None` (stdin closed,
-/// e.g. a script or cron job) stays "no" so such a run can't hang waiting.
-pub fn parse_wait_choice(answer: Option<&str>) -> WaitChoice {
-    let Some(a) = answer else { return WaitChoice::No };
-    let a = a.trim().to_lowercase();
-    if a.is_empty() || a == "1" || a.starts_with("wait") {
+/// Reads the scheduled-stream answer. Go asked `wait/poll/[no]`; the numbers
+/// are new, the words still work, and anything else (Enter, closed stdin) is
+/// "no", as in Go.
+pub fn parse_wait_choice(answer: &str) -> WaitChoice {
+    let a = answer.trim().to_lowercase();
+    if a == "1" || a.starts_with("wait") {
         WaitChoice::Wait
     } else if a == "2" || a.starts_with("poll") {
         WaitChoice::Poll
@@ -69,8 +68,8 @@ impl Extractor {
             "This stream is likely a future scheduled livestream.\n\
              Would you like to wait for the scheduled start time, poll until it starts, or not wait?"
         );
-        let answer = get_line_or_eof("1) wait  2) poll  3) no (default 1): ").await;
-        match parse_wait_choice(answer.as_deref()) {
+        let answer = get_user_input("1) wait  2) poll  3) no (default 3): ").await;
+        match parse_wait_choice(&answer) {
             WaitChoice::Wait => {
                 self.wait = Action::Do;
                 true
@@ -124,15 +123,14 @@ mod tests {
     fn wait_choice() {
         use WaitChoice::*;
         for (answer, want) in [
-            (Some(""), Wait),
-            (Some("1"), Wait),
-            (Some("Wait"), Wait),
-            (Some("2"), Poll),
-            (Some("poll"), Poll),
-            (Some("3"), No),
-            (Some("no"), No),
-            (Some("x"), No),
-            (None, No),
+            ("1", Wait),
+            ("Wait", Wait),
+            ("2", Poll),
+            ("poll", Poll),
+            ("", No),
+            ("3", No),
+            ("no", No),
+            ("x", No),
         ] {
             assert_eq!(parse_wait_choice(answer), want, "{answer:?}");
         }
