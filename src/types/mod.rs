@@ -6,6 +6,7 @@ pub mod fragment;
 pub mod fragment_url;
 pub mod options;
 pub mod player_response;
+pub mod saved_download;
 pub mod selection;
 pub mod ytdlp;
 
@@ -20,5 +21,6 @@ pub use options::{
     VideoCodec, BEST_CODEC_ORDER,
 };
 pub use player_response::{PlayerResponse, YtInitialData};
+pub use saved_download::SavedDownload;
 pub use selection::FormatSelection;
 pub use ytdlp::{LiveStatus, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo};

@@ -7,20 +7,18 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use super::dispatch::{Dispatch, Take};
-use super::fragment::download_fragment;
-use super::recovery::{recover, Span};
+use super::dispatch::Dispatch;
+use super::kept_db::{save_end, save_info, save_new_urls};
+use super::recovery::{recover, usable_until, Span};
 use super::sink::{self, Event, Sink};
 use super::ts_sink::remove_frag_file;
+use super::worker::{worker, Msg};
 use crate::error::Result;
 use crate::live_from::seekable_start_sq;
 use crate::session::Session;
-use crate::types::{DataType, DownloadState, FragThreadState, Fragment, ProgressInfo, StorageMode};
+use crate::types::{DataType, DownloadState, ProgressInfo, SavedDownload, StorageMode};
 use crate::util::set_mode;
 use crate::{log_debug, log_error, log_warn};
-
-/// How long a worker waits when it's ahead of the newest fragment.
-const AHEAD_WAIT: Duration = Duration::from_millis(500);
 
 pub struct StreamParams {
     pub data_type: DataType,
@@ -39,6 +37,8 @@ pub struct StreamParams {
     /// Delay between attempts of a failing fragment.
     pub retry_sleep: Duration,
     pub progress: mpsc::UnboundedSender<ProgressInfo>,
+    /// Stored in the SQLite database for retrying in a later run.
+    pub saved: Option<Arc<SavedDownload>>,
 }
 
 #[derive(Debug)]
@@ -46,12 +46,10 @@ pub struct StreamOutcome {
     pub state: DownloadState,
     /// Fragments that could not be downloaded and were skipped.
     pub skipped: Vec<u64>,
-}
-
-enum Msg {
-    Done(Fragment),
-    /// Given up on; the sink skips it instead of stalling forever.
-    Missing(u64),
+    /// Set when fragments are missing but a later run can retry them (the
+    /// database has a download URL that hasn't expired): until when, in
+    /// Unix seconds (`u64::MAX` if the URLs don't say).
+    pub retry_until: Option<u64>,
 }
 
 /// Where a fresh download starts: `--live-from`/`--start-delay`, else the
@@ -96,58 +94,10 @@ fn save_state(p: &StreamParams, mode: u32) {
     }
 }
 
-async fn worker(
-    s: Arc<Session>,
-    dt: DataType,
-    name: String,
-    dispatch: Arc<Mutex<Dispatch>>,
-    tx: mpsc::Sender<Msg>,
-    frag_prefix: Option<PathBuf>,
-    retry_sleep: Duration,
-) {
-    let mut st = FragThreadState::new(name.clone(), dt, retry_sleep);
-    loop {
-        if s.is_stopping() || s.is_finished(dt) {
-            break;
-        }
-        let take = dispatch.lock().unwrap().take(s.is_live());
-        let (seq, max) = match take {
-            // Only this worker stops. Go marked the whole stream finished here,
-            // which made other workers abandon fragments they were retrying.
-            Take::Done => {
-                log_debug!("{name}: Stream is finished and highest sequence reached");
-                break;
-            }
-            Take::Wait => {
-                tokio::select! {
-                    _ = s.cancel.cancelled() => break,
-                    _ = tokio::time::sleep(AHEAD_WAIT) => continue,
-                }
-            }
-            Take::Seq(seq, max) => (seq, max),
-        };
-        st.reset_for(seq, max);
-        let frag_file = frag_prefix
-            .as_ref()
-            .map(|p| PathBuf::from(format!("{}.frag{seq}.ts", p.display())));
-        let frag = download_fragment(&s, &mut st, frag_file).await;
-        dispatch.lock().unwrap().complete(frag.as_ref().and_then(|f| f.x_head_seqnum));
-        let msg = match frag {
-            Some(f) => Msg::Done(f),
-            None => Msg::Missing(seq),
-        };
-        if tx.send(msg).await.is_err() {
-            break;
-        }
-    }
-    log_debug!("{name}: exiting");
-}
-
 /// Downloads one stream until it ends, is stopped, or fails to store data.
 pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<StreamOutcome> {
     let dt = p.data_type;
     let name = format!("{}-download", dt.as_str());
-    let sqlite = s.opts.storage == StorageMode::Sqlite;
     let mode = s.opts.file_mode;
 
     if p.state.fragments > 0 && p.start_sq.is_some() {
@@ -155,7 +105,8 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     }
     let td = s.target_duration();
     let state = std::mem::take(&mut p.state);
-    let opened = sink::open(sqlite, &p.data_file, state, || fresh_start(&p, td), mode, &name).await;
+    let want_sqlite = s.opts.storage == StorageMode::Sqlite;
+    let opened = sink::open(want_sqlite, &p.data_file, state, || fresh_start(&p, td), mode, &name).await;
     let opened = match opened {
         Ok(o) => o,
         Err(e) => {
@@ -168,6 +119,15 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     let cur = opened.cur;
     p.state = opened.state;
     save_state(&p, mode);
+    // Only --recover-private keeps stream info and URLs in the database.
+    let recovering = s.opts.recover_private && sink.is_db();
+    let mut urls_saved = 0;
+    if recovering && let Sink::Db(db, _) = &sink {
+        match save_info(&s, dt, db, p.saved.as_deref()) {
+            Ok(n) => urls_saved = n,
+            Err(e) => log_warn!("{name}: Error saving the download info for later retries: {e}"),
+        }
+    }
 
     let end_seq = p.capture_duration.map(|d| cur + d.as_secs().div_ceil(u64::from(td)));
     let dispatch = Arc::new(Mutex::new(Dispatch {
@@ -178,8 +138,11 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
         skip: opened.skip,
     }));
 
-    let threads = s.opts.threads.max(1);
-    let (tx, mut rx) = mpsc::channel::<Msg>(threads * 2);
+    // A kept download whose stream can't be looked up anymore goes straight
+    // to recovery (with SQLite); the workers would only use up their tries.
+    let straight_to_recovery = recovering && s.is_unavailable();
+    let threads = if straight_to_recovery { 0 } else { s.opts.threads.max(1) };
+    let (tx, mut rx) = mpsc::channel::<Msg>(threads.max(1) * 2);
     // SQLite stores fragments as they arrive, so nothing waits in temp files.
     let frag_prefix = (s.opts.frag_files && !sink.is_db()).then(|| p.frag_prefix.clone());
     let mut workers = Vec::with_capacity(threads);
@@ -217,6 +180,9 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
                 Event::Wrote(n) => {
                     let max_seq = dispatch.lock().unwrap().max_seq;
                     record(&mut p, max_seq, n, mode);
+                    if recovering {
+                        save_new_urls(&s, dt, &sink, &mut urls_saved);
+                    }
                 }
                 Event::Gap(gap) => {
                     // Fragments near the head of an ended stream often never
@@ -245,26 +211,34 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     // --recover-private: recover what's missing if the stream went private,
     // then take the missing list from the database (it also covers
     // fragments after the point where the workers stopped).
-    let head = dispatch.lock().unwrap().max_seq;
-    if s.opts.recover_private
-        && store_err.is_none()
-        && !s.is_stopping()
-        && let Sink::Db(db, _) = &mut sink
-        && let Some(head) = head
-    {
-        let mut span = Span { start: cur, head, end: end_seq };
-        if s.is_unavailable() {
-            match recover(&s, dt, db, span, |n| record(&mut p, Some(head), n, mode)).await {
-                Ok(sp) => span = sp,
-                Err(e) => {
-                    log_error!("{name}: Error storing recovered fragments: {e}");
-                    store_err = Some(e);
+    let mut head = dispatch.lock().unwrap().max_seq;
+    let mut retry_until = None;
+    if recovering && let Sink::Db(db, _) = &mut sink {
+        if store_err.is_none()
+            && !s.is_stopping()
+            && let Some(h) = head
+        {
+            let mut span = Span { start: cur, head: h, end: end_seq };
+            if s.is_unavailable() {
+                match recover(&s, dt, db, span, |n| record(&mut p, Some(h), n, mode)).await {
+                    Ok(sp) => span = sp,
+                    Err(e) => {
+                        log_error!("{name}: Error storing recovered fragments: {e}");
+                        store_err = Some(e);
+                    }
                 }
             }
+            head = Some(span.head);
+            match db.stored() {
+                Ok(stored) => skipped = span.missing(&stored),
+                Err(e) => store_err = store_err.or(Some(e)),
+            }
         }
-        match db.stored() {
-            Ok(stored) => skipped = span.missing(&stored),
-            Err(e) => store_err = store_err.or(Some(e)),
+        if let Err(e) = save_end(&s, dt, db, head) {
+            log_warn!("{name}: Error saving the download info for later retries: {e}");
+        }
+        if !skipped.is_empty() {
+            retry_until = usable_until(&s.known_urls(dt));
         }
     }
     sink.finish(&name, mode).await?;
@@ -273,7 +247,7 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     }
     skipped.sort_unstable();
     log_debug!("{name} thread closing");
-    Ok(StreamOutcome { state: p.state, skipped })
+    Ok(StreamOutcome { state: p.state, skipped, retry_until })
 }
 
 /// Loads a saved state file, if present and valid.

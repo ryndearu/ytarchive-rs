@@ -12,6 +12,7 @@ mod gvideo;
 mod http;
 mod input_url;
 mod interrupt;
+mod kept;
 mod live_from;
 mod log;
 mod monitor;

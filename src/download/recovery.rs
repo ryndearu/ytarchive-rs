@@ -61,6 +61,23 @@ fn unix_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
+/// The URLs that haven't expired.
+fn usable(urls: Vec<FragmentUrl>) -> Vec<FragmentUrl> {
+    let now = unix_now();
+    urls.into_iter().filter(|u| !u.is_expired(now)).collect()
+}
+
+/// Until when (Unix seconds) at least one of `urls` works; `u64::MAX` for
+/// URLs without an `expire` parameter, `None` if all have expired.
+pub fn usable_until(urls: &[FragmentUrl]) -> Option<u64> {
+    usable(urls.to_vec()).iter().map(|u| u.expires_at().unwrap_or(u64::MAX)).max()
+}
+
+/// Local time for Unix seconds, for messages.
+pub fn local_time(unix: u64) -> String {
+    local_unix_timestamp(i64::try_from(unix).unwrap_or(i64::MAX))
+}
+
 /// Tries `seq` once with each URL, starting at a different one each round.
 async fn fetch(s: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, offset: usize) -> (u64, Option<Fragment>) {
     for i in 0..urls.len() {
@@ -123,17 +140,14 @@ pub async fn recover(
                 _ = tokio::time::sleep(ROUND_INTERVAL) => {}
             }
         }
-        let now = unix_now();
-        let urls: Vec<FragmentUrl> = s.known_urls(dt).into_iter().filter(|u| !u.is_expired(now)).collect();
+        let urls = usable(s.known_urls(dt));
         if urls.is_empty() {
             log_warn!("{name}: The download URLs have expired; {} fragment(s) can't be recovered", missing.len());
             break;
         }
         if round == 0 {
-            let until = urls.iter().filter_map(FragmentUrl::expires_at).max();
-            let until = until.map_or(String::new(), |t| {
-                format!(" (they work until about {})", local_unix_timestamp(t as i64))
-            });
+            let until = usable_until(&urls).filter(|&t| t != u64::MAX);
+            let until = until.map_or(String::new(), |t| format!(" (they work until about {})", local_time(t)));
             log_warn!(
                 "{name}: The stream is no longer available. Trying to recover {} missing fragment(s) with the download URLs already in use{until}",
                 missing.len()

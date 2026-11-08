@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use crate::mux::{self, MuxCommand};
 use crate::output::OutputPlan;
 use crate::prompt::get_yes_no;
+use crate::stream_meta::local_unix_timestamp;
 use crate::types::{Action, Options};
 use crate::util::{set_mode, try_delete, try_move};
 use crate::{log_error, log_general, log_warn};
@@ -32,6 +33,10 @@ pub struct Finish<'a> {
     /// Fragment counts, for the audio/video mismatch warning.
     pub audio_frags: Option<u64>,
     pub video_frags: Option<u64>,
+    /// Fragments are missing but can be retried by running again until
+    /// this time (Unix seconds, `u64::MAX` if unknown): keep the temp dir
+    /// with the database, and the state files that lead to it.
+    pub keep_for_retry: Option<u64>,
 }
 
 async fn decide(action: Action, question: &str) -> bool {
@@ -57,6 +62,30 @@ impl Finish<'_> {
                 try_delete(f);
             }
         }
+    }
+
+    /// `keep_for_retry`, unless state files are disabled (a later run
+    /// couldn't find the data then).
+    fn retry_until(&self) -> Option<u64> {
+        self.keep_for_retry.filter(|_| !self.opts.disable_save_state)
+    }
+
+    /// After merging: removes the temp dir, or keeps it for retrying.
+    fn cleanup_or_keep(&self, moves_ok: bool) {
+        let Some(until) = self.retry_until() else {
+            self.cleanup_temp(moves_ok);
+            return;
+        };
+        let until = if until == u64::MAX {
+            String::new()
+        } else {
+            format!(" (before about {}, when the download URLs expire)", local_unix_timestamp(i64::try_from(until).unwrap_or(i64::MAX)))
+        };
+        log_warn!(
+            "Some fragments are still missing. The downloaded data was kept in {} so they can be retried: run the same command again{until}.",
+            self.plan.temp_dir.display()
+        );
+        log_warn!("Delete that folder if you don't want to retry.");
     }
 
     fn cleanup_temp(&self, moves_ok: bool) {
@@ -92,7 +121,9 @@ impl Finish<'_> {
     /// Moves files into place and muxes. Returns the exit code.
     pub async fn finish(&self) -> i32 {
         let o = self.opts;
-        self.delete_state_files();
+        if self.retry_until().is_none() {
+            self.delete_state_files();
+        }
         log_general!("Download Finished");
 
         if let (Some(a), Some(v)) = (self.audio_frags, self.video_frags)
@@ -115,7 +146,7 @@ impl Finish<'_> {
         }
 
         if o.write_mux_file {
-            self.cleanup_temp(moves_ok);
+            self.cleanup_or_keep(moves_ok);
             return if moves_ok { 0 } else { 1 };
         }
 
@@ -124,7 +155,7 @@ impl Finish<'_> {
                 "{} not found. Please install ffmpeg or provide a location using --ffmpeg-path",
                 o.ffmpeg_path
             );
-            self.cleanup_temp(moves_ok);
+            self.cleanup_or_keep(moves_ok);
             return 1;
         }
 
@@ -145,7 +176,7 @@ impl Finish<'_> {
             }
         }
 
-        self.cleanup_temp(moves_ok);
+        self.cleanup_or_keep(moves_ok);
         if code != 0 {
             return code;
         }

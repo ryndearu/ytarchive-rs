@@ -20,6 +20,16 @@ impl FragmentUrl {
         }
     }
 
+    /// The text around the sequence number, for storing the URL.
+    pub fn parts(&self) -> (&str, &str) {
+        (&self.prefix, &self.suffix)
+    }
+
+    /// Rebuilds a URL stored with `parts`.
+    pub fn from_parts(prefix: String, suffix: String) -> Self {
+        Self { prefix, suffix }
+    }
+
     pub fn for_seq(&self, seq: u64) -> String {
         format!("{}{seq}{}", self.prefix, self.suffix)
     }

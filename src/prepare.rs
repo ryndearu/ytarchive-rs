@@ -28,6 +28,9 @@ pub struct Prepared {
     pub thumbnail_url: String,
     /// Qualities the stream offers and their codecs.
     pub available: Vec<(&'static str, Vec<VideoCodec>)>,
+    /// Rebuilt from a kept download because the stream can no longer be
+    /// looked up; missing fragments go straight to recovery.
+    pub unavailable: bool,
 }
 
 /// A scheduled stream found by `--info-only` (which doesn't wait).
@@ -64,6 +67,7 @@ pub async fn prepare(
             metadata: MetaInfo::new(),
             thumbnail_url: String::new(),
             available: Vec::new(),
+            unavailable: false,
         });
     }
 
@@ -88,6 +92,7 @@ pub async fn prepare(
         metadata: ex.metadata.clone(),
         thumbnail_url: ex.thumbnail.clone(),
         available: std::mem::take(&mut ex.available),
+        unavailable: false,
         extractor: Some(ex),
     })
 }

@@ -101,7 +101,6 @@ impl Session {
         self.unavailable.load(Ordering::Relaxed)
     }
 
-    #[cfg(test)]
     pub fn set_unavailable(&self) {
         self.unavailable.store(true, Ordering::Relaxed);
     }

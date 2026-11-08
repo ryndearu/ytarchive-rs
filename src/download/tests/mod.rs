@@ -45,12 +45,15 @@ fn expected(seq: u64, first: bool) -> Vec<u8> {
 
 /// Serves fragments `0..=head`; `fail` lists sequences that always 500.
 async fn serve(head: u64, fail: Vec<u64>) -> String {
-    serve_until(head, fail, u64::MAX).await
+    serve_until(head, fail, u64::MAX, None).await
 }
+
+/// Called by the fake server on its first 403.
+type OnForbidden = Arc<dyn Fn() + Send + Sync>;
 
 /// Like `serve`, but sequences from `forbidden` on get 403, as for a stream
 /// that went private.
-async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64) -> String {
+async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64, on_forbidden: Option<OnForbidden>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let fail = Arc::new(fail);
@@ -58,6 +61,7 @@ async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64) -> String {
         loop {
             let Ok((mut sock, _)) = listener.accept().await else { return };
             let fail = fail.clone();
+            let on_forbidden = on_forbidden.clone();
             tokio::spawn(async move {
                 let mut buf = vec![0u8; 8192];
                 let mut n = 0;
@@ -75,6 +79,9 @@ async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64) -> String {
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(u64::MAX);
                 let (status, body) = if seq >= forbidden && seq != u64::MAX {
+                    if let Some(f) = &on_forbidden {
+                        f();
+                    }
                     ("403 Forbidden", Vec::new())
                 } else if fail.contains(&seq) {
                     ("500 Internal Server Error", Vec::new())
@@ -120,6 +127,7 @@ fn params(
             capture_duration: None,
             retry_sleep: Duration::from_millis(10),
             progress: tx,
+            saved: None,
         },
         rx,
     )

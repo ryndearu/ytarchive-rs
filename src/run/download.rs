@@ -1,8 +1,6 @@
-//! Top-level flow for one stream: resolve the URL, fetch info, download,
-//! and finish (merge or handle an interrupt).
+//! Downloading a prepared stream: output paths, the audio/video download
+//! tasks, and finishing (merge or interrupt handling).
 
-use std::collections::HashSet;
-use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,89 +10,18 @@ use tokio_util::sync::CancellationToken;
 use crate::download::{download_stream, StreamParams};
 use crate::finish::{Finish, Moved};
 use crate::http::Http;
-use crate::input_url::InputUrl;
 use crate::interrupt::Interrupt;
-use crate::live_from::{resolve_live_from, start_delay};
+use crate::live_from::start_delay;
 use crate::mux::{command_line, ffmpeg_args, MuxInput};
 use crate::output::{ensure_dir, final_location, load_states, temp_dir, OutputPlan};
-use crate::prepare::{prepare, print_info, print_upcoming, PrepareError, Prepared};
+use crate::prepare::Prepared;
 use crate::progress::{self, Totals};
 use crate::session::Session;
-use crate::types::{DataType, Options, AUDIO_ITAG, DEFAULT_POLL_SECS};
+use crate::types::{DataType, Options, SavedDownload, AUDIO_ITAG, DEFAULT_POLL_SECS};
 use crate::util::{seconds_to_duration_and_time_str, write_file_with_mode};
 use crate::{log_debug, log_error, log_general, log_info, log_warn};
 
-pub fn exit_code(code: i32) -> ExitCode {
-    ExitCode::from(u8::try_from(code).unwrap_or(1))
-}
-
-/// Result of one run: exit code, the video it was for (if resolved), and
-/// whether a download was attempted.
-pub struct RunResult {
-    pub code: i32,
-    pub video_id: Option<String>,
-    pub downloaded: bool,
-}
-
-impl RunResult {
-    fn code(code: i32) -> Self {
-        Self { code, video_id: None, downloaded: false }
-    }
-}
-
-/// Downloads one stream. `skip_ids`: videos already recorded by the channel
-/// monitor, which are not downloaded again.
-pub async fn run(
-    opts: Arc<Options>,
-    http: Http,
-    input: &InputUrl,
-    interrupt: Arc<Interrupt>,
-    skip_ids: &HashSet<String>,
-) -> RunResult {
-    let cancel = interrupt.child_token();
-    let prepared = match prepare(&opts, &http, &cancel, input).await {
-        Ok(p) => p,
-        Err(PrepareError::Upcoming(u)) => {
-            print_upcoming(&u);
-            return RunResult { code: 0, video_id: Some(u.video_id), downloaded: false };
-        }
-        Err(PrepareError::Failed) => {
-            return RunResult::code(if interrupt.is_set() { 2 } else { 1 });
-        }
-    };
-    if skip_ids.contains(&prepared.video_id) {
-        log_info!("{} was already downloaded; not downloading it again", prepared.video_id);
-        return RunResult { code: 0, video_id: Some(prepared.video_id), downloaded: false };
-    }
-    let video_id = Some(prepared.video_id.clone());
-
-    let live_from_sq = match (&opts.live_from, prepared.last_sq) {
-        (None, _) => None,
-        (Some(v), Some(last)) => match resolve_live_from(v, last, prepared.target_duration) {
-            Ok(lf) => {
-                log_general!("{}", lf.message);
-                Some(lf.start_sq)
-            }
-            Err(e) => {
-                log_error!("{e}");
-                return RunResult::code(1);
-            }
-        },
-        (Some(_), None) => {
-            log_error!("--live-from needs the current stream position, which could not be determined");
-            return RunResult::code(1);
-        }
-    };
-
-    if opts.info_only {
-        print_info(&prepared, input);
-        return RunResult { code: 0, video_id, downloaded: false };
-    }
-    let code = download(opts, http, cancel, prepared, live_from_sq, interrupt).await;
-    RunResult { code, video_id, downloaded: true }
-}
-
-async fn download(
+pub(super) async fn download(
     opts: Arc<Options>,
     http: Http,
     cancel: CancellationToken,
@@ -231,6 +158,18 @@ async fn download(
         p.live,
         p.target_duration,
     );
+    if p.unavailable {
+        session.set_unavailable();
+    }
+    let saved = Arc::new(SavedDownload {
+        video_id: p.video_id.clone(),
+        format_info: p.format_info.clone(),
+        metadata: p.metadata.clone(),
+        thumbnail_url: p.thumbnail_url.clone(),
+        target_duration: p.target_duration,
+        label: p.sel.label.clone(),
+        video_itag: p.sel.video_itag,
+    });
     let refresher = session.spawn_periodic_refresh();
 
     let mut initial = Totals::default();
@@ -262,12 +201,14 @@ async fn download(
                 capture_duration: opts.capture_duration,
                 retry_sleep: Duration::from_secs(u64::from(p.target_duration.max(1))),
                 progress: tx.clone(),
+                saved: Some(saved.clone()),
             },
         )));
     }
     drop(tx);
 
     let mut frags = [None, None];
+    let mut retry_until: Option<u64> = None;
     let mut state_files = Vec::new();
     for (task, (dt, itag)) in tasks.into_iter().zip(&streams) {
         state_files.push(crate::output::state_file(&opts, &p.video_id, *itag));
@@ -282,6 +223,9 @@ async fn download(
                     );
                 }
                 frags[dt.idx()] = Some(out.state.fragments);
+                if let Some(t) = out.retry_until {
+                    retry_until = Some(retry_until.map_or(t, |r| r.max(t)));
+                }
             }
             Ok(Err(e)) => log_error!("{} download failed: {e}", dt.as_str()),
             Err(e) => log_error!("{} download task panicked: {e}", dt.as_str()),
@@ -307,6 +251,7 @@ async fn download(
         state_files,
         audio_frags: frags[DataType::Audio.idx()],
         video_frags: frags[DataType::Video.idx()],
+        keep_for_retry: retry_until,
     };
     if interrupt.is_set()
         && let Some(code) = fin.on_cancel().await
