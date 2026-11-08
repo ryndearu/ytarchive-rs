@@ -1,15 +1,16 @@
 //! Downloading one stream (audio or video): parallel fragment workers feeding
 //! a storage sink, with resumable state.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
 
+use super::dispatch::{Dispatch, Take};
 use super::fragment::download_fragment;
-use super::sink::{self, Event};
+use super::recovery::{recover, Span};
+use super::sink::{self, Event, Sink};
 use super::ts_sink::remove_frag_file;
 use crate::error::Result;
 use crate::live_from::seekable_start_sq;
@@ -53,55 +54,6 @@ enum Msg {
     Missing(u64),
 }
 
-/// Hands out sequence numbers to workers, never running more than one
-/// fragment past the newest known one.
-#[derive(Debug)]
-struct Dispatch {
-    next: u64,
-    max_seq: Option<u64>,
-    end_seq: Option<u64>,
-    in_flight: usize,
-    /// Already stored (SQLite resume).
-    skip: HashSet<u64>,
-}
-
-enum Take {
-    Seq(u64, Option<u64>),
-    Wait,
-    Done,
-}
-
-impl Dispatch {
-    fn take(&mut self, live: bool) -> Take {
-        while self.skip.remove(&self.next) {
-            self.next += 1;
-        }
-        if self.end_seq.is_some_and(|e| self.next >= e) {
-            log_debug!("Reached the maximum duration specified by --capture-duration.");
-            return Take::Done;
-        }
-        if let Some(max) = self.max_seq {
-            if !live && self.next >= max {
-                return Take::Done;
-            }
-            if self.next > max + 1 && self.in_flight > 0 {
-                return Take::Wait;
-            }
-        }
-        let seq = self.next;
-        self.next += 1;
-        self.in_flight += 1;
-        Take::Seq(seq, self.max_seq)
-    }
-
-    fn complete(&mut self, head: Option<u64>) {
-        self.in_flight = self.in_flight.saturating_sub(1);
-        if let Some(h) = head {
-            self.max_seq = Some(self.max_seq.map_or(h, |m| m.max(h)));
-        }
-    }
-}
-
 /// Where a fresh download starts: `--live-from`/`--start-delay`, else the
 /// beginning (or as far back as YouTube still serves).
 fn fresh_start(p: &StreamParams, target_duration: u32) -> u64 {
@@ -118,6 +70,19 @@ fn fresh_start(p: &StreamParams, target_duration: u32) -> u64 {
         );
     }
     cur
+}
+
+/// Accounts for a stored fragment of `n` bytes.
+fn record(p: &mut StreamParams, max_seq: Option<u64>, n: u64, mode: u32) {
+    p.state.fragments += 1;
+    p.state.size += n;
+    save_state(p, mode);
+    let _ = p.progress.send(ProgressInfo {
+        data_type: p.data_type,
+        byte_count: n,
+        max_seq,
+        start_frag: p.state.start_frag,
+    });
 }
 
 fn save_state(p: &StreamParams, mode: u32) {
@@ -216,7 +181,7 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     let threads = s.opts.threads.max(1);
     let (tx, mut rx) = mpsc::channel::<Msg>(threads * 2);
     // SQLite stores fragments as they arrive, so nothing waits in temp files.
-    let frag_prefix = (s.opts.frag_files && !sqlite).then(|| p.frag_prefix.clone());
+    let frag_prefix = (s.opts.frag_files && !sink.is_db()).then(|| p.frag_prefix.clone());
     let mut workers = Vec::with_capacity(threads);
     for i in 1..=threads {
         workers.push(tokio::spawn(worker(
@@ -250,15 +215,8 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
         for ev in events {
             match ev {
                 Event::Wrote(n) => {
-                    p.state.fragments += 1;
-                    p.state.size += n;
-                    save_state(&p, mode);
-                    let _ = p.progress.send(ProgressInfo {
-                        data_type: dt,
-                        byte_count: n,
-                        max_seq: dispatch.lock().unwrap().max_seq,
-                        start_frag: p.state.start_frag,
-                    });
+                    let max_seq = dispatch.lock().unwrap().max_seq;
+                    record(&mut p, max_seq, n, mode);
                 }
                 Event::Gap(gap) => {
                     // Fragments near the head of an ended stream often never
@@ -282,6 +240,32 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     }
     for w in workers {
         let _ = w.await;
+    }
+
+    // --recover-private: recover what's missing if the stream went private,
+    // then take the missing list from the database (it also covers
+    // fragments after the point where the workers stopped).
+    let head = dispatch.lock().unwrap().max_seq;
+    if s.opts.recover_private
+        && store_err.is_none()
+        && !s.is_stopping()
+        && let Sink::Db(db, _) = &mut sink
+        && let Some(head) = head
+    {
+        let mut span = Span { start: cur, head, end: end_seq };
+        if s.is_unavailable() {
+            match recover(&s, dt, db, span, |n| record(&mut p, Some(head), n, mode)).await {
+                Ok(sp) => span = sp,
+                Err(e) => {
+                    log_error!("{name}: Error storing recovered fragments: {e}");
+                    store_err = Some(e);
+                }
+            }
+        }
+        match db.stored() {
+            Ok(stored) => skipped = span.missing(&stored),
+            Err(e) => store_err = store_err.or(Some(e)),
+        }
     }
     sink.finish(&name, mode).await?;
     if let Some(e) = store_err {

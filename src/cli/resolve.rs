@@ -159,7 +159,9 @@ impl Cli {
             dir_mode: self.directory_permissions,
             threads: self.threads,
             frag_max_tries: self.retry_frags,
-            storage: if self.sqlite { StorageMode::Sqlite } else { StorageMode::DirectTs },
+            // Recovery stores fragments out of order, which needs SQLite.
+            storage: if self.sqlite || self.recover_private { StorageMode::Sqlite } else { StorageMode::DirectTs },
+            recover_private: self.recover_private,
             frag_files: !self.no_frag_files,
             disable_save_state: self.disable_save_state,
             wait: Action::from_flags(self.wait, self.no_wait),

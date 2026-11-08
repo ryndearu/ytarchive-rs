@@ -42,8 +42,20 @@ pub async fn open(
     mode: u32,
     name: &str,
 ) -> Result<Opened> {
-    if sqlite {
-        let sink = DbSink::open(&db_path(data_file), mode)?;
+    let db = db_path(data_file);
+    // A download is resumed in the storage it was started with, whatever
+    // the flags say now: a .ts download isn't replaced by an empty
+    // database's export (e.g. when rerun with --recover-private), and a
+    // database isn't ignored.
+    let resume_db = state.fragments > 0 && db.exists();
+    let resume_ts = state.fragments > 0 && !db.exists() && data_file.exists();
+    let use_db = resume_db || (sqlite && !resume_ts);
+    if use_db != sqlite {
+        let how = if use_db { "with SQLite" } else { "without SQLite" };
+        log_info!("{name}: Resuming {} {how}, as it was started", data_file.display());
+    }
+    if use_db {
+        let sink = DbSink::open(&db, mode)?;
         let skip = sink.stored()?;
         let (fragments, size) = sink.totals()?;
         let cur = if fragments > 0 && state.fragments > 0 {
@@ -73,6 +85,10 @@ pub async fn open(
 }
 
 impl Sink {
+    pub fn is_db(&self) -> bool {
+        matches!(self, Sink::Db(..))
+    }
+
     pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> Result<Vec<Event>> {
         match self {
             Sink::Ts(t) => Ok(t.push(seq, frag).await?),

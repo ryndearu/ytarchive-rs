@@ -1,5 +1,7 @@
 //! Downloader tests against a local fake googlevideo server.
 
+mod sqlite;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,6 +45,12 @@ fn expected(seq: u64, first: bool) -> Vec<u8> {
 
 /// Serves fragments `0..=head`; `fail` lists sequences that always 500.
 async fn serve(head: u64, fail: Vec<u64>) -> String {
+    serve_until(head, fail, u64::MAX).await
+}
+
+/// Like `serve`, but sequences from `forbidden` on get 403, as for a stream
+/// that went private.
+async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let fail = Arc::new(fail);
@@ -66,7 +74,9 @@ async fn serve(head: u64, fail: Vec<u64>) -> String {
                     .and_then(|path| path.rsplit("sq=").next())
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(u64::MAX);
-                let (status, body) = if fail.contains(&seq) {
+                let (status, body) = if seq >= forbidden && seq != u64::MAX {
+                    ("403 Forbidden", Vec::new())
+                } else if fail.contains(&seq) {
                     ("500 Internal Server Error", Vec::new())
                 } else if seq > head {
                     ("404 Not Found", Vec::new())
@@ -210,63 +220,6 @@ async fn skips_permanently_failing_fragment() {
         .filter(|i| *i != 3)
         .flat_map(|i| expected(i, i == 0))
         .collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    std::fs::remove_dir_all(&dir).unwrap();
-}
-
-fn sqlite_opts(threads: usize) -> Options {
-    Options {
-        storage: crate::types::StorageMode::Sqlite,
-        ..opts(threads, true)
-    }
-}
-
-#[tokio::test]
-async fn sqlite_downloads_and_exports_in_order() {
-    let url = serve(20, vec![]).await;
-    let dir = temp_dir("sqlite");
-    let s = Session::for_test(sqlite_opts(4), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (p, _rx) = params(&dir, 20, DownloadState::default());
-    let out = download_stream(s, p).await.unwrap();
-    let want: Vec<u8> = (0..20).flat_map(|i| expected(i, i == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    assert_eq!(out.state.fragments, 20);
-    assert!(dir.join("out.f140.sqlite").exists());
-    // No temp fragment files are used in SQLite mode.
-    assert!(!std::fs::read_dir(&dir)
-        .unwrap()
-        .any(|e| e.unwrap().file_name().to_string_lossy().contains(".frag")));
-    std::fs::remove_dir_all(&dir).unwrap();
-}
-
-#[tokio::test]
-async fn sqlite_resume_fills_gap() {
-    let dir = temp_dir("sqlite-resume");
-
-    // First run: fragment 3 always fails and is skipped.
-    let url = serve(10, vec![3]).await;
-    let s = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (p, _rx) = params(&dir, 10, DownloadState::default());
-    let first = download_stream(s, p).await.unwrap();
-    assert_eq!(first.skipped, [3]);
-    assert_eq!(first.state.fragments, 9);
-
-    // Second run against a healthy server resumes from the saved state and
-    // only needs the missing fragment.
-    let url = serve(10, vec![]).await;
-    let saved = load_state(&dir.join("out.f140.state")).unwrap();
-    let s = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (p, mut rx) = params(&dir, 10, saved);
-    let second = download_stream(s, p).await.unwrap();
-    assert!(second.skipped.is_empty());
-    assert_eq!(second.state.fragments, 10);
-    let mut fetched = 0;
-    while rx.try_recv().is_ok() {
-        fetched += 1;
-    }
-    assert_eq!(fetched, 1, "only the gap should be downloaded again");
-
-    let want: Vec<u8> = (0..10).flat_map(|i| expected(i, i == 0)).collect();
     assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
     std::fs::remove_dir_all(&dir).unwrap();
 }

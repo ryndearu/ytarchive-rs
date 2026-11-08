@@ -43,6 +43,19 @@ impl FragmentUrl {
     pub fn is_fragmented(&self) -> bool {
         is_fragmented(&self.prefix)
     }
+
+    /// When the URL stops working (its `expire` parameter, Unix seconds).
+    pub fn expires_at(&self) -> Option<u64> {
+        let url = url::Url::parse(self.base()).ok()?;
+        let (_, v) = url.query_pairs().find(|(k, _)| k == "expire")?;
+        v.parse().ok()
+    }
+
+    /// Whether the URL has expired by `now` (Unix seconds). URLs without
+    /// an `expire` parameter never do.
+    pub fn is_expired(&self, now: u64) -> bool {
+        self.expires_at().is_some_and(|e| e <= now)
+    }
 }
 
 pub fn is_fragmented(url: &str) -> bool {
@@ -89,6 +102,17 @@ mod tests {
         let u = FragmentUrl::with_sq_param("https://h/p");
         assert_eq!(u.for_seq(1), "https://h/p?sq=1");
         assert_eq!(u.base(), "https://h/p");
+    }
+
+    #[test]
+    fn expiry() {
+        let u = FragmentUrl::with_sq_param("https://h/videoplayback?expire=1700000000&itag=140");
+        assert_eq!(u.expires_at(), Some(1_700_000_000));
+        assert!(!u.is_expired(1_699_999_999));
+        assert!(u.is_expired(1_700_000_000));
+        let never = FragmentUrl::with_sq_param("https://h/videoplayback?itag=140");
+        assert_eq!(never.expires_at(), None);
+        assert!(!never.is_expired(u64::MAX));
     }
 
     #[test]

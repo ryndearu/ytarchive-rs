@@ -105,8 +105,21 @@ fn handle_download_error(s: &Session, st: &FragThreadState, err: &dyn std::fmt::
     }
 }
 
-fn header_u64(h: &reqwest::header::HeaderMap, name: &str) -> Option<u64> {
+pub(super) fn header_u64(h: &reqwest::header::HeaderMap, name: &str) -> Option<u64> {
     h.get(name)?.to_str().ok()?.trim().parse().ok()
+}
+
+/// The request for fragment `seq` from `url`, with the headers YouTube expects.
+pub(super) fn fragment_request(s: &Session, url: &FragmentUrl, seq: u64) -> reqwest::RequestBuilder {
+    let mut req = s.http.client.get(url.for_seq(seq)).header(ORIGIN, "https://www.youtube.com");
+    if let Some(host) = url.host() {
+        req = req.header(REFERER, format!("https://{host}/"));
+    }
+    req
+}
+
+pub(super) fn content_type(h: &reqwest::header::HeaderMap) -> String {
+    h.get(CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_string()
 }
 
 async fn sleep_or_stop(s: &Session, st: &FragThreadState) -> bool {
@@ -130,22 +143,12 @@ pub async fn download_fragment(
             return None;
         }
         let url = s.url(st.data_type)?;
-        let mut req = s.http.client.get(url.for_seq(st.seq)).header(ORIGIN, "https://www.youtube.com");
-        if let Some(host) = url.host() {
-            req = req.header(REFERER, format!("https://{host}/"));
-        }
-
-        match req.send().await {
+        match fragment_request(s, &url, st.seq).send().await {
             Err(e) => handle_download_error(s, st, &e),
             Ok(resp) if resp.status().as_u16() >= 400 => handle_http_error(s, st, resp.status()),
             Ok(resp) => {
                 let head = header_u64(resp.headers(), "x-head-seqnum");
-                let mime = resp
-                    .headers()
-                    .get(CONTENT_TYPE)
-                    .and_then(|v| v.to_str().ok())
-                    .unwrap_or("")
-                    .to_string();
+                let mime = content_type(resp.headers());
                 match resp.bytes().await {
                     Err(e) => handle_download_error(s, st, &e),
                     // Success with no data: the fragment isn't ready yet.

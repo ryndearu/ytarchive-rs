@@ -77,8 +77,17 @@ fn defaults() {
     assert_eq!(o.wait, Action::Ask);
     assert!(o.frag_files);
     assert_eq!(o.storage, StorageMode::DirectTs);
+    assert!(!o.recover_private);
     assert_eq!(o.windows_filenames, cfg!(windows));
     assert_eq!(o.codecs, None, "default codec depends on the quality");
+}
+
+#[test]
+fn storage_flags() {
+    let o = opts(&["y", "--sqlite", "u"]).unwrap();
+    assert_eq!((o.storage, o.recover_private), (StorageMode::Sqlite, false));
+    let o = opts(&["y", "--recover-private", "u"]).unwrap();
+    assert_eq!((o.storage, o.recover_private), (StorageMode::Sqlite, true));
 }
 
 #[test]

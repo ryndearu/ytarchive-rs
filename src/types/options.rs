@@ -177,6 +177,9 @@ pub struct Options {
     /// 0 = retry indefinitely.
     pub frag_max_tries: u32,
     pub storage: StorageMode,
+    /// `--recover-private`: recover fragments after the stream goes private
+    /// (needs `StorageMode::Sqlite`, which the flag turns on).
+    pub recover_private: bool,
     /// Write out-of-order fragments to temp files instead of RAM.
     pub frag_files: bool,
     pub disable_save_state: bool,

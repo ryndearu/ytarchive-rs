@@ -106,6 +106,9 @@ pub struct Cli {
     /// Store fragments in a SQLite database (more robust to gaps).
     #[arg(long, help_heading = DOWNLOAD)]
     pub sqlite: bool,
+    /// If the stream goes private, retry missing fragments with the URLs already in use (implies --sqlite).
+    #[arg(long, help_heading = DOWNLOAD)]
+    pub recover_private: bool,
 
     // ---- format selection ----
     /// Video codec preference, e.g. vp9/h264. Default: h264, or best when the quality is best.

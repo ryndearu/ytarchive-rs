@@ -1,7 +1,9 @@
 //! Fragment downloading.
 
 mod db_sink;
+mod dispatch;
 mod fragment;
+mod recovery;
 mod sink;
 mod stream;
 #[cfg(test)]

@@ -27,6 +27,9 @@ pub struct Session {
     unavailable: AtomicBool,
     target_duration: AtomicU32,
     urls: [RwLock<Option<FragmentUrl>>; 2],
+    /// Every URL used so far, oldest first. Recovery tries them all, since
+    /// a URL from an earlier refresh may still work when a newer one doesn't.
+    known: [Mutex<Vec<FragmentUrl>>; 2],
     finished: [AtomicBool; 2],
     last_url_refresh: Mutex<Instant>,
 }
@@ -53,6 +56,7 @@ impl Session {
             unavailable: AtomicBool::new(false),
             target_duration: AtomicU32::new(target_duration.max(1)),
             urls: [RwLock::new(None), RwLock::new(None)],
+            known: [Mutex::new(Vec::new()), Mutex::new(Vec::new())],
             finished: [AtomicBool::new(false), AtomicBool::new(false)],
             last_url_refresh: Mutex::new(Instant::now()),
         };
@@ -61,12 +65,32 @@ impl Session {
     }
 
     fn apply_selection(&self, sel: &FormatSelection) {
-        *self.urls[DataType::Audio.idx()].write().unwrap() = sel.audio_url.clone();
-        *self.urls[DataType::Video.idx()].write().unwrap() = sel.video_url.clone();
+        self.set_url(DataType::Audio, sel.audio_url.clone());
+        self.set_url(DataType::Video, sel.video_url.clone());
+    }
+
+    fn set_url(&self, dt: DataType, url: Option<FragmentUrl>) {
+        if let Some(u) = &url {
+            self.remember(dt, u);
+        }
+        *self.urls[dt.idx()].write().unwrap() = url;
+    }
+
+    /// Adds `url` to the URLs recovery can use.
+    pub fn remember(&self, dt: DataType, url: &FragmentUrl) {
+        let mut known = self.known[dt.idx()].lock().unwrap();
+        if !known.contains(url) {
+            known.push(url.clone());
+        }
     }
 
     pub fn url(&self, dt: DataType) -> Option<FragmentUrl> {
         self.urls[dt.idx()].read().unwrap().clone()
+    }
+
+    /// Every URL used for `dt`, newest first.
+    pub fn known_urls(&self, dt: DataType) -> Vec<FragmentUrl> {
+        self.known[dt.idx()].lock().unwrap().iter().rev().cloned().collect()
     }
 
     pub fn is_live(&self) -> bool {
@@ -75,6 +99,11 @@ impl Session {
 
     pub fn is_unavailable(&self) -> bool {
         self.unavailable.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub fn set_unavailable(&self) {
+        self.unavailable.store(true, Ordering::Relaxed);
     }
 
     pub fn target_duration(&self) -> u32 {
@@ -179,10 +208,10 @@ impl Session {
             return;
         }
         if let Some(Some(a)) = audio {
-            *self.urls[DataType::Audio.idx()].write().unwrap() = Some(a);
+            self.set_url(DataType::Audio, Some(a));
         }
         if let Some(Some(v)) = video {
-            *self.urls[DataType::Video.idx()].write().unwrap() = Some(v);
+            self.set_url(DataType::Video, Some(v));
         }
     }
 
