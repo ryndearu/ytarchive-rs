@@ -48,7 +48,7 @@ The links download the latest release directly. Nightly downloads, with the newe
 The Linux builds are static and run on any distribution.
 
 - **Releases** (`v*`) are published manually and are the recommended builds. Linux x64 and Windows x64 are tested with real streams; the others only through CI (see [docs/NOT_TESTED.md](docs/NOT_TESTED.md)). `ytarchive --version` shows the version and build date, e.g. `ytarchive v0.1.0 (2026-11-07)`.
-- **Nightly** is a pre-release rebuilt each day when `main` has new code commits (docs-only changes don't trigger it). It replaces the previous nightly, and its description lists (and links) the commits since the last release. Nightly is built only for Windows x64, Linux x64, and macOS arm64. Its version includes the commit, e.g. `ytarchive v0.1.0-abc1234 (2026-11-07)`.
+- **Nightly** is a pre-release rebuilt every Friday (00:00 UTC) when `main` has new code commits (docs-only changes don't trigger it). It replaces the previous nightly, and its description lists (and links) the commits since the last release. Nightly is built only for Windows x64, Linux x64, and macOS arm64. Its version includes the commit, e.g. `ytarchive v0.1.0-abc1234 (2026-11-07)`.
 
 The version is also printed when ytarchive starts (unless `-q`).
 
