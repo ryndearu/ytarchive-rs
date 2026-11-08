@@ -68,6 +68,18 @@ fn picks_best_with_codec_priority() {
 }
 
 #[test]
+fn best_picks_the_quality_and_codec_picks_the_codec() {
+    // --codec h264 with best: the highest quality, in H.264.
+    let h264 = complete_codec_order(&[H264]);
+    let s = try_select(&urls(&[140, 136, 247, 398]), &sel(&["best"]), Some(&h264), false).unwrap();
+    assert_eq!((s.label.as_str(), s.codec), ("720p", Some(H264)));
+    // H.264 not offered at the best quality: that quality in the next codec,
+    // not a lower quality in H.264 (as in Go).
+    let s = try_select(&urls(&[140, 136, 248]), &sel(&["best"]), Some(&h264), false).unwrap();
+    assert_eq!((s.label.as_str(), s.codec), ("1080p", Some(Vp9)));
+}
+
+#[test]
 fn default_codec_order_is_av1_vp9_h264() {
     let u = urls(&[140, 136, 247, 398]);
     let s = try_select(&u, &sel(&["720p"]), None, false).unwrap();

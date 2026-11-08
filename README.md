@@ -187,6 +187,8 @@ With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-
 
 Without a codec option, AV1 > VP9 > H.264 is used, as in Go. The codec is never asked for.
 
+`best` and a codec option combine: `best` picks the highest quality the stream offers, and the codec option picks the codec at that quality, falling back to the other codecs if it isn't offered there (as in Go). For example, `--codec h264 URL best` gets the best quality in H.264 when it has H.264.
+
 ### Examples
 
 ```sh
