@@ -1,11 +1,11 @@
 name: Nightly
 
-# Daily pre-release from main. Skipped when main hasn't changed since the last
-# nightly, or when every new commit is a docs commit ("docs: ..."). The previous nightly pre-release (and its tag) is replaced, and the
+# Weekly pre-release from main (Fridays 00:00 UTC, or by hand). Skipped when
+# main hasn't changed since the last nightly, or when every new commit is a docs commit ("docs: ..."). The previous nightly pre-release (and its tag) is replaced, and the
 # description lists the commits since the last manual v* release.
 on:
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "0 0 * * 5"
   workflow_dispatch:
 
 permissions:
