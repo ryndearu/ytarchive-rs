@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::Extractor;
 use crate::log_general;
-use crate::prompt::get_user_input;
+use crate::prompt::{get_line_or_eof, get_user_input};
 use crate::types::{Action, DEFAULT_POLL_SECS};
 
 /// Sleeps unless cancelled first. Returns `false` if cancelled.
@@ -40,6 +40,28 @@ pub fn parse_poll_secs(answer: &str) -> u64 {
         .unwrap_or(DEFAULT_POLL_SECS)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum WaitChoice {
+    Wait,
+    Poll,
+    No,
+}
+
+/// Reads the scheduled-stream answer. Unlike Go (`wait/poll/[no]`, Enter =
+/// no), Enter means wait; the old words still work. `None` (stdin closed,
+/// e.g. a script or cron job) stays "no" so such a run can't hang waiting.
+pub fn parse_wait_choice(answer: Option<&str>) -> WaitChoice {
+    let Some(a) = answer else { return WaitChoice::No };
+    let a = a.trim().to_lowercase();
+    if a.is_empty() || a == "1" || a.starts_with("wait") {
+        WaitChoice::Wait
+    } else if a == "2" || a.starts_with("poll") {
+        WaitChoice::Poll
+    } else {
+        WaitChoice::No
+    }
+}
+
 impl Extractor {
     /// Asks whether to wait for the scheduled time, poll, or give up.
     pub(super) async fn ask_wait_for_stream(&mut self) -> bool {
@@ -47,19 +69,21 @@ impl Extractor {
             "This stream is likely a future scheduled livestream.\n\
              Would you like to wait for the scheduled start time, poll until it starts, or not wait?"
         );
-        let choice = get_user_input("wait/poll/[no]: ").await.to_lowercase();
-        if choice.starts_with("wait") {
-            self.wait = Action::Do;
-            true
-        } else if choice.starts_with("poll") {
-            let secs = get_user_input(&format!(
-                "Input poll interval in seconds (minimum {DEFAULT_POLL_SECS}): "
-            ))
-            .await;
-            self.retry_secs = Some(parse_poll_secs(&secs));
-            true
-        } else {
-            false
+        let answer = get_line_or_eof("1) wait  2) poll  3) no (default 1): ").await;
+        match parse_wait_choice(answer.as_deref()) {
+            WaitChoice::Wait => {
+                self.wait = Action::Do;
+                true
+            }
+            WaitChoice::Poll => {
+                let secs = get_user_input(&format!(
+                    "Input poll interval in seconds (minimum {DEFAULT_POLL_SECS}): "
+                ))
+                .await;
+                self.retry_secs = Some(parse_poll_secs(&secs));
+                true
+            }
+            WaitChoice::No => false,
         }
     }
 
@@ -94,6 +118,24 @@ mod tests {
         assert_eq!(parse_poll_secs("60"), 60);
         assert_eq!(parse_poll_secs("5"), DEFAULT_POLL_SECS);
         assert_eq!(parse_poll_secs("x"), DEFAULT_POLL_SECS);
+    }
+
+    #[test]
+    fn wait_choice() {
+        use WaitChoice::*;
+        for (answer, want) in [
+            (Some(""), Wait),
+            (Some("1"), Wait),
+            (Some("Wait"), Wait),
+            (Some("2"), Poll),
+            (Some("poll"), Poll),
+            (Some("3"), No),
+            (Some("no"), No),
+            (Some("x"), No),
+            (None, No),
+        ] {
+            assert_eq!(parse_wait_choice(answer), want, "{answer:?}");
+        }
     }
 
     #[tokio::test]
