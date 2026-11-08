@@ -132,6 +132,13 @@ async fn codec_is_not_asked_for() {
 }
 
 #[tokio::test]
+async fn unavailable_quality_falls_back_to_best() {
+    let u = urls(&[140, 136, 247]);
+    let s = select_interactive(&u, sel(&["1080p"]), None, false).await.unwrap();
+    assert_eq!((s.label.as_str(), s.codec), ("720p", Some(Vp9)));
+}
+
+#[tokio::test]
 async fn given_codecs_are_used() {
     let u = urls(&[140, 136, 247, 398]);
     let codecs = complete_codec_order(&[Vp9]);

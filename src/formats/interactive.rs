@@ -31,8 +31,9 @@ pub async fn prompt_quality(qualities: &[&str], waiting: bool) -> Vec<String> {
 }
 
 /// Picks formats from `selected`, prompting for a quality when nothing was
-/// given or none of the given qualities are available. The codec is never
-/// asked for: `codecs` (from the CLI) or the default order is used.
+/// given. If none of the given qualities are available, `best` is used
+/// without asking. The codec is never asked for: `codecs` (from the CLI) or
+/// the default order is used.
 pub async fn select_interactive(
     urls: &UrlMap,
     mut selected: Vec<String>,
@@ -42,20 +43,23 @@ pub async fn select_interactive(
     if urls.is_empty() {
         return Err(Error::NoUrls("this stream".into()));
     }
-    let available = super::available_qualities(urls);
-    loop {
-        if selected.is_empty() {
-            selected = prompt_quality(&available, false).await;
-        }
-        let Some(sel) = try_select(urls, &selected, codecs, video_only) else {
-            log_general!("The qualities you selected ended up unavailable for this stream");
-            log_general!("You will now have the option to select from the available qualities");
-            selected.clear();
-            continue;
-        };
-        if let Some(codec) = sel.codec {
-            log_general!("Selected quality: {} ({})", sel.label, codec.name());
-        }
-        return Ok(sel);
+    if selected.is_empty() {
+        selected = prompt_quality(&super::available_qualities(urls), false).await;
     }
+    let sel = match try_select(urls, &selected, codecs, video_only) {
+        Some(sel) => sel,
+        // Go asked again here, which stalls a download chosen ahead of time
+        // with nobody watching; fall back to the default instead.
+        None => {
+            log_general!(
+                "The qualities you selected ended up unavailable for this stream; using {DEFAULT_QUALITY} instead"
+            );
+            try_select(urls, &[DEFAULT_QUALITY.into()], codecs, video_only)
+                .ok_or_else(|| Error::NoUrls("this stream".into()))?
+        }
+    };
+    if let Some(codec) = sel.codec {
+        log_general!("Selected quality: {} ({})", sel.label, codec.name());
+    }
+    Ok(sel)
 }

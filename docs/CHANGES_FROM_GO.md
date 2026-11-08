@@ -23,6 +23,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - `--potoken` and `--visitor-data` are removed, so passing them is an error. In dreammu they were accepted but never used: the InnerTube request that consumed them (`DownloadWebAPIPlayerResponse`) is never called. Pass PO token settings to yt-dlp with `--ytdlp-opts` instead.
 - **The scheduled-stream question is numbered**: `1) wait  2) poll  3) no (default 3):` (the words `wait`/`poll` still work). Go asked `wait/poll/[no]:`. Enter and closed stdin still mean no, as in Go.
 - `--ytdlp-info` asks for the quality while waiting for a scheduled stream, as the default mode does. Go asked only once the stream started.
+- **When none of the chosen qualities are available, `best` is used without asking.** Go asked for a quality again, which stalled a download chosen ahead of time (while waiting for a scheduled stream) until someone answered.
 - The version shown at startup (unless `-q`) and by `--version` includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)` for releases, `v0.1.0-abc1234 (2026-11-07)` for nightly and other builds.
 - `--help` groups the options under headings (General, Waiting, Download, Format Selection, Filesystem, Post-Processing, Interrupt, Extraction, Network, Verbosity).
 - Command-line arguments that aren't valid UTF-8 are converted (invalid bytes replaced) instead of rejected, and cookie files are read the same way.

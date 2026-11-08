@@ -182,7 +182,7 @@ With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-
 
 ### Quality and codec
 
-`QUALITY` values, from most to least wanted, separated by `/`: `audio_only`, `144p`, `240p`, `360p`, `480p`, `720p`, `720p60`, `1080p`, `1080p60`, `1440p`, `1440p60`, `2160p`, `2160p60`, `best`. The first one the stream offers is used.
+`QUALITY` values, from most to least wanted, separated by `/`: `audio_only`, `144p`, `240p`, `360p`, `480p`, `720p`, `720p60`, `1080p`, `1080p60`, `1440p`, `1440p60`, `2160p`, `2160p60`, `best`. The first one the stream offers is used; if it offers none of them, `best` is used without asking (for example when the quality was chosen while waiting for a scheduled stream).
 
 `--codec` takes a slash-delimited list too: `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs you don't list are used as a fallback when none of the listed ones are offered. Go's `--av1`, `--vp9`, and `--h264` still work and mean the same as `--codec` with that one codec.
 
