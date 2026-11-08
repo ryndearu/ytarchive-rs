@@ -43,15 +43,6 @@ impl VideoCodec {
         }
     }
 
-    /// Lowercase name as typed on the command line.
-    pub fn arg(self) -> &'static str {
-        match self {
-            VideoCodec::Av1 => "av1",
-            VideoCodec::Vp9 => "vp9",
-            VideoCodec::H264 => "h264",
-        }
-    }
-
     pub fn parse(s: &str) -> Option<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
             "av1" | "av01" => Some(VideoCodec::Av1),
@@ -192,8 +183,6 @@ pub struct Options {
     pub proxy: Option<url::Url>,
 
     // Output/logging
-    /// Print stream info (title, quality, start time, duration) and exit.
-    pub info_only: bool,
     pub log_level: LogLevel,
     pub status_newlines: bool,
 }

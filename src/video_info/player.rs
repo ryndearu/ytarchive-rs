@@ -48,7 +48,7 @@ impl Extractor {
             let pr = match parsed {
                 Ok(pr) => pr,
                 Err(err) => {
-                    if wait_on_channel && !self.opts.info_only {
+                    if wait_on_channel {
                         let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
                         if live_waited == 0 {
                             eprintln!();
@@ -160,23 +160,6 @@ impl Extractor {
                 PLAYABLE_OFFLINE => {
                     if self.in_progress {
                         log_debug!("Livestream status is {PLAYABLE_OFFLINE} mid-download");
-                        return Outcome::NotUsable;
-                    }
-                    // --info-only reports a scheduled stream instead of waiting.
-                    if self.opts.info_only {
-                        let start = pr
-                            .playability_status
-                            .live_streamability
-                            .live_streamability_renderer
-                            .offline_slate
-                            .live_stream_offline_slate_renderer
-                            .scheduled_start_time
-                            .parse::<i64>()
-                            .ok()
-                            .map(crate::stream_meta::local_unix_timestamp);
-                        self.format_info = crate::stream_meta::format_info_from_player_response(&pr);
-                        self.video_id = vd.video_id.clone();
-                        self.upcoming = Some(start.unwrap_or_else(|| "unknown".into()));
                         return Outcome::NotUsable;
                     }
                     if self.opts.live_from.as_deref().is_some_and(|v| v.trim().starts_with('-')) {

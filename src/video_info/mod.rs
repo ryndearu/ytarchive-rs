@@ -48,16 +48,11 @@ pub struct Extractor {
     pub retry_secs: Option<u64>,
     /// Qualities from the CLI (or prompted while waiting).
     pub selected: Vec<String>,
-    /// Codec preference from the CLI; `None` = default per quality.
+    /// Codec preference from the CLI; `None` = default order.
     pub codecs: Option<Vec<VideoCodec>>,
     /// Video itag once chosen: `Some(None)` = audio only. Later refreshes
     /// reuse it instead of selecting again.
     pub fixed_itag: Option<Option<u32>>,
-    /// Qualities the stream offers and their codecs (for `--info-only`).
-    pub available: Vec<(&'static str, Vec<VideoCodec>)>,
-    /// Set instead of waiting when `--info-only` meets a scheduled stream:
-    /// the scheduled start time, if known.
-    pub upcoming: Option<String>,
 
     pub info_printed: bool,
     pub in_progress: bool,
@@ -93,8 +88,6 @@ impl Extractor {
             selected,
             codecs: opts.codecs.clone(),
             fixed_itag: opts.audio_only.then_some(None),
-            available: Vec::new(),
-            upcoming: None,
             info_printed: false,
             in_progress: false,
             live: false,
@@ -210,10 +203,6 @@ impl Extractor {
             return None;
         }
         let video_only = self.opts.video_only;
-        self.available = formats::available_qualities(urls)
-            .into_iter()
-            .map(|q| (q, formats::codecs_for_label(urls, q)))
-            .collect();
         let sel = match self.fixed_itag {
             Some(itag) => formats::select_fixed(urls, itag, video_only),
             None => {
@@ -222,7 +211,6 @@ impl Extractor {
                     std::mem::take(&mut self.selected),
                     self.codecs.as_deref(),
                     video_only,
-                    !self.opts.info_only,
                 )
                 .await
                 .inspect_err(|e| log_error!("{e}"))

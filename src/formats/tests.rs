@@ -113,18 +113,9 @@ fn fixed_selection() {
 }
 
 #[tokio::test]
-async fn info_only_selects_without_asking() {
-    // best, so the best codec: VP9 over H.264.
-    let u = urls(&[140, 136, 247]);
-    let s = select_interactive(&u, Vec::new(), None, false, false).await.unwrap();
-    assert_eq!(s.label, "720p");
-    assert_eq!(s.codec, Some(Vp9));
-}
-
-#[tokio::test]
 async fn codec_is_not_asked_for() {
     let u = urls(&[140, 136, 247, 398]);
-    let s = select_interactive(&u, sel(&["720p"]), None, false, true).await.unwrap();
+    let s = select_interactive(&u, sel(&["720p"]), None, false).await.unwrap();
     assert_eq!(s.video_itag, Some(398));
 }
 
@@ -132,6 +123,6 @@ async fn codec_is_not_asked_for() {
 async fn given_codecs_are_used() {
     let u = urls(&[140, 136, 247, 398]);
     let codecs = complete_codec_order(&[Vp9]);
-    let s = select_interactive(&u, sel(&["720p"]), Some(&codecs), false, true).await.unwrap();
+    let s = select_interactive(&u, sel(&["720p"]), Some(&codecs), false).await.unwrap();
     assert_eq!(s.codec, Some(Vp9));
 }

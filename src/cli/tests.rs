@@ -148,13 +148,6 @@ fn validation_errors() {
 }
 
 #[test]
-fn info_only_needs_only_a_url() {
-    let o = opts(&["y", "--info-only", "https://youtu.be/x"]).unwrap();
-    assert!(o.info_only);
-    assert_eq!(o.quality, None);
-}
-
-#[test]
 fn misc_resolution() {
     let o = opts(&[
         "y", "--ytdlp-info", "--metadata", "title = %(title)s", "--ytdlp-opts",

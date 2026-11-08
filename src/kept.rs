@@ -77,7 +77,6 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
         format_info: info.format_info,
         metadata: info.metadata,
         thumbnail_url: info.thumbnail_url,
-        available: Vec::new(),
         unavailable: true,
     })
 }

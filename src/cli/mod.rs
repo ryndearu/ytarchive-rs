@@ -56,7 +56,7 @@ pub struct CodecList(pub Vec<VideoCodec>);
 pub struct Cli {
     /// YouTube livestream, channel, or googlevideo URL. Prompted for if omitted.
     pub url: Option<String>,
-    /// Slash-delimited quality list. Prompted for if omitted (not needed with --info-only).
+    /// Slash-delimited quality list. Prompted for if omitted.
     pub quality: Option<String>,
 
     // ---- general ----
@@ -66,9 +66,6 @@ pub struct Cli {
     /// Print the version and exit.
     #[arg(short = 'V', long, action = ArgAction::Version, help_heading = GENERAL)]
     pub version: Option<bool>,
-    /// Print stream information (title, available and selected quality, duration) and exit. Only the URL is needed.
-    #[arg(long, help_heading = GENERAL)]
-    pub info_only: bool,
     /// Continually monitor a channel URL for new streams (requires URL and QUALITY).
     #[arg(long, help_heading = GENERAL)]
     pub monitor_channel: bool,

@@ -7,7 +7,6 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - **`--sqlite` storage** (idea from [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl)). Fragments are stored in `{name}.f{itag}.sqlite` in the temp directory as soon as they arrive, then exported in order to the `.ts` file at the end. Resuming skips fragments already stored, so a later run only fetches the gaps. A download is resumed in the storage it was started with (database or `.ts`), whatever the flags say when resuming.
 - **`--recover-private`: recovery after a stream goes private** (idea from livestream_dl; turns on `--sqlite`). When the stream becomes private or unavailable during the download, Go stopped as soon as a fragment got 403 (the port still does without the flag). With it, the port keeps the download URLs it has used (they work until their `expire` time, about 6 hours) and retries every missing fragment with all of them, in rounds 5 minutes apart, until all are recovered, the URLs expire, or 12 rounds in a row recover nothing.
 - **Missing fragments can be retried later** (with `--recover-private`). When fragments are still missing and a URL hasn't expired, the file is merged, but the temp directory with the database (which also holds the stream info and URLs) and the state files are kept. Running the same command again retries only the missing fragments; if the stream can no longer be looked up, the download is rebuilt from the database. The new file gets a `-1` suffix, like any existing output. The database is kept up to date during the download (URLs and the newest fragment), so a run that is killed rather than stopped with Ctrl-C can be retried too.
-- **`--info-only` works.** dreammu's README documents it, but neither Go codebase implements it. It needs only the URL and never prompts (quality defaults to `best`). It prints the video ID, title, channel, the available qualities with their codecs, the selected quality, live status, and duration so far, then exits. For a scheduled stream it prints the scheduled start time instead of waiting.
 - **`--codec LIST`** picks the video codec order, e.g. `--codec vp9/h264`; `best` means the default order, AV1 > VP9 > H.264 (as in Go). Codecs not listed are kept as fallbacks. Go's `--av1`/`--vp9`/`--h264` still work and can't be combined with `--codec`.
 - **The channel monitor remembers recorded streams.** After a stream ends, a channel's `/live` page can keep pointing to it for a while, and Go could download the same stream again. The monitor now skips video IDs it has already recorded in the session.
 - **Ended streams whose live download is gone are reported.** Whether an ended stream can still be downloaded is decided from yt-dlp's live (fragmented) URLs, not from the stream's ended or processed status. When none are left, ytarchive prints "Livestream has already ended; its live download no longer exists. Use yt-dlp instead." Go looked only at the watch page's first format and printed "Livestream has been processed" or "is being processed", and an ended stream that YouTube reported as unplayable while processing it got the members-only/cookies hints instead.
@@ -47,7 +46,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 
 ### Output and signals
 
-- The progress line is written to stderr (Go used stdout), so stdout stays clean for `--info-only` output.
+- The progress line is written to stderr (Go used stdout).
 - After the first Ctrl-C (which stops the download and leads to the merge/save questions), a second one exits immediately, matching the effect of Go's `signal.Reset`.
 
 ## Platform support
@@ -85,9 +84,10 @@ Windows, Linux, and macOS are supported. Go built for more targets but only supp
 
 ## Not ported
 
-These parts of the Go source were unreachable or unused there, so they were left out:
+These parts of Go were unreachable, unused, or only documented, so they were left out:
 
 - **InnerTube player request** (`DownloadWebAPIPlayerResponse`), the `ytcfg` scraping that fed it, and **SAPISIDHASH** authentication. None of them are called in dreammu.
 - **DASH manifest parsing** (`GetUrlsFromManifest`, `MPD` types): never called in dreammu, since yt-dlp provides the URLs.
 - **UMP parsing** (`yt_ump.go`): never called.
 - **Slow-fragment URL refresh**: Go counted slow fragments, but the refresh call is commented out.
+- **`--info-only`**: listed in dreammu's README, but neither Go codebase implements it.

@@ -32,24 +32,15 @@ pub async fn prompt_quality(qualities: &[&str], waiting: bool) -> Vec<String> {
 
 /// Picks formats from `selected`, prompting for a quality when nothing was
 /// given or none of the given qualities are available. The codec is never
-/// asked for: `codecs` (from the CLI) or the default order is used. With
-/// `ask == false` (`--info-only`), nothing is asked and `best` is the default.
+/// asked for: `codecs` (from the CLI) or the default order is used.
 pub async fn select_interactive(
     urls: &UrlMap,
     mut selected: Vec<String>,
     codecs: Option<&[VideoCodec]>,
     video_only: bool,
-    ask: bool,
 ) -> Result<FormatSelection> {
     if urls.is_empty() {
         return Err(Error::NoUrls("this stream".into()));
-    }
-    if !ask {
-        if selected.is_empty() {
-            selected = vec![DEFAULT_QUALITY.into()];
-        }
-        return try_select(urls, &selected, codecs, video_only)
-            .ok_or_else(|| Error::NoUrls("the selected qualities".into()));
     }
     let available = super::available_qualities(urls);
     loop {

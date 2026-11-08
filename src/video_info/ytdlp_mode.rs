@@ -86,15 +86,6 @@ impl Extractor {
             }
 
             if info.live_status == LiveStatus::IsUpcoming {
-                // --info-only reports a scheduled stream instead of waiting.
-                if self.opts.info_only {
-                    let page = format!("https://www.youtube.com/watch?v={}", info.id);
-                    self.format_info = format_info_from_ytdlp(&info, &page);
-                    self.video_id = info.id.clone();
-                    self.upcoming =
-                        Some(info.start_unix.map_or_else(|| "unknown".into(), local_unix_timestamp));
-                    return None;
-                }
                 self.print_info(&info.channel, &info.title);
                 let interval = self.upcoming_wait_interval(info.start_unix).await?;
                 if !polling_announced {

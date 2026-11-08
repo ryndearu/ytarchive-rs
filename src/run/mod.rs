@@ -10,7 +10,7 @@ use crate::input_url::InputUrl;
 use crate::interrupt::Interrupt;
 use crate::kept::prepared_from_kept;
 use crate::live_from::resolve_live_from;
-use crate::prepare::{prepare, print_info, print_upcoming, PrepareError};
+use crate::prepare::prepare;
 use crate::types::Options;
 use crate::{log_error, log_general, log_info};
 
@@ -46,16 +46,11 @@ pub async fn run(
 ) -> RunResult {
     let cancel = interrupt.child_token();
     let prepared = match prepare(&opts, &http, &cancel, input).await {
-        Ok(p) => p,
-        Err(PrepareError::Upcoming(u)) => {
-            print_upcoming(&u);
-            return RunResult { code: 0, video_id: Some(u.video_id), downloaded: false };
-        }
-        Err(PrepareError::Failed) => {
+        Some(p) => p,
+        None => {
             // A download kept for retrying missing fragments can still go on
             // with its saved URLs after the stream went private.
             if !interrupt.is_set()
-                && !opts.info_only
                 && let InputUrl::Video { id } = input
                 && let Some(p) = prepared_from_kept(&opts, id)
             {
@@ -89,10 +84,6 @@ pub async fn run(
         }
     };
 
-    if opts.info_only {
-        print_info(&prepared, input);
-        return RunResult { code: 0, video_id, downloaded: false };
-    }
     let code = download(opts, http, cancel, prepared, live_from_sq, interrupt).await;
     RunResult { code, video_id, downloaded: true }
 }

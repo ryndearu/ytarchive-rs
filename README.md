@@ -90,14 +90,13 @@ cargo build --release
 
     ytarchive [OPTIONS] [URL] [QUALITY]
 
-`URL` can be a watch URL (`youtube.com/watch?v=`, `youtu.be/`, `/live/ID`), a channel URL (`/@name`, `/channel/ID`, `/c/name`; its `/live` page is used), or a direct googlevideo fragment URL. `QUALITY` is a slash-delimited preference list such as `1080p60/720p/best`. Either one is prompted for if omitted; with `--info-only`, only the URL is needed.
+`URL` can be a watch URL (`youtube.com/watch?v=`, `youtu.be/`, `/live/ID`), a channel URL (`/@name`, `/channel/ID`, `/c/name`; its `/live` page is used), or a direct googlevideo fragment URL. `QUALITY` is a slash-delimited preference list such as `1080p60/720p/best`. Either one is prompted for if omitted.
 
 Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`, `-td DIR`, `-dp`, `-fp`) are still accepted. `ytarchive --help` prints the same list.
 
 ### General Options:
     -h, --help             Print this help text and exit
     -V, --version          Print the version and exit
-        --info-only        Print stream information (title, available and selected quality, duration) and exit. Only the URL is needed
         --monitor-channel  Continually monitor a channel URL for new streams (requires URL and QUALITY)
         --members-only     Only download members-only streams (channel URLs; requires cookies)
 
@@ -212,9 +211,6 @@ ytarchive --live-from -30m --capture-duration 40m URL best
 
 # Keep recording a channel's streams, checking every 2 minutes
 ytarchive --monitor-channel -r 120 -o '%(channel)s/%(upload_date)s %(title)s' https://www.youtube.com/@channel 1080p/best
-
-# Print stream info only: available qualities and codecs, or the scheduled start time
-ytarchive --info-only URL
 ```
 
 On Windows, use double quotes instead of single quotes around templates, e.g. `-o "%(channel)s/%(title)s"`. In cmd (not PowerShell), write `%` as `%%` inside batch files.

@@ -187,7 +187,6 @@ impl Cli {
                 IpVersion::Any
             },
             proxy: self.proxy,
-            info_only: self.info_only,
             log_level,
             status_newlines: self.newline,
         };
