@@ -91,6 +91,21 @@ fn storage_flags() {
 }
 
 #[test]
+fn repeated_flags_take_the_last_value() {
+    // As with Go's flag package; lists keep every value.
+    let o = opts(&[
+        "y", "-o", "a", "-o", "b", "--threads", "2", "--threads", "3", "--ytdlp-opts", "-x", "--ytdlp-opts",
+        "--js-runtimes node", "-t", "-t", "--metadata", "k=1", "--metadata", "j=2", "u",
+    ])
+    .unwrap();
+    assert_eq!(o.output_format, "b");
+    assert_eq!(o.threads, 3);
+    assert_eq!(o.ytdlp_opts, ["--js-runtimes", "node"]);
+    assert!(o.embed_thumbnail);
+    assert_eq!(o.metadata_overrides.len(), 2);
+}
+
+#[test]
 fn codec_selection() {
     use VideoCodec::*;
     let codecs = |args: &[&str]| opts(args).unwrap().codecs;

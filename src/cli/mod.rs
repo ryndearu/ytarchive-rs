@@ -48,7 +48,10 @@ pub struct CodecList(pub Vec<VideoCodec>);
     about = "Archive a YouTube livestream from the start",
     after_help = AFTER_HELP,
     disable_help_flag = true,
-    disable_version_flag = true
+    disable_version_flag = true,
+    // Go's flag package lets a flag repeat, the last value winning; clap
+    // would reject it. Lists like --metadata still collect every value.
+    args_override_self = true
 )]
 pub struct Cli {
     /// YouTube livestream, channel, or googlevideo URL. Prompted for if omitted.
