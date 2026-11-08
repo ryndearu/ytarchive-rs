@@ -15,7 +15,7 @@ fn norm(args: &[&str]) -> Vec<String> {
     normalize_args(os(args)).into_iter().map(|a| a.into_string().unwrap()).collect()
 }
 
-fn opts(args: &[&str]) -> Result<(Options, Vec<String>)> {
+fn opts(args: &[&str]) -> Result<Options> {
     Cli::try_parse_from(normalize_args(os(args))).expect("clap parse").into_options()
 }
 
@@ -65,8 +65,7 @@ fn normalize_leaves_values_alone() {
 
 #[test]
 fn defaults() {
-    let (o, w) = opts(&["y", "https://youtu.be/x", "best"]).unwrap();
-    assert!(w.is_empty());
+    let o = opts(&["y", "https://youtu.be/x", "best"]).unwrap();
     assert_eq!(o.url.as_deref(), Some("https://youtu.be/x"));
     assert_eq!(o.quality.as_deref(), Some("best"));
     assert_eq!(o.threads, 1);
@@ -85,7 +84,7 @@ fn defaults() {
 #[test]
 fn codec_selection() {
     use VideoCodec::*;
-    let codecs = |args: &[&str]| opts(args).unwrap().0.codecs;
+    let codecs = |args: &[&str]| opts(args).unwrap().codecs;
     assert_eq!(codecs(&["y", "--codec", "vp9/h264", "u"]), Some(vec![Vp9, H264, Av1]));
     assert_eq!(codecs(&["y", "--codec", "H264", "u"]), Some(vec![H264, Av1, Vp9]));
     assert_eq!(codecs(&["y", "--codec", "best", "u"]), Some(vec![Av1, Vp9, H264]));
@@ -97,19 +96,19 @@ fn codec_selection() {
 
 #[test]
 fn windows_filenames_flags() {
-    assert!(opts(&["y", "--windows-filenames", "u"]).unwrap().0.windows_filenames);
-    assert!(!opts(&["y", "--no-windows-filenames", "u"]).unwrap().0.windows_filenames);
+    assert!(opts(&["y", "--windows-filenames", "u"]).unwrap().windows_filenames);
+    assert!(!opts(&["y", "--no-windows-filenames", "u"]).unwrap().windows_filenames);
     assert!(Cli::try_parse_from(os(&["y", "--windows-filenames", "--no-windows-filenames"])).is_err());
 }
 
 #[test]
 fn retry_stream_clamping() {
-    let (o, _) = opts(&["y", "-r", "5", "u"]).unwrap();
+    let o = opts(&["y", "-r", "5", "u"]).unwrap();
     assert_eq!(o.retry_stream, Some(Duration::from_secs(15)));
-    let (o, _) = opts(&["y", "--monitor-channel", "-r", "20", "u", "best"]).unwrap();
+    let o = opts(&["y", "--monitor-channel", "-r", "20", "u", "best"]).unwrap();
     assert_eq!(o.retry_stream, Some(Duration::from_secs(60)));
     assert_eq!(o.merge_on_cancel, Action::Do);
-    let (o, _) = opts(&["y", "--monitor-channel", "--no-merge", "u", "best"]).unwrap();
+    let o = opts(&["y", "--monitor-channel", "--no-merge", "u", "best"]).unwrap();
     assert_eq!(o.merge_on_cancel, Action::DoNot);
 }
 
@@ -126,20 +125,19 @@ fn validation_errors() {
 
 #[test]
 fn info_only_needs_only_a_url() {
-    let (o, _) = opts(&["y", "--info-only", "https://youtu.be/x"]).unwrap();
+    let o = opts(&["y", "--info-only", "https://youtu.be/x"]).unwrap();
     assert!(o.info_only);
     assert_eq!(o.quality, None);
 }
 
 #[test]
 fn misc_resolution() {
-    let (o, w) = opts(&[
-        "y", "--ytdlp-info", "--potoken", "p", "--metadata", "title = %(title)s", "--ytdlp-opts",
+    let o = opts(&[
+        "y", "--ytdlp-info", "--metadata", "title = %(title)s", "--ytdlp-opts",
         "--extractor-args youtube:player_client=web", "--capture-duration", "1h30m", "--vp9",
         "--av1", "--debug", "-6", "--save-state", "--disable-save-state", "u",
     ])
     .unwrap();
-    assert_eq!(w.len(), 1);
     assert_eq!(o.metadata_overrides, vec![("title".into(), "%(title)s".into())]);
     assert_eq!(o.ytdlp_opts, ["--extractor-args", "youtube:player_client=web"]);
     assert_eq!(o.capture_duration, Some(Duration::from_secs(5400)));
@@ -147,14 +145,14 @@ fn misc_resolution() {
     assert_eq!(o.log_level, LogLevel::Debug);
     assert_eq!(o.ip_version, IpVersion::V6);
     assert_eq!(o.save_state_on_cancel, Action::DoNot);
-    let (o, _) = opts(&["y", "--save-state", "u"]).unwrap();
+    let o = opts(&["y", "--save-state", "u"]).unwrap();
     assert_eq!(o.save_state_on_cancel, Action::Do);
 }
 
 #[test]
 fn googlevideo_flags_override_positionals() {
     let gv = "https://rr1---sn-x.googlevideo.com/videoplayback?itag=299";
-    let (o, _) = opts(&["y", "--video-url", gv, "--ytdlp-info", "--members-only", "u", "best"]).unwrap();
+    let o = opts(&["y", "--video-url", gv, "--ytdlp-info", "--members-only", "u", "best"]).unwrap();
     assert_eq!(o.url.as_deref(), Some(gv));
     assert_eq!(o.quality, None);
 }

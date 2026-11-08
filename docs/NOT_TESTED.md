@@ -29,7 +29,7 @@ A good port for Linux x64 and Windows x64, with the gaps listed under "Not teste
   - Fragments: `--threads 3`, `--no-frag-files`, `--sqlite`, `--retry-frags 3`.
   - Extras: `--write-description`, `--write-thumbnail`, `-t` (embedded cover), `--add-metadata`, `--metadata`.
   - Files: `-l`, `--windows-filenames`/`--no-windows-filenames` with a title containing `:` and quotes, `--temporary-dir`/`-td`, `--disable-save-state`, `--directory-permissions`. `--file-permissions` didn't reach the muxed file; fixed afterwards and checked with a real run (final and `--separate-audio` files got `0600`).
-  - Executables and network: `--ffmpeg-path`, `--ytdlp-path`, `--ytdlp-info`, `-4`, `-c` with a cookies file, `--potoken`/`--visitor-data` (accepted and ignored), `--proxy` to a dead port (fails after the retries).
+  - Executables and network: `--ffmpeg-path`, `--ytdlp-path`, `--ytdlp-info`, `-4`, `-c` with a cookies file, `--proxy` to a dead port (fails after the retries).
   - Waiting and timing: `-w`, `-n`, `-r 15`, `--live-from -1m`, `--start-delay 5s` (and its error when combined with `--live-from`, same as Go).
   - Verbosity: `-q`, `--error`, `--warn`, `-v`, `--debug`, `--trace`, `--newline`.
   - Input: channel `/live` URL, `--info-only`, `-h`, `-V`, `--members-only` on a stream that isn't members-only (fails), an invalid quality (falls back to the prompt; empty input picks `best`, same as Go).

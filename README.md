@@ -161,14 +161,12 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
         --no-save-state  Do not leave files for resuming later on cancel
 
 ### Extraction Options:
-    -c, --cookies <FILE>               Netscape-format cookies file (needed for members-only streams)
-        --ytdlp-path <PATH>            yt-dlp executable used for URL extraction [default: yt-dlp]
-        --ytdlp-opts <OPTIONS>         Extra arguments for yt-dlp, e.g. '--extractor-args youtube:player_client=web'
-        --ytdlp-info                   Let yt-dlp extract stream info; ytarchive only downloads fragments
-        --video-url <URL>              Googlevideo URL to use for the video stream
-        --audio-url <URL>              Googlevideo URL to use for the audio stream (itag 140)
-        --potoken <TOKEN>              Ignored (accepted for compatibility); pass PO tokens to yt-dlp via --ytdlp-opts
-        --visitor-data <VISITOR_DATA>  Ignored (accepted for compatibility); pass visitor data to yt-dlp via --ytdlp-opts
+    -c, --cookies <FILE>        Netscape-format cookies file (needed for members-only streams)
+        --ytdlp-path <PATH>     yt-dlp executable used for URL extraction [default: yt-dlp]
+        --ytdlp-opts <OPTIONS>  Extra arguments for yt-dlp, e.g. '--extractor-args youtube:player_client=web'
+        --ytdlp-info            Let yt-dlp extract stream info; ytarchive only downloads fragments
+        --video-url <URL>       Googlevideo URL to use for the video stream
+        --audio-url <URL>       Googlevideo URL to use for the audio stream (itag 140)
 
 ### Network Options:
     -4, --ipv4         Force IPv4
@@ -245,7 +243,7 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 
 ### PO tokens and cookies
 
-yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. `--potoken` and `--visitor-data` are still accepted but ignored. Cookies (`-c cookies.txt`, Netscape format) are used both by yt-dlp and by the fragment downloads.
+yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. Cookies (`-c cookies.txt`, Netscape format) are used both by yt-dlp and by the fragment downloads.
 
 ## Differences from the Go version
 

@@ -224,12 +224,6 @@ pub struct Cli {
     /// Googlevideo URL to use for the audio stream (itag 140).
     #[arg(long, value_name = "URL", help_heading = EXTRACTION)]
     pub audio_url: Option<String>,
-    /// Ignored (accepted for compatibility); pass PO tokens to yt-dlp via --ytdlp-opts.
-    #[arg(long, value_name = "TOKEN", help_heading = EXTRACTION)]
-    pub potoken: Option<String>,
-    /// Ignored (accepted for compatibility); pass visitor data to yt-dlp via --ytdlp-opts.
-    #[arg(long, value_name = "VISITOR_DATA", help_heading = EXTRACTION)]
-    pub visitor_data: Option<String>,
 
     // ---- network ----
     /// Force IPv4.

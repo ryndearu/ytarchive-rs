@@ -40,7 +40,7 @@ async fn main() -> ExitCode {
     // Restored when main returns.
     let _console = platform::setup();
     let cli = cli::Cli::parse_normalized();
-    let (options, warnings) = match cli.into_options() {
+    let options = match cli.into_options() {
         Ok(v) => v,
         Err(e) => {
             log_error!("{e}");
@@ -52,9 +52,6 @@ async fn main() -> ExitCode {
     // Go printed its version at startup too.
     if options.log_level > types::LogLevel::Quiet {
         eprintln!("{}", version::banner());
-    }
-    for w in warnings {
-        log_warn!("{w}");
     }
 
     // Validate the output template early, as Go does, before any network work.
