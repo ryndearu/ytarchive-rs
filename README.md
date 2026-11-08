@@ -7,9 +7,9 @@ For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) inste
 ## Features
 
 - Downloads live streams from the beginning (up to YouTube's 7-day seek window), or from a chosen point with `--live-from`.
-- Downloads a stream that just ended as long as its live download still exists; once it's gone, says so ("Livestream has already ended; its live download no longer exists. Use yt-dlp instead.").
-- Waits for scheduled streams: until the scheduled time, or by polling. Without `-w`/`-n` it asks `1) wait  2) poll  3) no (default 1):`, and Enter waits; with no input available (a script or cron job) it doesn't wait.
-- Watches a channel and records each new stream (`--monitor-channel`), including members-only streams with cookies. Each download sticks to the stream it started on, even if the channel goes live again meanwhile.
+- Downloads a stream that just ended as long as its live download still exists.
+- Waits for scheduled streams: until the scheduled time, or by polling.
+- Watches a channel and records each new stream (`--monitor-channel`), including members-only streams with cookies.
 - Parallel fragment downloads, URL refresh when fragments start failing, and a background refresh every 5 hours before URLs expire.
 - Resumable downloads: interrupt with Ctrl-C, keep the state, rerun to continue.
 - Optional SQLite fragment storage (`--sqlite`) that resumes by re-fetching only missing fragments.
@@ -44,13 +44,6 @@ Download the zip for your platform from the [releases page](../../releases), ext
 | macOS | [`ytarchive_macos_x64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_macos_x64.zip) (Intel) | [`ytarchive_macos_arm64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_macos_arm64.zip) (Apple Silicon) |
 
 The links download the latest release directly. Nightly downloads, with the newest changes: [Windows x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_windows_x64.zip), [Linux x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_linux_x64.zip), [macOS arm64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_macos_arm64.zip).
-
-The Linux builds are static and run on any distribution.
-
-- **Releases** (`v*`) are published manually and are the recommended builds. Linux x64 and Windows x64 are tested with real streams; the others only through CI (see [docs/NOT_TESTED.md](docs/NOT_TESTED.md)). `ytarchive --version` shows the version and build date, e.g. `ytarchive v0.1.0 (2026-11-07)`.
-- **Nightly** is a pre-release rebuilt every Friday (00:00 UTC) when `main` has new code commits (docs-only changes don't trigger it). It replaces the previous nightly, and its description lists (and links) the commits since the last release. Nightly is built only for Windows x64, Linux x64, and macOS arm64. Its version includes the commit, e.g. `ytarchive v0.1.0-abc1234 (2026-11-07)`.
-
-The version is also printed when ytarchive starts (unless `-q`).
 
 ### Linux
 
@@ -271,7 +264,3 @@ See [docs/NOT_TESTED.md](docs/NOT_TESTED.md) for what has been verified so far a
 - [Kethsar/ytarchive](https://github.com/Kethsar/ytarchive): the original ytarchive. This port follows its design, flags, and file formats.
 - [dreammu/ytarchive](https://github.com/dreammu/ytarchive): the fork this port is based on (yt-dlp extraction, background URL refresh, fragment retry logic, `--ytdlp-info`).
 - [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl): the ideas behind `--sqlite` storage, resuming by re-fetching only gaps, and `--recover-private`.
-
-## License
-
-MIT; see [LICENSE](LICENSE). Kethsar/ytarchive's copyright notice is retained as its license requires.

@@ -26,13 +26,13 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 
 - One module per file. Shared types live in `src/types/`; define or update them before the feature that uses them.
 - Keep files under ~300 lines; split a file only when you are already editing it, and say so in the commit.
-- No crate-wide `allow(dead_code)`. Remove unused code and dependencies.
+- No crate-wide `allow(dead_code)`. Remove unused code, tests, and dependencies. If a feature is minor or unimportant, test it with a temporary test and delete the test afterwards.
 - No `unsafe` unless it's truly necessary; prefer a maintained safe wrapper crate. `main.rs` has `#![forbid(unsafe_code)]`; lifting it needs a good reason.
 - Comments explain *why*, especially where behavior differs from Go.
 
 ## Testing
 
-Run these as separate commands before committing:
+Run these as separate commands before pushing:
 
 ```sh
 cargo test
@@ -53,10 +53,8 @@ cargo build --release --locked   # when dependencies or build config change
 ## Commits
 
 - Title format (Conventional Commits): `<type>(<scope>): <lowercase imperative summary>`, no trailing period. Types: `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `chore`. The scope is the module (`download`, `cli`, `tui`, …) and can be left out for broad changes (`docs: …`). Add the PR number at the end, `(#12)`, only when the commit comes from a pull request. Releases are `chore: release 0.2.0`. Examples: `fix(download): close the database before cleanup in test`, `feat(cli): add --recover-private`, `docs: describe --recover-private`.- Body: bullet list of what changed, plus a paragraph on Go bugs fixed or behavior changes.
-- One commit per completed step. When a change touches code and docs, commit the code first and the docs last, as separate commits.
-- If a change is minor, put the code and its docs update in a single commit instead.
-- After each commit, update the docs it affects (`README.md`, `docs/CHANGES_FROM_GO.md`, `docs/NOT_TESTED.md`, this file).
-- When reorganizing commits, consolidate all docs commits into a single `docs:` commit at the end.
+- One commit per completed step. Each commit also updates the docs it affects (`README.md`, `docs/CHANGES_FROM_GO.md`, `docs/NOT_TESTED.md`, this file) in the same commit.
+- Exception: when the user asks for a large docs update, attach each docs change to the commit it belongs to; only changes with no relevant commit go into a separate `docs:` commit.
 - Pause after each commit for review before starting the next step, and push once the work is reviewed.
 - Each commit should build on its own.
 - Never force-push or rewrite pushed history. Unpushed commits may be reorganized.
@@ -65,7 +63,5 @@ cargo build --release --locked   # when dependencies or build config change
 
 - **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release.
 - **Nightly** (`nightly.yml`) runs weekly, Fridays at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a docs commit (`docs:` or `docs(...):`), otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release as links to their commit pages (GitHub doesn't link bare hashes in release notes). Docs commits must use the `docs` type for this to work. The check step prints why it builds or skips (debug output while the docs-only skip is investigated; see `docs/NOT_TESTED.md`).
-- Don't push changes to `.github/workflows/` while a nightly is running: its publish step deletes the old nightly first, and creating the new one for the older commit then failed with HTTP 403, leaving no nightly until a new run on `main`.
 - Both use `build.yml`, which publishes one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only `ytarchive`/`ytarchive.exe` (Linux builds are static musl). Releases build x64 and arm64 for every OS; nightly (`all_targets: false`) builds only Windows x64, Linux x64, and macOS arm64. It sets `YTARCHIVE_CHANNEL`/`YTARCHIVE_VERSION`/`YTARCHIVE_COMMIT`/`YTARCHIVE_DATE` for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
-- Workflows force JavaScript actions onto the newest Node GitHub's runners provide (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`); bump it when GitHub adds a newer one.
-- **CI** doesn't run for pushes that only touch `*.md`, `docs/`, or `LICENSE`.
+- **CI** doesn't run for pushes that only touch files outside `src/`.
