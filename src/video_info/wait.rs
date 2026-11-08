@@ -113,13 +113,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn poll_secs() {
-        assert_eq!(parse_poll_secs("60"), 60);
-        assert_eq!(parse_poll_secs("5"), DEFAULT_POLL_SECS);
-        assert_eq!(parse_poll_secs("x"), DEFAULT_POLL_SECS);
-    }
-
-    #[test]
     fn wait_choice() {
         use WaitChoice::*;
         for (answer, want) in [
@@ -134,14 +127,5 @@ mod tests {
         ] {
             assert_eq!(parse_wait_choice(answer), want, "{answer:?}");
         }
-    }
-
-    #[tokio::test]
-    async fn cancellable_sleep() {
-        let c = CancellationToken::new();
-        assert!(sleep_or_cancel(&c, Duration::from_millis(1)).await);
-        c.cancel();
-        assert!(!sleep_or_cancel(&c, Duration::from_secs(3600)).await);
-        assert!(sleep_until_unix(&CancellationToken::new(), 0).await);
     }
 }

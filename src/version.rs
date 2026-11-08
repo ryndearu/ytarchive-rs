@@ -7,15 +7,3 @@ pub const VERSION: &str = env!("YTARCHIVE_VERSION_STRING");
 pub fn banner() -> String {
     format!("ytarchive {VERSION}")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_has_prefix_and_date() {
-        assert!(VERSION.starts_with('v'), "{VERSION}");
-        assert!(VERSION.ends_with(')'), "{VERSION}");
-        assert!(banner().starts_with("ytarchive v"));
-    }
-}

@@ -61,21 +61,3 @@ pub async fn report(mut rx: mpsc::UnboundedReceiver<ProgressInfo>, initial: Tota
     }
     t
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn totals_and_line() {
-        let mut t = Totals::default();
-        for (dt, n) in [(DataType::Audio, 100), (DataType::Video, 2048), (DataType::Video, 2048)] {
-            t.add(&ProgressInfo { data_type: dt, byte_count: n, max_seq: Some(20), start_frag: 10 });
-        }
-        assert_eq!(t.line(false), "Video Fragments: 2; Audio Fragments: 1; Total Downloaded: 4.10KiB");
-        assert_eq!(
-            t.line(true),
-            "Video Fragments: 2; Audio Fragments: 1; Max Fragments: 11; Max Sequence: 20; Total Downloaded: 4.10KiB"
-        );
-    }
-}

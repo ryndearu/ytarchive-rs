@@ -40,6 +40,7 @@ cargo clippy --all-targets -- -D warnings
 cargo build --release --locked   # when dependencies or build config change
 ```
 
+- Keep tests essential: every option under "Usage and options", downloading and storage, quality/codec selection, file names, ffmpeg arguments, and parsing of URLs, yt-dlp output, watch pages, durations, and cookies. Don't keep tests for logging, the progress line, help layout, version strings, or small helpers.
 - Downloader tests use a local fake googlevideo server (`src/download/tests/mod.rs`; SQLite and recovery cases in `tests/sqlite.rs`); add cases there for download behavior. `serve_until` makes fragments return 403 from a given sequence on, as for a stream that went private.
 - `--recover-private` waits 5 minutes between recovery rounds; tests use a 20 ms interval (`cfg(test)` in `src/download/recovery.rs`).
 - With `--recover-private`, the SQLite database also stores the stream info, every download URL used, and the newest fragment (`urls`/`meta` tables) for retrying in a later run (`src/kept.rs`). Without the flag nothing new is stored, recovered, or kept. Don't rename those tables or keys without handling old databases.

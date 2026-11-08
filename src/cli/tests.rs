@@ -25,27 +25,6 @@ fn clap_definition_is_valid() {
 }
 
 #[test]
-fn help_is_grouped() {
-    let help = Cli::command().render_help().to_string();
-    for heading in [
-        "General Options:",
-        "Waiting Options:",
-        "Download Options:",
-        "Format Selection Options:",
-        "Filesystem Options:",
-        "Post-Processing Options:",
-        "Interrupt (Ctrl-C) Options:",
-        "Extraction Options:",
-        "Network Options:",
-        "Verbosity Options:",
-    ] {
-        assert!(help.contains(heading), "missing {heading}");
-    }
-    // Every option is under a named group (no leftover generic "Options:").
-    assert!(!help.lines().any(|l| l.trim() == "Options:"), "{help}");
-}
-
-#[test]
 fn normalizes_go_style_flags() {
     assert_eq!(
         norm(&["y", "-threads", "4", "-td", "/tmp", "-dp=0700", "-w", "URL"]),

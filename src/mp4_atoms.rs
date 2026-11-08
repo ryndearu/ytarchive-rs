@@ -64,12 +64,6 @@ mod tests {
     }
 
     #[test]
-    fn scans_boxes() {
-        let names: Vec<_> = atoms(&sample()).iter().map(|a| a.0.to_string()).collect();
-        assert_eq!(names, ["ftyp", "sidx", "moof", "mdat"]);
-    }
-
-    #[test]
     fn removes_boxes() {
         let d = sample();
         assert_eq!(

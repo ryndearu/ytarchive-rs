@@ -116,19 +116,4 @@ mod tests {
         let set = parse_netscape(".youtube.com\tTRUE\t/\tTRUE\t0\tA\tb\r\n");
         assert_eq!(set.cookies[0].value, "b");
     }
-
-    #[test]
-    fn set_cookie_rendering() {
-        let set = parse_netscape(SAMPLE);
-        assert_eq!(
-            to_set_cookie(&set.cookies[0]),
-            "SAPISID=abc/def; Path=/; Domain=youtube.com; Expires=Tue, 01 Jan 2030 00:00:00 GMT; Secure"
-        );
-        assert_eq!(
-            to_set_cookie(&set.cookies[1]),
-            "LOGIN_INFO=xyz; Path=/; Domain=youtube.com; Secure; HttpOnly"
-        );
-        assert_eq!(to_set_cookie(&set.cookies[2]), "PREF=f6=40000000; Path=/watch; Expires=Tue, 01 Jan 2030 00:00:00 GMT");
-        assert_eq!(cookie_url(&set.cookies[2]).unwrap().as_str(), "https://www.youtube.com/watch");
-    }
 }

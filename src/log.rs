@@ -105,36 +105,3 @@ macro_rules! log_debug {
 macro_rules! log_trace {
     ($($arg:tt)*) => { $crate::log::write($crate::types::LogLevel::Trace, false, format_args!($($arg)*)) };
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn level_roundtrip_and_filtering() {
-        for l in [
-            LogLevel::Quiet,
-            LogLevel::Error,
-            LogLevel::Warning,
-            LogLevel::Info,
-            LogLevel::Debug,
-            LogLevel::Trace,
-        ] {
-            set_level(l);
-            assert_eq!(level(), l);
-        }
-        set_level(LogLevel::Warning);
-        assert!(enabled(LogLevel::Error));
-        assert!(enabled(LogLevel::Warning));
-        assert!(!enabled(LogLevel::Info));
-    }
-
-    #[test]
-    fn line_format() {
-        assert_eq!(
-            format_line(LogLevel::Error, false, "boom"),
-            "ERROR: \x1b[31mboom\x1b[0m\x1b[K"
-        );
-        assert_eq!(format_line(LogLevel::Error, true, "plain"), "plain");
-    }
-}

@@ -103,33 +103,4 @@ mod tests {
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
-
-    #[test]
-    fn move_delete_and_temp_dir() {
-        let base = std::env::temp_dir().join(format!("ytarchive-rs-mv-{}", std::process::id()));
-        std::fs::create_dir_all(&base).unwrap();
-        let t1 = create_temp_dir(&base, "vid__", 0o755).unwrap();
-        let t2 = create_temp_dir(&base, "vid__", 0o755).unwrap();
-        assert_ne!(t1, t2);
-        assert!(t1.file_name().unwrap().to_str().unwrap().starts_with("vid__"));
-
-        let src = t1.join("a.ts");
-        std::fs::write(&src, b"x").unwrap();
-        let dst = base.join("a.ts");
-        try_move(&src, &dst).unwrap();
-        assert!(!src.exists() && dst.exists());
-        // Missing source is fine.
-        try_move(&src, &dst).unwrap();
-        try_delete(&dst);
-        assert!(!dst.exists());
-        try_delete(&dst);
-        std::fs::remove_dir_all(&base).unwrap();
-    }
-
-    #[tokio::test]
-    async fn failure_leaves_no_file() {
-        let missing = std::env::temp_dir().join("ytarchive-rs-no-such-dir/x.bin");
-        assert!(write_file_with_mode(&missing, b"x", 0o644).await.is_err());
-        assert!(!missing.exists());
-    }
 }

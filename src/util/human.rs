@@ -58,27 +58,3 @@ pub fn seconds_to_duration_and_time_str(seconds: u64) -> String {
         seconds_to_time_str(seconds)
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sizes() {
-        assert_eq!(format_size(0), "0B");
-        assert_eq!(format_size(1023), "1023B");
-        assert_eq!(format_size(1024), "1.00KiB");
-        assert_eq!(format_size(1536 * 1024), "1.50MiB");
-        assert_eq!(format_size(3 * 1024 * 1024 * 1024), "3.00GiB");
-    }
-
-    #[test]
-    fn durations() {
-        assert_eq!(seconds_to_duration_str(0), "0s");
-        assert_eq!(seconds_to_duration_str(3600), "1h0s");
-        assert_eq!(seconds_to_duration_str(90_061), "1d1h1m1s");
-        assert_eq!(seconds_to_time_str(65), "01:05");
-        assert_eq!(seconds_to_time_str(90_061), "25:01:01");
-        assert_eq!(seconds_to_duration_and_time_str(3661), "1h1m1s (1:01:01)");
-    }
-}

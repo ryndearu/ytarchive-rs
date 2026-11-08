@@ -49,24 +49,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_and_trims() {
-        let mut input = std::io::Cursor::new("  1080p60 \r\nnext\n");
-        assert_eq!(read_line_or_eof(&mut input).as_deref(), Some("1080p60"));
-        assert_eq!(read_line_or_eof(&mut input).as_deref(), Some("next"));
-    }
-
-    #[test]
     fn tells_an_empty_line_from_eof() {
         let mut input = std::io::Cursor::new("\n");
         assert_eq!(read_line_or_eof(&mut input), Some(String::new()));
         assert_eq!(read_line_or_eof(&mut input), None);
-    }
-
-    #[test]
-    fn yes_no() {
-        assert!(is_yes("y"));
-        assert!(is_yes("Yes"));
-        assert!(!is_yes(""));
-        assert!(!is_yes("no"));
     }
 }

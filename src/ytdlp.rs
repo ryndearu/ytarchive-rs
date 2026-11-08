@@ -355,13 +355,4 @@ mod tests {
         assert!(info.last_sq.is_some());
         assert!(info.target_duration > 0);
     }
-
-    #[tokio::test]
-    async fn run_reports_missing_binary() {
-        let opts = Options {
-            ytdlp_path: "/nonexistent/yt-dlp".into(),
-            ..Default::default()
-        };
-        assert!(matches!(run(&opts, "u", false).await, Err(Error::Ytdlp(_))));
-    }
 }

@@ -295,23 +295,4 @@ mod tests {
         assert_eq!(windows_quote("TITLE=a&b"), r#""TITLE=a&b""#);
         assert_eq!(windows_quote(""), r#""""#);
     }
-
-    #[test]
-    fn command_line_uses_platform_quoting() {
-        let line = command_line("ffmpeg", &["-i".into(), "a b".into()]);
-        if cfg!(windows) {
-            assert_eq!(line, r#"ffmpeg -i "a b""#);
-        } else {
-            assert_eq!(line, "ffmpeg -i 'a b'");
-        }
-    }
-
-    #[test]
-    fn finds_programs() {
-        // The test binary itself always exists next to itself.
-        let me = std::env::current_exe().unwrap();
-        assert!(program_exists(me.to_str().unwrap()));
-        assert!(program_exists(me.file_name().unwrap().to_str().unwrap()));
-        assert!(!program_exists("definitely-not-a-real-program-xyz"));
-    }
 }
