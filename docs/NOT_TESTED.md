@@ -28,7 +28,7 @@ Keep this file current: when something listed under "Not tested" gets verified, 
 - **Members-only streams and cookies** with a real account.
 - **A stream that ends mid-download**, and an ended stream whose processed VOD is already playable (default mode).
 - **Long-running behavior**: the 5-hour background URL refresh and URL refresh after repeated 403s. The longest real run was 5 minutes.
-- **Channel monitoring of a channel going live** while being watched.
+- **Channel monitoring of a channel going live** while being watched, including going back to `/live` when it shows a stream marked playable that hasn't started (no test covers that path).
 - **Retry exhaustion**: whether exiting with code 0 after saving a partial file, when fragment retries run out, matches Go.
 - **`-6`** (the test machines had no IPv6), `--no-windows-filenames` on Windows with a title Windows accepts, and **non-UTF-8 command-line arguments and cookie files** (converted lossily).
 - **The nightly skip for docs-only commits doesn't work yet.** The scheduled run on 2026-11-08 found only a `docs:` commit (`0e3bdb9`) since the last nightly (`a1d543d`) and built anyway. Running the same check script locally on those two commits skips as it should, so the cause on the runner isn't known yet. The check step now prints the tag, the commits since it, and its decision, so the next docs-only run's log should show why.

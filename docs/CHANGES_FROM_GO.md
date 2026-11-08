@@ -32,6 +32,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - The URL is passed to yt-dlp after `--`, so a URL can never be read as a yt-dlp option.
 - yt-dlp runs with `--encoding utf-8` (and `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`), so titles and other text arrive as UTF-8 whatever the console's code page is. `--ytdlp-opts` can still override it.
 - **Downloads from a channel URL are pinned to the stream they started on** in `--ytdlp-info` mode too: once `/live` resolves, URL refreshes use the stream's watch URL. Go's yt-dlp mode kept refreshing through `/live` and could switch to a different stream mid-download. `--monitor-channel` still starts each check from `/live`.
+- **Waiting on a channel keeps checking `/live` until a stream starts** (with `--monitor-channel`, or a channel URL with `-r`). When `/live` showed a stream marked playable that hadn't started, Go switched to that video's watch URL and kept polling it, so another stream on the channel starting first was missed. The port goes back to `/live` each time. A video URL still waits on that video.
 - Requests that return non-2xx statuses are errors (Go's page/thumbnail fetches accepted any response). Error messages omit URL query strings, which contain signatures and your IP.
 - A connection that stops sending data for 30 seconds is dropped. Go had no limit once a response had started.
 - Fragment URLs are stored as a prefix/suffix around the sequence number instead of `Sprintf` templates with `%` escaped as `%%`.

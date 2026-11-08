@@ -262,6 +262,29 @@ impl Extractor {
                     // fragments still exist; that is decided from yt-dlp's
                     // URLs afterwards, not from the watch page's formats.
                     if !details.is_live_now && !self.in_progress && details.end_timestamp.is_empty() {
+                        // Waiting on a channel (always so with --monitor-channel):
+                        // go back to /live instead of polling this video, so
+                        // whichever stream starts first is found. Go kept
+                        // polling the video.
+                        if wait_on_channel && let Some(live_url) = self.channel_url.clone() {
+                            let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
+                            if live_waited == 0 {
+                                log_general!(
+                                    "The stream on the channel's /live page has not started. Checking the channel every {secs} seconds."
+                                );
+                            }
+                            self.page_url = live_url;
+                            self.is_channel = true;
+                            self.members_only = self.opts.members_only;
+                            self.video_id.clear();
+                            if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
+                                return Outcome::NotUsable;
+                            }
+                            live_waited += secs;
+                            retry_count += 1;
+                            log::retry_status(retry_count, live_waited, newlines);
+                            continue;
+                        }
                         log_general!("Livestream is offline, should have started, and does not have an end timestamp.");
                         log_general!("Waiting {DEFAULT_POLL_SECS} seconds and trying again.");
                         if !sleep_or_cancel(&self.cancel, POLL).await {

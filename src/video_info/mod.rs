@@ -40,6 +40,8 @@ pub struct Extractor {
     /// Page to query: a watch URL, or a channel's /live URL until resolved.
     pub page_url: String,
     pub is_channel: bool,
+    /// The channel's /live URL when the input was a channel.
+    pub channel_url: Option<String>,
     pub members_only: bool,
     pub video_id: String,
 
@@ -81,6 +83,7 @@ impl Extractor {
         Self {
             page_url: input.page_url(),
             is_channel,
+            channel_url: is_channel.then(|| input.page_url()),
             members_only: opts.members_only,
             video_id,
             wait: opts.wait,
