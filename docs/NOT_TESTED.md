@@ -13,7 +13,7 @@ A good port for Linux x64 and Windows x64, with the gaps listed under "Not teste
 
 ## Tested
 
-- **Unit and integration tests** (`cargo test`) pass on Windows, Linux, and macOS in CI, including the downloader tests against a local fake googlevideo server (ordering, resume, gaps, `--capture-duration`, `--sqlite`).
+- **Unit and integration tests** (`cargo test`) pass on Windows, Linux, and macOS in CI, including the downloader tests against a local fake googlevideo server (ordering, resume, gaps, `--capture-duration`, `--sqlite`, `--recover-private`).
 - **Real downloads on Linux** against a live 24/7 stream:
   - Default mode and `--ytdlp-info` mode, channel `/live` URL resolution, quality and codec selection, `--info-only`.
   - `--live-from now`, `--live-from -30m`/`-1m`, `--capture-duration`, `--threads`.
@@ -43,9 +43,15 @@ A good port for Linux x64 and Windows x64, with the gaps listed under "Not teste
   - `--sqlite` resume after a real interruption, and the Ctrl-C prompts answered through piped input.
   - On Windows: real downloads, Windows file names (forbidden characters, reserved names), and the MAX_PATH limit.
   - Resource use against the Go binary with `--threads 4`: about 12.8 MB peak memory against 18–19 MB for Go on Linux, lower CPU on Linux and Windows, and no memory growth over a 5-minute soak.
+- **`--recover-private`** (after v0.1.0, Linux):
+  - Fake-server tests: a stream going private mid-download (the URL in use gets 403 from one fragment on, an earlier URL still works) is completely recovered; when nothing works, recovery gives up, lists the missing fragments, and the database keeps the stream info, URLs, and head; a later run with the stream unavailable goes straight to recovery and fetches only the missing fragments; without the flag (plain `--sqlite`) nothing is recovered or kept; a `.ts` download resumes as `.ts` in SQLite mode; URL expiry parsing.
+  - Real runs (Lofi Girl, 144p), interrupted with `--no-merge --no-save --save-state`: with `--recover-private` the database held the fragments, the googlevideo URL with its `expire` time, the stream info, and the head; with plain `--sqlite` only the fragments. Earlier, during development (when SQLite was briefly the default), a 20-second capture and resuming an interrupted database download both gave complete mp4s.
 - **Ended streams whose live download is gone** (both modes) print "Livestream has already ended; its live download no longer exists. Use yt-dlp instead."
 - **Version stamping**: release (`YTARCHIVE_CHANNEL=release`), commit/date overrides, and the default local string, checked locally with `--version`.
 - **A regular (non-live) video** is rejected with the right message.
+- **Release workflow** (`release.yml`): the `v0.1.0` tag built all six targets and published a normal (not pre-) release with the six zips. The Linux x64 zip from `releases/latest/download/` prints `ytarchive v0.1.0 (2026-11-07)`.
+- **Scheduled nightly** (00:00 UTC): it triggers, and it skipped an unchanged `main` (after a manual run had already built it).
+- **Nightly with `--recover-private`** (run by hand on 2026-11-08): built the three nightly targets and published them; the notes list every commit since `v0.1.0`. The Linux x64 zip printed `v0.1.0-<commit> (2026-11-08)`, its `--help` has `--recover-private` and no `--potoken`. The check step's new debug output showed the tag missing (deleted by the failed run below) and the decision to build.
 - **Nightly workflow** (run by hand twice):
   - The first run built all six targets (Windows, Linux, and macOS, each x64 and arm64, with Linux arm64 in `cross`) and published the `nightly` pre-release. The Linux arm64 build carries the right version string (`v0.1.0-03e95ee (2026-11-07)`), so the version variables reach the `cross` container.
   - The second run built only the nightly targets (Windows x64, Linux x64, macOS arm64), published them as zips, and replaced the previous pre-release; its notes link every commit. The Linux x64 zip holds a single static `ytarchive` that keeps its executable bit and prints `v0.1.0-5f65677 (2026-11-07)`.
@@ -56,11 +62,14 @@ A good port for Linux x64 and Windows x64, with the gaps listed under "Not teste
 - **Windows items that need a person**: turning QuickEdit off and restoring it on exit, the Ctrl-C prompts answered by hand, and keeping the PC awake while waiting for a scheduled stream.
 - **Members-only streams and cookies** with a real account.
 - **A stream that ends mid-download.**
+- **`--recover-private` against a real stream going private**: whether YouTube keeps serving the old URLs, the recovery rounds against googlevideo, and the 5-minute round spacing and one-hour limit in practice (only the fake server was used).
+- **Retrying a kept download for real**: the "kept" message, rerunning when the stream is private or its live download is gone (rebuilding from the database, the `-1` file), and on Windows reopening the kept database.
 - **Long-running behavior**: the 5-hour background URL refresh and URL refresh after repeated 403s. The longest real run was 5 minutes.
 - **Channel monitoring of a channel going live** while being watched.
 - **Retry exhaustion**: whether exiting with code 0 after saving a partial file, when fragment retries run out, matches Go.
-- **The release workflow** (`release.yml`, on a `v*` tag) hadn't run before v0.1.0, so the arm64 and macOS x64 zips and the release version string had only been checked locally.
-- **The nightly skip for docs-only commits.** The scheduled run has triggered and correctly skipped an unchanged `main` (after a manual run had already built it).
+- **The release zips other than Linux x64** (Windows and macOS, and every arm64 one) haven't been run on a real machine.
+- **The nightly skip for docs-only commits doesn't work yet.** The scheduled run on 2026-11-08 found only a `docs:` commit (`0e3bdb9`) since the last nightly (`a1d543d`) and built anyway. Running the same check script locally on those two commits skips as it should, so the cause on the runner isn't known yet. The check step now prints the tag, the commits since it, and its decision, so the next docs-only run's log should show why.
+- **Publishing a nightly can leave no nightly at all.** The publish step deletes the old pre-release and tag before creating the new one. On 2026-11-08 a run for an older `main` commit deleted them, then got `HTTP 403: Resource not accessible by integration` creating the release (rerunning the job failed the same way); a new run on `main` published fine. Likely cause, not confirmed: a workflow-file change (the nightly check's debug output) was pushed to `main` while that run was in progress, and the workflow's token can't create a tag on a commit whose workflow files differ from `main`'s.
 - **The workflow files haven't been linted** (e.g. with actionlint); they've only been checked by running.
 - **An ended stream whose processed VOD is already playable**, in default mode.
 - **`-6`** (the test machines had no IPv6) and a **SOCKS5 proxy**.

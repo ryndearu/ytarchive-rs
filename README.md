@@ -13,6 +13,7 @@ For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) inste
 - Parallel fragment downloads, URL refresh when fragments start failing, and a background refresh every 5 hours before URLs expire.
 - Resumable downloads: interrupt with Ctrl-C, keep the state, rerun to continue.
 - Optional SQLite fragment storage (`--sqlite`) that resumes by re-fetching only missing fragments.
+- Optional recovery after a stream goes private mid-recording (`--recover-private`): the missing fragments are retried with the download URLs already in use, and a download that still has gaps is kept so running the same command again retries them (see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
 - Muxes to mp4/mkv/m4a with ffmpeg, with optional thumbnail, metadata, and description files.
 - Video codec choice with `--codec` (H.264 by default, see [Quality and codec](#quality-and-codec)).
 
@@ -121,6 +122,7 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
         --retry-frags <ATTEMPTS>       Attempts per fragment before refreshing URLs / giving up (0 = unlimited) [default: 10]
         --no-frag-files                Keep out-of-order fragments in memory instead of temp files
         --sqlite                       Store fragments in a SQLite database (more robust to gaps)
+        --recover-private              If the stream goes private, retry missing fragments with the URLs already in use (implies --sqlite)
 
 ### Format Selection Options:
         --codec <CODECS>  Video codec preference, e.g. vp9/h264. Default: h264, or best when the quality is best
@@ -241,6 +243,16 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 
 `-o` accepts `%(key)s` placeholders: `id`, `title`, `channel_id`, `channel`, `upload_date`, `start_date`, `publish_date`, `year`, `month`, `day`, `start_time`, `hours`, `minutes`, `seconds`, `url`. `description` is accepted but expands to nothing in file names.
 
+### Private streams and missing fragments
+
+By default a stream that goes private during the recording ends the download, as in Go ytarchive. With `--recover-private`, ytarchive tries to get the rest:
+
+- When a stream goes private (or otherwise unavailable), the download URLs ytarchive already has usually keep working for a while: until their `expire` time, about 6 hours after they were issued. ytarchive retries every missing fragment with every URL it has used, in rounds 5 minutes apart, until all are recovered, the URLs expire, or an hour passes without recovering anything. Ctrl-C stops it as usual. It's a best effort: YouTube often refuses the URLs right away once a stream is private.
+- `--recover-private` turns on `--sqlite`, since recovered fragments arrive out of order. Fragments go into a database (`{name}.f{itag}.sqlite` in the temporary folder) and are exported in order to the `.ts` file at the end, so the download needs about as much extra space as the stream itself while it runs.
+- If fragments are still missing at the end, the file is merged anyway and the missing sequence numbers are listed. When the URLs haven't expired yet, the temporary folder (with the database, which also holds the stream info and URLs) and the `.state` files are kept, and ytarchive says until when they can be used.
+- Run the same command again (with `--recover-private` and the video's URL, not the channel's) to retry only the missing fragments. If the stream can still be looked up, the download is resumed with fresh URLs; if not, ytarchive uses the stream info and URLs saved in the database. The new file gets a `-1` suffix, next to the first one. Delete the temporary folder if you don't want to retry. This needs the state files, so it doesn't work with `--disable-save-state`.
+- A download is always resumed in the storage it was started with. Adding `--recover-private` when resuming a download started without `--sqlite` keeps its `.ts` data, but that download continues without recovery.
+
 ### PO tokens and cookies
 
 yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. Cookies (`-c cookies.txt`, Netscape format) are used both by yt-dlp and by the fragment downloads.
@@ -251,13 +263,13 @@ See [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md) for the full list: behavi
 
 ## Testing status
 
-See [docs/NOT_TESTED.md](docs/NOT_TESTED.md) for what has been verified so far and what hasn't (for example, real downloads on Windows and macOS).
+See [docs/NOT_TESTED.md](docs/NOT_TESTED.md) for what has been verified so far and what hasn't (for example, real downloads on macOS and on arm64).
 
 ## Credits
 
 - [Kethsar/ytarchive](https://github.com/Kethsar/ytarchive): the original ytarchive. This port follows its design, flags, and file formats.
 - [dreammu/ytarchive](https://github.com/dreammu/ytarchive): the fork this port is based on (yt-dlp extraction, background URL refresh, fragment retry logic, `--ytdlp-info`).
-- [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl): the idea behind `--sqlite` storage and resuming by re-fetching only gaps.
+- [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl): the ideas behind `--sqlite` storage, resuming by re-fetching only gaps, and `--recover-private`.
 
 ## License
 

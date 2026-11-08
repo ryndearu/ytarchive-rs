@@ -4,7 +4,7 @@ Guidelines for working on ytarchive-rs, for people and coding agents alike. Thes
 
 ## What this project is
 
-A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork of [Kethsar/ytarchive](https://github.com/Kethsar/ytarchive)): a YouTube livestream archiver. URL extraction goes through yt-dlp (run as a subprocess); ytarchive downloads the fragments and muxes with ffmpeg. `--sqlite` storage borrows its idea from [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl).
+A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork of [Kethsar/ytarchive](https://github.com/Kethsar/ytarchive)): a YouTube livestream archiver. URL extraction goes through yt-dlp (run as a subprocess); ytarchive downloads the fragments and muxes with ffmpeg. `--sqlite` storage and `--recover-private` borrow their ideas from [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl).
 
 ## Porting rules
 
@@ -40,7 +40,9 @@ cargo clippy --all-targets -- -D warnings
 cargo build --release --locked   # when dependencies or build config change
 ```
 
-- Downloader tests use a local fake googlevideo server (`src/download/tests.rs`); add cases there for download behavior.
+- Downloader tests use a local fake googlevideo server (`src/download/tests/mod.rs`; SQLite and recovery cases in `tests/sqlite.rs`); add cases there for download behavior. `serve_until` makes fragments return 403 from a given sequence on, as for a stream that went private.
+- `--recover-private` waits 5 minutes between recovery rounds; tests use a 20 ms interval (`cfg(test)` in `src/download/recovery.rs`).
+- With `--recover-private`, the SQLite database also stores the stream info, every download URL used, and the newest fragment (`urls`/`meta` tables) for retrying in a later run (`src/kept.rs`). Without the flag nothing new is stored, recovered, or kept. Don't rename those tables or keys without handling old databases.
 - Network tests are `#[ignore]`d. Run them against a real 24/7 stream with: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the env var if deno is installed).
 - For changes to the download/mux flow, also do a short real run, e.g. `--live-from now --capture-duration 20s -o '/tmp/x/%(id)s'`, and check the result with ffprobe.
 - CI runs clippy and tests on Windows, Linux, and macOS; a change isn't done until all three pass.
@@ -48,8 +50,7 @@ cargo build --release --locked   # when dependencies or build config change
 
 ## Commits
 
-- Title format: `<scope>[/<subscope>]: <lowercase imperative summary>`, no trailing period, scope = module path. Examples: `download/db_sink: close the database before cleanup in test`, `output: make template folder names windows-safe`. Broad changes may use a plain sentence-case title.
-- Body: bullet list of what changed, plus a paragraph on Go bugs fixed or behavior changes.
+- Title format (Conventional Commits): `<type>(<scope>): <lowercase imperative summary>`, no trailing period. Types: `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `chore`. The scope is the module (`download`, `cli`, `tui`, …) and can be left out for broad changes (`docs: …`). Add the PR number at the end, `(#12)`, only when the commit comes from a pull request. Releases are `chore: release 0.2.0`. Examples: `fix(download): close the database before cleanup in test`, `feat(cli): add --recover-private`, `docs: describe --recover-private`.- Body: bullet list of what changed, plus a paragraph on Go bugs fixed or behavior changes.
 - One commit per completed step. When a change touches code and docs, commit the code first and the docs last, as separate commits.
 - If a change is minor, put the code and its docs update in a single commit instead.
 - After each commit, update the docs it affects (`README.md`, `docs/CHANGES_FROM_GO.md`, `docs/NOT_TESTED.md`, this file).
@@ -61,7 +62,8 @@ cargo build --release --locked   # when dependencies or build config change
 ## Releases
 
 - **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release.
-- **Nightly** (`nightly.yml`) runs daily at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a `docs:` commit, otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release as links to their commit pages (GitHub doesn't link bare hashes in release notes). Docs commits must use the `docs:` scope for this to work.
+- **Nightly** (`nightly.yml`) runs daily at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a docs commit (`docs:` or `docs(...):`), otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release as links to their commit pages (GitHub doesn't link bare hashes in release notes). Docs commits must use the `docs` type for this to work. The check step prints why it builds or skips (debug output while the docs-only skip is investigated; see `docs/NOT_TESTED.md`).
+- Don't push changes to `.github/workflows/` while a nightly is running: its publish step deletes the old nightly first, and creating the new one for the older commit then failed with HTTP 403, leaving no nightly until a new run on `main`.
 - Both use `build.yml`, which publishes one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only `ytarchive`/`ytarchive.exe` (Linux builds are static musl). Releases build x64 and arm64 for every OS; nightly (`all_targets: false`) builds only Windows x64, Linux x64, and macOS arm64. It sets `YTARCHIVE_CHANNEL`/`YTARCHIVE_VERSION`/`YTARCHIVE_COMMIT`/`YTARCHIVE_DATE` for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
 - Workflows force JavaScript actions onto the newest Node GitHub's runners provide (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`); bump it when GitHub adds a newer one.
 - **CI** doesn't run for pushes that only touch `*.md`, `docs/`, or `LICENSE`.
