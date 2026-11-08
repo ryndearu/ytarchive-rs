@@ -23,12 +23,27 @@ pub(super) fn save_info(s: &Session, dt: DataType, db: &DbSink, saved: Option<&S
     Ok(urls.len())
 }
 
-/// Saves URLs added by a refresh since the last call.
-pub(super) fn save_new_urls(s: &Session, dt: DataType, sink: &Sink, saved: &mut usize) {
+/// What `save_progress` has already written, so it writes only changes.
+#[derive(Default)]
+pub(super) struct Saved {
+    pub urls: usize,
+    pub head: Option<u64>,
+}
+
+/// Saves URLs added by a refresh and the newest known fragment since the
+/// last call. The head is saved as it moves, not only by `save_end`, so a
+/// download that is killed (taskkill, a closed console) still has it.
+pub(super) fn save_progress(s: &Session, dt: DataType, sink: &Sink, head: Option<u64>, saved: &mut Saved) {
     let Sink::Db(db, _) = sink else { return };
     let urls = s.known_urls(dt);
-    if urls.len() != *saved && db.save_urls(&urls).is_ok() {
-        *saved = urls.len();
+    if urls.len() != saved.urls && db.save_urls(&urls).is_ok() {
+        saved.urls = urls.len();
+    }
+    if let Some(h) = head
+        && saved.head != head
+        && db.set_meta("head", &h.to_string()).is_ok()
+    {
+        saved.head = head;
     }
 }
 

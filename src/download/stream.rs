@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::dispatch::Dispatch;
-use super::kept_db::{save_end, save_info, save_new_urls};
+use super::kept_db::{save_end, save_info, save_progress, Saved};
 use super::recovery::{recover, usable_until, Span};
 use super::sink::{self, Event, Sink};
 use super::ts_sink::remove_frag_file;
@@ -121,10 +121,10 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     save_state(&p, mode);
     // Only --recover-private keeps stream info and URLs in the database.
     let recovering = s.opts.recover_private && sink.is_db();
-    let mut urls_saved = 0;
+    let mut saved = Saved::default();
     if recovering && let Sink::Db(db, _) = &sink {
         match save_info(&s, dt, db, p.saved.as_deref()) {
-            Ok(n) => urls_saved = n,
+            Ok(n) => saved.urls = n,
             Err(e) => log_warn!("{name}: Error saving the download info for later retries: {e}"),
         }
     }
@@ -181,7 +181,7 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
                     let max_seq = dispatch.lock().unwrap().max_seq;
                     record(&mut p, max_seq, n, mode);
                     if recovering {
-                        save_new_urls(&s, dt, &sink, &mut urls_saved);
+                        save_progress(&s, dt, &sink, max_seq, &mut saved);
                     }
                 }
                 Event::Gap(gap) => {

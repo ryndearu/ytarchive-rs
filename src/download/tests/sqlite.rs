@@ -169,6 +169,26 @@ async fn recovery_gives_up_and_a_later_run_retries() {
 }
 
 #[tokio::test]
+async fn a_killed_download_keeps_the_head() {
+    // A kill (taskkill /F, a closed console) skips the end-of-download save,
+    // so the head must already be in the database.
+    let url = serve(200, vec![]).await;
+    let dir = temp_dir("recover-killed");
+    let s = Session::for_test(recovery_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut p, mut rx) = params(&dir, 200, DownloadState::default());
+    p.saved = Some(Arc::new(crate::types::SavedDownload { video_id: "abc".into(), ..Default::default() }));
+    let task = tokio::spawn(download_stream(s, p));
+    for _ in 0..3 {
+        rx.recv().await.unwrap();
+    }
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled(), "the download ended before the kill");
+    let kept = crate::download::read_kept(&dir, 140, 0o644).unwrap();
+    assert_eq!(kept.head, Some(200));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
 async fn no_recovery_while_the_stream_is_available() {
     // A 403 on a public stream ends the download as before (no rounds).
     let url = serve_until(12, vec![], 5, None).await;
