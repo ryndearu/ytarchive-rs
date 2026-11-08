@@ -5,8 +5,6 @@
 pub struct NetscapeCookie {
     /// Lowercased, without the `#HttpOnly_` prefix; may start with `.`.
     pub domain: String,
-    /// `TRUE` in the second column: cookie also applies to subdomains.
-    pub include_subdomains: bool,
     pub path: String,
     pub secure: bool,
     /// Unix seconds; `None` for session cookies (expiry `0`).

@@ -32,4 +32,4 @@ Keep this file current: when something listed under "Not tested" gets verified, 
 - **Retry exhaustion**: whether exiting with code 0 after saving a partial file, when fragment retries run out, matches Go.
 - **Falling back to `best`** when the quality chosen while waiting for a scheduled stream isn't offered once it starts (a live stream asked for `2160p60` fell back to 1080p VP9 without asking, Linux).
 - **AV1** (none of the test streams offered it), so the AV1-first default order is only covered by unit tests.
-- **`-6`** (the test machines had no IPv6) and **non-UTF-8 command-line arguments and cookie files** (converted lossily).
+- **`-6`** (the test machines had no IPv6) and **non-UTF-8 command-line arguments** (converted lossily) and **cookie values with bytes Go drops** (non-ASCII, `;`, `\`; only covered by unit tests).

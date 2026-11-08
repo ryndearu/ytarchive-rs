@@ -129,7 +129,7 @@ mod tests {
     #[tokio::test]
     async fn sends_cookies_and_reads_body() {
         let url = serve_once("200 OK").await;
-        let cookies = parse_netscape("127.0.0.1\tFALSE\t/\tFALSE\t0\tA\tb\n");
+        let cookies = parse_netscape(b"127.0.0.1\tFALSE\t/\tFALSE\t0\tA\tb\n");
         let http = Http::new(&Options::default(), cookies).unwrap();
         assert_eq!(&http.get_bytes(&url).await.unwrap()[..], b"A=b");
     }

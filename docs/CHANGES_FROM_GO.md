@@ -26,7 +26,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - **When none of the chosen qualities are available, `best` is used without asking.** Go asked for a quality again, which stalled a download chosen ahead of time (while waiting for a scheduled stream) until someone answered.
 - The version shown at startup (unless `-q`) and by `--version` includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)` for releases, `v0.1.0-abc1234 (2026-11-07)` for nightly and other builds.
 - `--help` groups the options under headings (General, Waiting, Download, Format Selection, Filesystem, Post-Processing, Interrupt, Extraction, Network, Verbosity).
-- Command-line arguments that aren't valid UTF-8 are converted (invalid bytes replaced) instead of rejected, and cookie files are read the same way.
+- Command-line arguments that aren't valid UTF-8 are converted (invalid bytes replaced) instead of rejected. Cookie files are read as in Go.
 
 ### Downloading
 
