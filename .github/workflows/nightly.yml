@@ -36,19 +36,30 @@ jobs:
         run: |
           sha=$(git rev-parse HEAD)
           prev=$(git ls-remote --tags origin "refs/tags/$TAG" | cut -f1)
+          # Debug output for the docs-only skip (a docs-only run built anyway
+          # on 2026-11-08); remove once the cause is found.
+          echo "main: $sha"
+          echo "last nightly tag: ${prev:-<none>}"
+          git ls-remote --tags origin "refs/tags/$TAG*"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           changed=true
           if [ "$sha" = "$prev" ]; then
             echo "main ($sha) is unchanged since the last nightly; skipping."
             changed=false
           elif [ -n "$prev" ] && git cat-file -e "$prev^{commit}" 2>/dev/null; then
+            echo "Commits since the last nightly:"
+            git log --format='  %h %s' "$prev..$sha"
             # Skip when every new commit is docs-only ("docs: ..." titles).
             code=$(git log --format=%s "$prev..$sha" | grep -cv '^docs[:(/]' || true)
+            echo "Non-docs commits: [$code]"
             if [ "$code" -eq 0 ]; then
               echo "Only docs commits since the last nightly; skipping."
               changed=false
             fi
+          else
+            echo "The last nightly's commit isn't in main's history (or there is none); building."
           fi
+          echo "changed=$changed"
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
   build:
