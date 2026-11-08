@@ -11,7 +11,7 @@ pub async fn get_user_input(prompt: &str) -> String {
     let read = tokio::task::spawn_blocking(|| read_trimmed_line(&mut std::io::stdin().lock()));
     tokio::select! {
         line = read => line.unwrap_or_default(),
-        _ = tokio::signal::ctrl_c() => {
+        _ = crate::interrupt::next() => {
             println!("\nExiting...");
             crate::platform::restore();
             std::process::exit(1);
