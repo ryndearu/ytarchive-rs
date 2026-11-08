@@ -15,7 +15,6 @@ For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) inste
 - Optional SQLite fragment storage (`--sqlite`) that resumes by re-fetching only missing fragments.
 - Optional recovery after a stream goes private mid-recording (`--recover-private`): the missing fragments are retried with the download URLs already in use, and a download that still has gaps is kept so running the same command again retries them (see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
 - Muxes to mp4/mkv/m4a with ffmpeg, with optional thumbnail, metadata, and description files.
-- Video codec choice with `--codec` (H.264 by default, see [Quality and codec](#quality-and-codec)).
 
 ## Platforms
 
@@ -118,7 +117,7 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
         --recover-private              If the stream goes private, retry missing fragments with the URLs already in use (implies --sqlite)
 
 ### Format Selection Options:
-        --codec <CODECS>  Video codec preference, e.g. vp9/h264. Default: h264, or best when the quality is best
+        --codec <CODECS>  Video codec preference, e.g. vp9/h264. Default: best (av1/vp9/h264)
         --av1             Prefer AV1 video when available (same as --codec av1)
         --vp9             Prefer VP9 video when available (same as --codec vp9)
         --h264            Prefer H.264 video (same as --codec h264)
@@ -187,7 +186,7 @@ With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-
 
 `--codec` takes a slash-delimited list too: `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs you don't list are used as a fallback when none of the listed ones are offered. Go's `--av1`, `--vp9`, and `--h264` still work and mean the same as `--codec` with that one codec.
 
-Without a codec option, **H.264** is preferred (it plays everywhere), falling back to AV1 and then VP9. The exception is quality `best` (given, picked at the prompt, or the `--info-only` default): it uses codec `best`, AV1 > VP9 > H.264. In a list like `1080p/best`, `1080p` uses H.264 and `best` (if it's reached) uses AV1 > VP9 > H.264. The codec is never asked for.
+Without a codec option, AV1 > VP9 > H.264 is used, as in Go. The codec is never asked for.
 
 ### Examples
 
@@ -199,20 +198,14 @@ ytarchive https://www.youtube.com/watch?v=VIDEO_ID best
 # Wait for a scheduled stream, 4 threads, embed thumbnail, add metadata
 ytarchive -w --threads 4 -t --add-metadata URL 1080p60/best
 
-# 1080p in H.264 (the default codec; AV1, then VP9 if H.264 isn't offered)
-ytarchive URL 1080p
-
 # 1080p in VP9, falling back to H.264
 ytarchive --codec vp9/h264 URL 1080p
 
-# Best quality, but in H.264 instead of the best codec
+# Best quality, but in H.264 (plays everywhere)
 ytarchive --codec h264 URL best
 
-# 1440p60, else 1080p60, in the best codec offered (AV1 > VP9 > H.264)
-ytarchive --codec best URL 1440p60/1080p60
-
-# Go-style flag, same as --codec av1
-ytarchive --av1 URL 1080p
+# Go-style flag, same as --codec vp9
+ytarchive --vp9 URL 1080p
 
 # Only the last 30 minutes, then 10 more minutes of the stream
 ytarchive --live-from -30m --capture-duration 40m URL best

@@ -68,24 +68,14 @@ fn picks_best_with_codec_priority() {
 }
 
 #[test]
-fn default_codec_is_h264_except_for_best() {
-    use crate::types::codec_order_for;
-    assert_eq!(codec_order_for("720p", None), [H264, Av1, Vp9]);
-    assert_eq!(codec_order_for("best", None), [Av1, Vp9, H264]);
-    assert_eq!(codec_order_for("best", Some(&[Vp9, H264, Av1])), [Vp9, H264, Av1]);
-
+fn default_codec_order_is_av1_vp9_h264() {
     let u = urls(&[140, 136, 247, 398]);
     let s = try_select(&u, &sel(&["720p"]), None, false).unwrap();
+    assert_eq!(s.codec, Some(Av1));
+    let s = try_select(&urls(&[140, 136, 247]), &sel(&["720p"]), None, false).unwrap();
+    assert_eq!(s.codec, Some(Vp9));
+    let s = try_select(&urls(&[140, 136]), &sel(&["720p"]), None, false).unwrap();
     assert_eq!(s.codec, Some(H264));
-    let s = try_select(&u, &sel(&["best"]), None, false).unwrap();
-    assert_eq!(s.codec, Some(Av1));
-    // The order follows the entry that matched: 1080p isn't offered, so
-    // "best" picks 720p with the best codec.
-    let s = try_select(&u, &sel(&["1080p", "best"]), None, false).unwrap();
-    assert_eq!(s.codec, Some(Av1));
-    // Without H.264, the fallback is AV1 then VP9.
-    let s = try_select(&urls(&[140, 247, 398]), &sel(&["720p"]), None, false).unwrap();
-    assert_eq!(s.codec, Some(Av1));
 }
 
 #[test]
@@ -135,7 +125,7 @@ async fn info_only_selects_without_asking() {
 async fn codec_is_not_asked_for() {
     let u = urls(&[140, 136, 247, 398]);
     let s = select_interactive(&u, sel(&["720p"]), None, false, true).await.unwrap();
-    assert_eq!(s.video_itag, Some(136));
+    assert_eq!(s.video_itag, Some(398));
 }
 
 #[tokio::test]

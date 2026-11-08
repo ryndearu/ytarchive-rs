@@ -21,7 +21,7 @@ Valid values: audio_only, 144p, 240p, 360p, 480p, 720p, 720p60, 1080p, 1080p60, 
 
 CODECS for --codec is a slash-delimited list from most to least wanted, e.g. vp9/h264.
 Valid values: av1, vp9, h264, best (= av1/vp9/h264). Codecs not listed are used as a fallback.
-Without --codec (or --av1/--vp9/--h264), h264 is preferred, except that quality best uses codec best.
+Without --codec (or --av1/--vp9/--h264), av1/vp9/h264 is used.
 
 Durations accept units (1d8h10m, 90s) or time strings (01:30:00).
 --live-from also accepts negative durations (-30m) and 'now'.";
@@ -114,7 +114,7 @@ pub struct Cli {
     pub recover_private: bool,
 
     // ---- format selection ----
-    /// Video codec preference, e.g. vp9/h264. Default: h264, or best when the quality is best.
+    /// Video codec preference, e.g. vp9/h264. Default: best (av1/vp9/h264).
     #[arg(long, value_name = "CODECS", value_parser = parse_codecs, conflicts_with_all = ["av1", "vp9", "h264"], help_heading = FORMAT)]
     pub codec: Option<CodecList>,
     /// Prefer AV1 video when available (same as --codec av1).

@@ -31,8 +31,7 @@ pub enum VideoCodec {
     H264,
 }
 
-/// Order for `--codec best`, and for quality `best` when no codec is given
-/// (dreammu's default for everything).
+/// The default order (as in Go), also used for `--codec best`.
 pub const BEST_CODEC_ORDER: [VideoCodec; 3] = [VideoCodec::Av1, VideoCodec::Vp9, VideoCodec::H264];
 
 impl VideoCodec {
@@ -73,17 +72,6 @@ pub fn complete_codec_order(preferred: &[VideoCodec]) -> Vec<VideoCodec> {
         }
     }
     out
-}
-
-/// Codec order for one quality entry: the codecs given by the user, else
-/// AV1 > VP9 > H.264 for `best` and H.264 first for anything else (H.264
-/// plays everywhere; the others are fallbacks when it isn't offered).
-pub fn codec_order_for(quality: &str, chosen: Option<&[VideoCodec]>) -> Vec<VideoCodec> {
-    match chosen {
-        Some(order) => order.to_vec(),
-        None if quality == "best" => BEST_CODEC_ORDER.to_vec(),
-        None => complete_codec_order(&[VideoCodec::H264]),
-    }
 }
 
 /// Parses a slash-delimited codec list (`vp9/h264`); `best`/`any`/empty
@@ -146,8 +134,8 @@ pub struct Options {
     pub ytdlp_info: bool,
 
     // Format
-    /// Video codec preference order from the CLI; `None` = not given (see
-    /// `codec_order_for`).
+    /// Video codec preference order from the CLI; `None` = not given
+    /// (`BEST_CODEC_ORDER`).
     pub codecs: Option<Vec<VideoCodec>>,
     pub mkv: bool,
     pub audio_only: bool,

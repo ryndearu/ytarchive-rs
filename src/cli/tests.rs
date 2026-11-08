@@ -79,7 +79,7 @@ fn defaults() {
     assert_eq!(o.storage, StorageMode::DirectTs);
     assert!(!o.recover_private);
     assert_eq!(o.windows_filenames, cfg!(windows));
-    assert_eq!(o.codecs, None, "default codec depends on the quality");
+    assert_eq!(o.codecs, None, "default order: BEST_CODEC_ORDER");
 }
 
 #[test]

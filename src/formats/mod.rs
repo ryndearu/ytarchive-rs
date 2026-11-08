@@ -10,7 +10,7 @@ pub use interactive::{prompt_quality, select_interactive};
 
 use crate::error::{Error, Result};
 use crate::types::{
-    codec_order_for, itags_for_label, FormatSelection, FragmentUrl, VideoCodec, VideoItag,
+    itags_for_label, FormatSelection, FragmentUrl, VideoCodec, VideoItag,
     AUDIO_ITAG, BEST_CODEC_ORDER, VIDEO_QUALITIES,
 };
 use crate::log_debug;
@@ -91,8 +91,7 @@ pub fn available_qualities(urls: &UrlMap) -> Vec<&'static str> {
 }
 
 /// First of `selected` that is available. The codec comes from `codecs`
-/// (the user's order) or, if `None`, the default for each entry
-/// (`codec_order_for`). Returns `None` if none are available.
+/// (the user's order) or, if `None`, `BEST_CODEC_ORDER`. Returns `None` if none are available.
 pub fn try_select(
     urls: &UrlMap,
     selected: &[String],
@@ -107,7 +106,7 @@ pub fn try_select(
     };
 
     for q in selected {
-        let order = codec_order_for(q.trim(), codecs);
+        let order = codecs.unwrap_or(&BEST_CODEC_ORDER);
         let label = match q.trim() {
             "best" => *available.last()?,
             "audio" => "audio_only",
