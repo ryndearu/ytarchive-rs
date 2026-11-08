@@ -45,6 +45,8 @@ cargo build --release --locked   # when dependencies or build config change
 - With `--recover-private`, the SQLite database also stores the stream info, every download URL used, and the newest fragment (`urls`/`meta` tables) for retrying in a later run (`src/kept.rs`). Without the flag nothing new is stored, recovered, or kept. Don't rename those tables or keys without handling old databases.
 - Network tests are `#[ignore]`d. Run them against a real 24/7 stream with: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the env var if deno is installed).
 - For changes to the download/mux flow, also do a short real run, e.g. `--live-from now --capture-duration 20s -o '/tmp/x/%(id)s'`, and check the result with ffprobe.
+- On Windows, processes started from a coding agent's shell can inherit "ignore Ctrl-C", so a scripted Ctrl-C never reaches ytarchive and it gets killed instead. Send Ctrl-Break, or reset the flag with `SetConsoleCtrlHandler(NULL, FALSE)` in the launcher, before judging interrupt behavior.
+- Prompts where an empty answer means "go ahead" (like the scheduled-stream question) must use `prompt::get_line_or_eof` and treat closed stdin as "no", so non-interactive runs never wait unattended.
 - CI runs clippy and tests on Windows, Linux, and macOS; a change isn't done until all three pass.
 - Record what has and hasn't been verified in `docs/NOT_TESTED.md`.
 

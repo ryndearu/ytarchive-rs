@@ -22,6 +22,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - `--metadata` without `=` is an error. Go crashed (index out of range).
 - `--no-video` together with `--no-audio`, and `--threads 0`, are errors.
 - `--potoken` and `--visitor-data` are removed, so passing them is an error. In dreammu they were accepted but never used: the InnerTube request that consumed them (`DownloadWebAPIPlayerResponse`) is never called. Pass PO token settings to yt-dlp with `--ytdlp-opts` instead.
+- **The scheduled-stream question is numbered and Enter waits**: `1) wait  2) poll  3) no (default 1):` (the words `wait`/`poll` still work). Go asked `wait/poll/[no]:`, where Enter meant don't wait. When stdin is closed (scripts, cron) the answer is still no, so such runs don't wait unattended; use `-w` for that.
 - `--ytdlp-info` asks for the quality while waiting for a scheduled stream, as the default mode does. Go asked only once the stream started.
 - **The default video codec is H.264**, falling back to AV1 and then VP9, unless a codec option is given. Quality `best` without a codec option uses AV1 > VP9 > H.264, as dreammu did for every quality. The codec is never prompted for.
 - The version shown at startup (unless `-q`) and by `--version` includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)` for releases, `v0.1.0-abc1234 (2026-11-07)` for nightly and other builds.
@@ -81,6 +82,7 @@ Windows, Linux, and macOS are supported. Go built for more targets but only supp
 16. **`--file-permissions` skipped the final file.** Go applied it only to files it wrote itself (thumbnail, description, mux file, state and fragment files); the muxed file and the `--separate-audio` file kept ffmpeg's default mode. The port sets the mode on both after muxing.
 17. **Repeating a flag was an error** (port-specific, found while testing the nightly). v0.1.0 rejected a flag given twice, e.g. `--ytdlp-opts … --ytdlp-opts …` or `-o a -o b`. As with Go's flag package, the last value now wins; `--metadata` still collects every value.
 18. **Ctrl-Break didn't stop the download on Windows** (port-specific). Go's `os.Interrupt` catches both Ctrl-C and Ctrl-Break; v0.1.0 caught only Ctrl-C, so Ctrl-Break ended the program without merging or saving. Both now stop the download (and exit from a prompt) the same way.
+19. **A download whose file couldn't be created was still "finished" and muxed.** When a stream's data file or database couldn't be opened (e.g. a name Windows rejects under `--no-windows-filenames`), Go logged the error, then printed "Download Finished" and ran ffmpeg on the missing file, which failed with code -22. The port doesn't merge and exits with 1: if nothing was downloaded it removes the temp folder and state files, and if an earlier run's data is there (a resume) it leaves everything to resume once the cause is fixed.
 
 ## Not ported
 

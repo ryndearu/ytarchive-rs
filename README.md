@@ -8,7 +8,7 @@ For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) inste
 
 - Downloads live streams from the beginning (up to YouTube's 7-day seek window), or from a chosen point with `--live-from`.
 - Downloads a stream that just ended as long as its live download still exists; once it's gone, says so ("Livestream has already ended; its live download no longer exists. Use yt-dlp instead.").
-- Waits for scheduled streams: until the scheduled time, or by polling.
+- Waits for scheduled streams: until the scheduled time, or by polling. Without `-w`/`-n` it asks `1) wait  2) poll  3) no (default 1):`, and Enter waits; with no input available (a script or cron job) it doesn't wait.
 - Watches a channel and records each new stream (`--monitor-channel`), including members-only streams with cookies. Each download sticks to the stream it started on, even if the channel goes live again meanwhile.
 - Parallel fragment downloads, URL refresh when fragments start failing, and a background refresh every 5 hours before URLs expire.
 - Resumable downloads: interrupt with Ctrl-C, keep the state, rerun to continue.
@@ -236,7 +236,8 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 ### File names
 
 - `--windows-filenames` (default on Windows) makes file and folder names Windows-compatible: characters like `<>:"/\|?*` and control characters are replaced, and names Windows reserves (`CON`, `NUL`, …) or that end in a dot or space are adjusted. This includes folders created from the template, such as `%(channel)s/`. The title is also shortened so every file ytarchive writes (final and temporary, including fragment files) stays within Windows' 260-character path limit (MAX_PATH). Use it on Linux/macOS if the files will end up on Windows or a Windows-formatted drive.
-- `--no-windows-filenames` (default on Linux and macOS) only replaces path separators, so titles keep characters like `?` and `:`.
+- `--no-windows-filenames` (default on Linux and macOS) only replaces path separators, so titles keep characters like `?` and `:`. On Windows a title with such a character can't be saved; ytarchive then stops without merging and cleans up.
+- Resume state (`{id}.f{itag}.state`) is written to `--temporary-dir`, or the current folder without it, not next to the `-o` file (as in Go). Resume from the same folder; a different `-o` still finds the state by video ID.
 - File names are always at most 255 bytes, and titles are read from yt-dlp as UTF-8 whatever the console's code page is.
 
 ### Output template keys
