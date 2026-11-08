@@ -96,6 +96,24 @@ impl Finish<'_> {
         }
     }
 
+    /// A stream's storage couldn't be opened. Go still said "Download
+    /// Finished" and ran ffmpeg on the missing file; this doesn't merge. With
+    /// nothing downloaded (now or by an earlier run) the files are removed,
+    /// otherwise left for resuming once the cause is fixed. Returns the exit code.
+    pub fn on_storage_error(&self, had_data: bool) -> i32 {
+        if had_data {
+            log_error!(
+                "Not merging because a download's storage couldn't be opened. The files were left in {} to resume later.",
+                self.plan.temp_dir.display()
+            );
+        } else {
+            log_error!("Nothing was downloaded because a download's storage couldn't be opened.");
+            self.plan.remove_temp_dir(self.video_id);
+            self.delete_state_files();
+        }
+        1
+    }
+
     /// Handles a user interrupt. Returns `Some(exit code)` if done, `None`
     /// if the user chose to merge what was downloaded.
     pub async fn on_cancel(&self) -> Option<i32> {

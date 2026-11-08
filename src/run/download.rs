@@ -172,6 +172,7 @@ pub(super) async fn download(
     });
     let refresher = session.spawn_periodic_refresh();
 
+    let resumed = states.iter().any(|st| st.fragments > 0);
     let mut initial = Totals::default();
     for ((dt, _), st) in streams.iter().zip(&states) {
         match dt {
@@ -208,6 +209,7 @@ pub(super) async fn download(
     drop(tx);
 
     let mut frags = [None, None];
+    let mut storage_failed = false;
     let mut retry_until: Option<u64> = None;
     let mut state_files = Vec::new();
     for (task, (dt, itag)) in tasks.into_iter().zip(&streams) {
@@ -227,7 +229,10 @@ pub(super) async fn download(
                     retry_until = Some(retry_until.map_or(t, |r| r.max(t)));
                 }
             }
-            Ok(Err(e)) => log_error!("{} download failed: {e}", dt.as_str()),
+            Ok(Err(e)) => {
+                storage_failed |= matches!(e, crate::error::Error::OpenStorage(_));
+                log_error!("{} download failed: {e}", dt.as_str());
+            }
             Err(e) => log_error!("{} download task panicked: {e}", dt.as_str()),
         }
     }
@@ -253,6 +258,10 @@ pub(super) async fn download(
         video_frags: frags[DataType::Video.idx()],
         keep_for_retry: retry_until,
     };
+    if storage_failed {
+        let had_data = resumed || frags.iter().flatten().any(|n| *n > 0);
+        return fin.on_storage_error(had_data);
+    }
     if interrupt.is_set()
         && let Some(code) = fin.on_cancel().await
     {

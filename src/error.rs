@@ -30,6 +30,11 @@ pub enum Error {
     #[error("invalid argument: {0}")]
     InvalidArg(String),
 
+    /// A stream's data file or database couldn't be opened, so that stream
+    /// downloaded nothing.
+    #[error("{0}")]
+    OpenStorage(Box<Error>),
+
     #[error("cancelled")]
     Cancelled,
 }

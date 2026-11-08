@@ -232,6 +232,18 @@ async fn skips_permanently_failing_fragment() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[tokio::test]
+async fn unopenable_storage_is_reported_as_such() {
+    // A data file in a folder that doesn't exist, like a name Windows rejects.
+    let dir = temp_dir("no-storage");
+    let s = Session::for_test(opts(1, false), Some(FragmentUrl::with_sq_param("http://127.0.0.1:1/x?")), false);
+    let (mut p, _rx) = params(&dir, 5, DownloadState::default());
+    p.data_file = dir.join("missing").join("out.f140.ts");
+    let err = download_stream(s, p).await.unwrap_err();
+    assert!(matches!(err, crate::error::Error::OpenStorage(_)), "{err}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Hits YouTube: downloads 3 real audio fragments from a 24/7 stream.
 /// Run with `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored live_fragments`.
 #[tokio::test]

@@ -13,7 +13,7 @@ use super::recovery::{recover, usable_until, Span};
 use super::sink::{self, Event, Sink};
 use super::ts_sink::remove_frag_file;
 use super::worker::{worker, Msg};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::live_from::seekable_start_sq;
 use crate::session::Session;
 use crate::types::{DataType, DownloadState, ProgressInfo, SavedDownload, StorageMode};
@@ -112,7 +112,7 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
         Err(e) => {
             log_error!("{name}: Error opening storage for {}: {e}", p.data_file.display());
             s.stop();
-            return Err(e);
+            return Err(Error::OpenStorage(Box::new(e)));
         }
     };
     let mut sink = opened.sink;
