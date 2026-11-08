@@ -90,6 +90,9 @@ fn title_is_cut_to_fit_windows_max_path() {
     // Without --windows-filenames, only the 255-byte name limit applies.
     let o = opts(&format!("{deep}/%(title)s [%(id)s]"), false);
     assert_eq!(final_location(&o, &fi(&"t".repeat(200))).unwrap().1.len(), 206);
+    // Nor with --no-path-limit.
+    let o = Options { no_path_limit: true, ..opts(&format!("{deep}/%(title)s [%(id)s]"), true) };
+    assert_eq!(final_location(&o, &fi(&"t".repeat(200))).unwrap().1.len(), 206);
 }
 
 #[test]

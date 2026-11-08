@@ -128,6 +128,7 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
         --temporary-dir <DIR>           Directory for temporary files (created if missing; also -td)
         --windows-filenames             Force filenames to be Windows-compatible (default on Windows)
         --no-windows-filenames          Sanitize filenames only minimally (default on other than Windows)
+        --no-path-limit                 Don't shorten titles to fit Windows' 260-character path limit (ffmpeg may need long paths enabled in Windows)
     -l, --lookalike-chars               Use lookalike characters in place of forbidden filename characters
         --write-description             Write the description to a separate file
         --write-thumbnail               Write the thumbnail to a separate file
@@ -220,6 +221,7 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 ### File names
 
 - `--windows-filenames` (default on Windows) makes file and folder names Windows-compatible: characters like `<>:"/\|?*` and control characters are replaced, and names Windows reserves (`CON`, `NUL`, …) or that end in a dot or space are adjusted. This includes folders created from the template, such as `%(channel)s/`. The title is also shortened so every file ytarchive writes (final and temporary, including fragment files) stays within Windows' 260-character path limit (MAX_PATH). Use it on Linux/macOS if the files will end up on Windows or a Windows-formatted drive.
+- `--no-path-limit` keeps full titles with `--windows-filenames` instead of shortening them to fit MAX_PATH. ytarchive itself can write longer paths, but ffmpeg and other programs may not open them unless long paths are enabled in Windows (the `LongPathsEnabled` setting).
 - `--no-windows-filenames` (default on Linux and macOS) only replaces path separators, so titles keep characters like `?` and `:`. On Windows a title with such a character can't be saved; ytarchive then stops without merging and cleans up.
 - Resume state (`{id}.f{itag}.state`) is written to `--temporary-dir`, or the current folder without it, not next to the `-o` file (as in Go). Resume from the same folder; a different `-o` still finds the state by video ID.
 - File names are always at most 255 bytes, and titles are read from yt-dlp as UTF-8 whatever the console's code page is.

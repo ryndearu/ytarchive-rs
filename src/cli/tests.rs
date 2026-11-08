@@ -123,6 +123,8 @@ fn windows_filenames_flags() {
     assert!(opts(&["y", "--windows-filenames", "u"]).unwrap().windows_filenames);
     assert!(!opts(&["y", "--no-windows-filenames", "u"]).unwrap().windows_filenames);
     assert!(Cli::try_parse_from(os(&["y", "--windows-filenames", "--no-windows-filenames"])).is_err());
+    assert!(opts(&["y", "--no-path-limit", "u"]).unwrap().no_path_limit);
+    assert!(!opts(&["y", "u"]).unwrap().no_path_limit);
 }
 
 #[test]

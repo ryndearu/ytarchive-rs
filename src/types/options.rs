@@ -138,6 +138,8 @@ pub struct Options {
     pub lookalike_chars: bool,
     /// Make file/folder names valid on Windows (default on Windows only).
     pub windows_filenames: bool,
+    /// Don't shorten titles to fit MAX_PATH (for Windows with long paths on).
+    pub no_path_limit: bool,
     pub add_metadata: bool,
     /// `--metadata KEY=VALUE` overrides; empty value omits the key.
     pub metadata_overrides: Vec<(String, String)>,

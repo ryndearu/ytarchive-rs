@@ -143,6 +143,9 @@ pub struct Cli {
     /// Sanitize filenames only minimally (default on other than Windows).
     #[arg(long, help_heading = FILESYSTEM)]
     pub no_windows_filenames: bool,
+    /// Don't shorten titles to fit Windows' 260-character path limit (ffmpeg may need long paths enabled in Windows).
+    #[arg(long, help_heading = FILESYSTEM)]
+    pub no_path_limit: bool,
     /// Use lookalike characters in place of forbidden filename characters.
     #[arg(short = 'l', long, help_heading = FILESYSTEM)]
     pub lookalike_chars: bool,

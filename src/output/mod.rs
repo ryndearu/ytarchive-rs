@@ -57,14 +57,14 @@ const SUFFIX_ROOM: usize = 24;
 const TEMP_DIR_RANDOM: usize = 8;
 
 /// Final directory and base file name from the output template. With
-/// `--windows-filenames`, the title is shortened so every file path (final
-/// and temporary, with any suffix) fits in MAX_PATH.
+/// `--windows-filenames` (unless `--no-path-limit`), the title is shortened
+/// so every file path (final and temporary, with any suffix) fits in MAX_PATH.
 pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, String)> {
     let style = NameStyle { lookalike: opts.lookalike_chars, windows: opts.windows_filenames };
     let mut full = format_filename(&opts.output_format, fi, style, None)?;
     let mut dir = output_dir(opts, &full, style);
     let mut room = None;
-    if style.windows {
+    if style.windows && !opts.no_path_limit {
         let video_id = fi.get("id").map_or("", String::as_str);
         let units = windows_name_room(opts, &dir, video_id);
         full = format_filename(&opts.output_format, fi, style, Some(units))?;

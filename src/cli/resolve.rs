@@ -146,6 +146,7 @@ impl Cli {
             // Explicit flag wins; otherwise on for Windows builds only.
             windows_filenames: self.windows_filenames
                 || (!self.no_windows_filenames && cfg!(windows)),
+            no_path_limit: self.no_path_limit,
             add_metadata: self.add_metadata,
             metadata_overrides,
             write_description: self.write_description,
