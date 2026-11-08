@@ -17,7 +17,7 @@ concurrency:
 
 env:
   TAG: nightly
-  # Run JavaScript actions on the newest Node GitHub's runners provide.
+  # Run JavaScript actions on Node 24.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:

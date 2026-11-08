@@ -1,16 +1,16 @@
 name: CI
 
-# Docs-only changes don't run CI.
+# Only changes under src/ run CI.
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+    paths: ["src/**"]
   pull_request:
-    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+    paths: ["src/**"]
 
 env:
   CARGO_TERM_COLOR: always
-  # Run JavaScript actions on the newest Node GitHub's runners provide.
+  # Run JavaScript actions on Node 24.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
