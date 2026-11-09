@@ -74,24 +74,24 @@ pub struct Cli {
     pub members_only: bool,
 
     // ---- waiting ----
-    /// Wait for a scheduled stream to start.
+    /// Wait for a scheduled stream to start [default: ask].
     #[arg(short = 'w', long, help_heading = WAITING)]
     pub wait: bool,
     /// Do not wait for a scheduled stream to start.
     #[arg(short = 'n', long, help_heading = WAITING)]
     pub no_wait: bool,
-    /// Seconds between stream status checks while waiting (min 15; 30 when monitoring).
+    /// Seconds between stream status checks while waiting (min 15; with --monitor-channel, under 30 means 60) [default: the scheduled start time; 60 with --monitor-channel].
     #[arg(short = 'r', long, value_name = "SECS", help_heading = WAITING)]
     pub retry_stream: Option<u64>,
-    /// Wait this long after the stream starts before capturing.
+    /// Wait this long after the stream starts before capturing [default: none].
     #[arg(long, value_name = "DURATION", help_heading = WAITING)]
     pub start_delay: Option<String>,
 
     // ---- download ----
-    /// Start from a point in the stream: duration (-30m), time string, or 'now'.
+    /// Start from a point in the stream: duration (-30m), time string, or 'now' [default: the start of the stream].
     #[arg(long, value_name = "WHEN", allow_hyphen_values = true, help_heading = DOWNLOAD)]
     pub live_from: Option<String>,
-    /// Capture this much of the stream, then finish.
+    /// Capture this much of the stream, then finish [default: until the stream ends].
     #[arg(long, value_name = "DURATION", help_heading = DOWNLOAD)]
     pub capture_duration: Option<String>,
     /// Download threads per stream type.
@@ -111,7 +111,7 @@ pub struct Cli {
     pub recover_private: bool,
 
     // ---- format selection ----
-    /// Video codec preference, e.g. vp9/h264. Default: best (av1/vp9/h264).
+    /// Video codec preference, e.g. vp9/h264 [default: best = av1/vp9/h264].
     #[arg(long, value_name = "CODECS", value_parser = parse_codecs, conflicts_with_all = ["av1", "vp9", "h264"], help_heading = FORMAT)]
     pub codec: Option<CodecList>,
     /// Prefer AV1 video when available (same as --codec av1).
@@ -134,7 +134,7 @@ pub struct Cli {
     /// Output filename template, e.g. '%(channel)s/%(upload_date)s %(title)s'.
     #[arg(short = 'o', long, value_name = "FORMAT", default_value = DEFAULT_FILENAME_FORMAT, help_heading = FILESYSTEM)]
     pub output: String,
-    /// Directory for temporary files (created if missing; also -td).
+    /// Directory for temporary files (created if missing; also -td) [default: the output file's folder; .state files in the current folder].
     #[arg(long = "temporary-dir", value_name = "DIR", help_heading = FILESYSTEM)]
     pub temporary_dir: Option<PathBuf>,
     /// Force filenames to be Windows-compatible (default on Windows).
@@ -178,7 +178,7 @@ pub struct Cli {
     /// Override metadata, KEY=VALUE (VALUE is a format template; empty omits the key).
     #[arg(long, value_name = "KEY=VALUE", help_heading = POST)]
     pub metadata: Vec<String>,
-    /// Mux into mkv instead of mp4 (ignored for audio only).
+    /// Mux into mkv instead of mp4 (ignored for audio only) [default: mp4].
     #[arg(long, help_heading = POST)]
     pub mkv: bool,
     /// Also save the audio as a separate file.
@@ -192,19 +192,19 @@ pub struct Cli {
     pub ffmpeg_path: String,
 
     // ---- interrupt ----
-    /// Automatically merge files when the download is cancelled.
+    /// Automatically merge files when the download is cancelled [default: ask].
     #[arg(long, help_heading = INTERRUPT)]
     pub merge: bool,
     /// Skip merging files when the download is cancelled.
     #[arg(long, help_heading = INTERRUPT)]
     pub no_merge: bool,
-    /// Keep downloaded files on cancel if not merging.
+    /// Keep downloaded files on cancel if not merging [default: ask].
     #[arg(long, help_heading = INTERRUPT)]
     pub save: bool,
     /// Delete downloaded files on cancel if not merging.
     #[arg(long, help_heading = INTERRUPT)]
     pub no_save: bool,
-    /// Leave files for resuming later on cancel, if not saving files.
+    /// Leave files for resuming later on cancel, if not saving files [default: ask].
     #[arg(long, help_heading = INTERRUPT)]
     pub save_state: bool,
     /// Do not leave files for resuming later on cancel.

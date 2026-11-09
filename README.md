@@ -103,8 +103,8 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
 ### Waiting Options:
     -w, --wait                    Wait for a scheduled stream to start
     -n, --no-wait                 Do not wait for a scheduled stream to start
-    -r, --retry-stream <SECS>     Seconds between stream status checks while waiting (min 15; 30 when monitoring)
-        --start-delay <DURATION>  Wait this long after the stream starts before capturing
+    -r, --retry-stream <SECS>     Seconds between stream status checks while waiting (min 15; with --monitor-channel, under 30 means 60) [default: the scheduled start time; 60 with --monitor-channel]
+        --start-delay <DURATION>  Wait this long after the stream starts before capturing [default: none]
 
 ### Download Options:
         --live-from <WHEN>             Start from a point in the stream: duration (-30m), time string, or 'now'
@@ -116,7 +116,7 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
         --recover-private              If the stream goes private, retry missing fragments with the URLs already in use (implies --sqlite)
 
 ### Format Selection Options:
-        --codec <CODECS>  Video codec preference, e.g. vp9/h264. Default: best (av1/vp9/h264)
+        --codec <CODECS>  Video codec preference, e.g. vp9/h264 [default: best = av1/vp9/h264]
         --av1             Prefer AV1 video when available (same as --codec av1)
         --vp9             Prefer VP9 video when available (same as --codec vp9)
         --h264            Prefer H.264 video (same as --codec h264)
@@ -125,7 +125,7 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
 
 ### Filesystem Options:
     -o, --output <FORMAT>               Output filename template, e.g. '%(channel)s/%(upload_date)s %(title)s' [default: %(title)s-%(id)s]
-        --temporary-dir <DIR>           Directory for temporary files (created if missing; also -td)
+        --temporary-dir <DIR>           Directory for temporary files (created if missing; also -td) [default: the output file's folder; .state files in the current folder]
         --windows-filenames             Force filenames to be Windows-compatible (default on Windows)
         --no-windows-filenames          Sanitize filenames only minimally (default on other than Windows)
         --no-path-limit                 Don't shorten titles to fit Windows' 260-character path limit (ffmpeg may need long paths enabled in Windows)
