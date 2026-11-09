@@ -13,16 +13,12 @@ For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) inste
 - Parallel fragment downloads, URL refresh when fragments start failing, and a background refresh every 5 hours before URLs expire.
 - Resumable downloads: interrupt with Ctrl-C, keep the state, rerun to continue.
 - Optional SQLite fragment storage (`--sqlite`) that resumes by re-fetching only missing fragments.
-- Optional recovery after a stream goes private mid-recording (`--recover-private`): the missing fragments are retried with the download URLs already in use, and a download that still has gaps is kept so running the same command again retries them (see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
+- Optional recovery after a stream goes private mid-recording (`--recover-private`; see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
 - Muxes to mp4/mkv/m4a with ffmpeg, with optional thumbnail, metadata, and description files.
 
 ## Platforms
 
-These platforms are supported, each as x64 and arm64:
-
-- Windows
-- Linux
-- macOS
+Windows, Linux, and macOS, each as x64 and arm64.
 
 ## Requirements
 
@@ -101,14 +97,14 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
         --members-only     Only download members-only streams (channel URLs; requires cookies)
 
 ### Waiting Options:
-    -w, --wait                    Wait for a scheduled stream to start
+    -w, --wait                    Wait for a scheduled stream to start [default: ask]
     -n, --no-wait                 Do not wait for a scheduled stream to start
     -r, --retry-stream <SECS>     Seconds between stream status checks while waiting (min 15; with --monitor-channel, under 30 means 60) [default: the scheduled start time; 60 with --monitor-channel]
         --start-delay <DURATION>  Wait this long after the stream starts before capturing [default: none]
 
 ### Download Options:
-        --live-from <WHEN>             Start from a point in the stream: duration (-30m), time string, or 'now'
-        --capture-duration <DURATION>  Capture this much of the stream, then finish
+        --live-from <WHEN>             Start from a point in the stream: duration (-30m), time string, or 'now' [default: the start of the stream]
+        --capture-duration <DURATION>  Capture this much of the stream, then finish [default: until the stream ends]
         --threads <N>                  Download threads per stream type [default: 1]
         --retry-frags <ATTEMPTS>       Attempts per fragment before refreshing URLs / giving up (0 = unlimited) [default: 10]
         --no-frag-files                Keep out-of-order fragments in memory instead of temp files
@@ -141,17 +137,17 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
     -t, --thumbnail             Embed the thumbnail into the final file
         --add-metadata          Write basic metadata to the final file
         --metadata <KEY=VALUE>  Override metadata, KEY=VALUE (VALUE is a format template; empty omits the key)
-        --mkv                   Mux into mkv instead of mp4 (ignored for audio only)
+        --mkv                   Mux into mkv instead of mp4 (ignored for audio only) [default: mp4]
         --separate-audio        Also save the audio as a separate file
         --write-mux-file        Write the ffmpeg mux command to a file instead of muxing
         --ffmpeg-path <PATH>    ffmpeg executable to use [default: ffmpeg]
 
 ### Interrupt (Ctrl-C) Options:
-        --merge          Automatically merge files when the download is cancelled
+        --merge          Automatically merge files when the download is cancelled [default: ask]
         --no-merge       Skip merging files when the download is cancelled
-        --save           Keep downloaded files on cancel if not merging
+        --save           Keep downloaded files on cancel if not merging [default: ask]
         --no-save        Delete downloaded files on cancel if not merging
-        --save-state     Leave files for resuming later on cancel, if not saving files
+        --save-state     Leave files for resuming later on cancel, if not saving files [default: ask]
         --no-save-state  Do not leave files for resuming later on cancel
 
 ### Extraction Options:
@@ -184,9 +180,7 @@ With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-
 
 `QUALITY` values, from most to least wanted, separated by `/`: `audio_only`, `144p`, `240p`, `360p`, `480p`, `720p`, `720p60`, `1080p`, `1080p60`, `1440p`, `1440p60`, `2160p`, `2160p60`, `best`. The first one the stream offers is used; if it offers none of them, `best` is used without asking (for example when the quality was chosen while waiting for a scheduled stream).
 
-`--codec` takes a slash-delimited list too: `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs you don't list are used as a fallback when none of the listed ones are offered. Go's `--av1`, `--vp9`, and `--h264` still work and mean the same as `--codec` with that one codec.
-
-Without a codec option, AV1 > VP9 > H.264 is used, as in Go. The codec is never asked for.
+`--codec` takes a slash-delimited list too: `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs you don't list are used as a fallback when none of the listed ones are offered. Without a codec option, AV1 > VP9 > H.264 is used, as in Go; the codec is never asked for. Go's `--av1`, `--vp9`, and `--h264` still work and mean the same as `--codec` with that one codec.
 
 `best` and a codec option combine: `best` picks the highest quality the stream offers, and the codec option picks the codec at that quality, falling back to the other codecs if it isn't offered there (as in Go). For example, `--codec h264 URL best` gets the best quality in H.264 when it has H.264.
 
@@ -224,7 +218,7 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 - `--no-path-limit` keeps full titles with `--windows-filenames` instead of shortening them to fit MAX_PATH. ytarchive itself can write longer paths, but ffmpeg and other programs may not open them unless long paths are enabled in Windows (the `LongPathsEnabled` setting).
 - `--no-windows-filenames` (default on Linux and macOS) only replaces path separators, so titles keep characters like `?` and `:`. On Windows a title with such a character can't be saved; ytarchive then stops without merging and cleans up.
 - Resume state (`{id}.f{itag}.state`) is written to `--temporary-dir`, or the current folder without it, not next to the `-o` file (as in Go). Resume from the same folder; a different `-o` still finds the state by video ID.
-- File names are always at most 255 bytes, and titles are read from yt-dlp as UTF-8 whatever the console's code page is.
+- File names are always at most 255 bytes.
 
 ### Output template keys
 
@@ -237,12 +231,12 @@ By default a stream that goes private during the recording ends the download, as
 - When a stream goes private (or otherwise unavailable), the download URLs ytarchive already has usually keep working for a while: until their `expire` time, about 6 hours after they were issued. ytarchive retries every missing fragment with every URL it has used, in rounds 5 minutes apart, until all are recovered, the URLs expire, or an hour passes without recovering anything. Ctrl-C stops it as usual. It's a best effort: YouTube often refuses the URLs right away once a stream is private.
 - `--recover-private` turns on `--sqlite`, since recovered fragments arrive out of order. Fragments go into a database (`{name}.f{itag}.sqlite` in the temporary folder) and are exported in order to the `.ts` file at the end, so the download needs about as much extra space as the stream itself while it runs.
 - If fragments are still missing at the end, the file is merged anyway and the missing sequence numbers are listed. When the URLs haven't expired yet, the temporary folder (with the database, which also holds the stream info and URLs) and the `.state` files are kept, and ytarchive says until when they can be used.
-- Run the same command again (with `--recover-private` and the video's URL, not the channel's) to retry only the missing fragments. If the stream can still be looked up, the download is resumed with fresh URLs; if not, ytarchive uses the stream info and URLs saved in the database. The new file gets a `-1` suffix, next to the first one. Delete the temporary folder if you don't want to retry. This needs the state files, so it doesn't work with `--disable-save-state`.
+- To retry only the missing fragments, run the same command again (with `--recover-private` and the video's URL, not the channel's; it needs the state files, so not with `--disable-save-state`). If the stream can still be looked up, the download resumes with fresh URLs; if not, ytarchive uses the stream info and URLs saved in the database. The new file gets a `-1` suffix. Delete the temporary folder if you don't want to retry.
 - A download is always resumed in the storage it was started with. Adding `--recover-private` when resuming a download started without `--sqlite` keeps its `.ts` data, but that download continues without recovery.
 
 ### PO tokens and cookies
 
-yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. Cookies (`-c cookies.txt`, Netscape format) are used both by yt-dlp and by the fragment downloads.
+yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. Cookies (`-c cookies.txt`, Netscape format) are used both by yt-dlp and by ytarchive's own requests to YouTube pages (watch, `/live`, and `/streams` pages).
 
 yt-dlp gets the cookies file itself, so it can save refreshed cookies back to it. If yt-dlp couldn't read the file (it isn't valid UTF-8, the `# Netscape HTTP Cookie File` header is missing, a cookie's second column doesn't match whether its domain starts with `.`, or a stray line starts like JSON), ytarchive warns and passes yt-dlp a repaired copy in the temp folder instead, deleted when ytarchive exits. Cookies yt-dlp refreshes during that run aren't saved back to your file. A JSON cookie export isn't repaired; yt-dlp reports that it must be Netscape formatted.
 
@@ -252,7 +246,7 @@ See [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md) for the full list: behavi
 
 ## Testing status
 
-See [docs/NOT_TESTED.md](docs/NOT_TESTED.md) for what has been verified so far and what hasn't (for example, real downloads on macOS and on arm64).
+See [docs/NOT_TESTED.md](docs/NOT_TESTED.md) for what has not been tested yet.
 
 ## Credits
 

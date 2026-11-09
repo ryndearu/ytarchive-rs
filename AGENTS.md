@@ -16,11 +16,10 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 
 ## Platforms
 
-- **Windows, Linux, and macOS are supported**, each as x64 and arm64; every change must build and pass tests on all three.
+- **Windows, Linux, and macOS are supported**, each as x64 and arm64, and nothing else (no code or docs for other platforms); every change must build and pass tests on all three.
 - **File names**: anything that becomes a file or folder name goes through `util::sterilize_filename` with a `NameStyle`, and through `util::portable_file_name` when `--windows-filenames` is on (default on Windows: forbidden and control characters, reserved names like `CON`/`NUL`/`COM1`, trailing dots and spaces). `--no-windows-filenames` (default elsewhere) only replaces path separators and NUL. With Windows names, `output::final_location` also shortens the title so every path fits in MAX_PATH (unless `--no-path-limit`); if you add a longer file suffix than `.f{itag}.frag{seq}.ts`, raise `SUFFIX_ROOM`.
 - Don't assume Unix in code or tests: no hard-coded `/tmp`, `sh`, or unescaped paths in JSON; gate platform code with `#[cfg(windows)]` / `#[cfg(unix)]` (see `src/platform.rs`, `util::set_mode`).
 - TLS is rustls with the `ring` provider and the OS certificate store; don't add OpenSSL.
-- Only the platforms above are supported; don't add code or docs for others.
 
 ## Code layout and style
 
@@ -29,10 +28,11 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - No crate-wide `allow(dead_code)`. Remove unused code, tests, and dependencies. If a feature is minor or unimportant, test it with a temporary test and delete the test afterwards.
 - No `unsafe` unless it's truly necessary; prefer a maintained safe wrapper crate. `main.rs` has `#![forbid(unsafe_code)]`; lifting it needs a good reason.
 - Comments explain *why*, especially where behavior differs from Go.
+- Cookies are read twice, on purpose: `cookies.rs` follows Go for ytarchive's own requests, and `ytdlp_cookies.rs` mirrors yt-dlp's loader only to decide whether yt-dlp needs a repaired copy. Keep them separate; each must match its own target.
 
 ## Testing
 
-Run these as separate commands before pushing:
+Run these as separate commands before pushing (CI runs clippy and tests on all three platforms; a change isn't done until they pass):
 
 ```sh
 cargo test
@@ -44,12 +44,11 @@ cargo build --release --locked   # when dependencies or build config change
 - Downloader tests use a local fake googlevideo server (`src/download/tests/mod.rs`; SQLite and recovery cases in `tests/sqlite.rs`); add cases there for download behavior. `serve_until` makes fragments return 403 from a given sequence on, as for a stream that went private.
 - `--recover-private` waits 5 minutes between recovery rounds; tests use a 20 ms interval (`cfg(test)` in `src/download/recovery.rs`).
 - With `--recover-private`, the SQLite database also stores the stream info, every download URL used, and the newest fragment (`urls`/`meta` tables) for retrying in a later run (`src/kept.rs`). Without the flag nothing new is stored, recovered, or kept. Don't rename those tables or keys without handling old databases.
-- Network tests are `#[ignore]`d. Run them against a real 24/7 stream with: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the env var if deno is installed).
-- For changes to the download/mux flow, also do a short real run, e.g. `--live-from now --capture-duration 20s -o '/tmp/x/%(id)s'`, and check the result with ffprobe.
+- Network tests are marked `#[ignore]`. Run them against a real 24/7 stream with: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the env var if deno is installed).
+- For changes to the download/mux flow, also do a short real run, e.g. `--live-from now --capture-duration 10s -o '/tmp/x/%(id)s'`, and check the result with ffprobe.
 - On Windows, processes started from a coding agent's shell can inherit "ignore Ctrl-C", so a scripted Ctrl-C never reaches ytarchive and it gets killed instead. Send Ctrl-Break, or reset the flag with `SetConsoleCtrlHandler(NULL, FALSE)` in the launcher, before judging interrupt behavior.
 - Prompts where an empty answer means "go ahead" must use `prompt::get_line_or_eof` and treat closed stdin as "no", so non-interactive runs never wait unattended.
-- CI runs clippy and tests on Windows, Linux, and macOS; a change isn't done until all three pass.
-- Record what has and hasn't been verified in `docs/NOT_TESTED.md`.
+- List what hasn't been verified in `docs/NOT_TESTED.md`, and delete a line once it is verified.
 
 ## Commits
 
@@ -63,6 +62,6 @@ cargo build --release --locked   # when dependencies or build config change
 ## Releases
 
 - **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release.
-- **Nightly** (`nightly.yml`) runs weekly, Fridays at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a docs commit (`docs:` or `docs(...):`), otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release as links to their commit pages (GitHub doesn't link bare hashes in release notes). Docs commits must use the `docs` type for this to work. The check step prints why it builds or skips (debug output while the docs-only skip is investigated; see `docs/NOT_TESTED.md`).
+- **Nightly** (`nightly.yml`) runs weekly, Fridays at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a docs commit (`docs:` or `docs(...):`), otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release as links to their commit pages.
 - Both use `build.yml`, which publishes one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only `ytarchive`/`ytarchive.exe` (Linux builds are static musl). Releases build x64 and arm64 for every OS; nightly (`all_targets: false`) builds only Windows x64, Linux x64, and macOS arm64. It sets `YTARCHIVE_CHANNEL`/`YTARCHIVE_VERSION`/`YTARCHIVE_COMMIT`/`YTARCHIVE_DATE` for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
 - **CI** doesn't run for pushes that only touch files outside `src/`.
