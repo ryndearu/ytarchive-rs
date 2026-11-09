@@ -119,6 +119,9 @@ pub struct Options {
 
     // Auth / extraction
     pub cookies_file: Option<PathBuf>,
+    /// Repaired copy of `cookies_file` for yt-dlp, set when yt-dlp couldn't
+    /// read the original (`ytdlp_cookies`); `None` = pass the original.
+    pub ytdlp_cookies_file: Option<PathBuf>,
     pub ytdlp_path: String,
     /// Extra yt-dlp args, already whitespace-split.
     pub ytdlp_opts: Vec<String>,

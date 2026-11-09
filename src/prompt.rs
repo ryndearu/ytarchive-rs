@@ -21,6 +21,7 @@ pub async fn get_line_or_eof(prompt: &str) -> Option<String> {
         _ = crate::interrupt::next() => {
             println!("\nExiting...");
             crate::platform::restore();
+            crate::ytdlp_cookies::remove();
             std::process::exit(1);
         }
     }

@@ -78,6 +78,7 @@ impl Interrupt {
             if signals.recv().await {
                 eprintln!("\nExiting...");
                 crate::platform::restore();
+                crate::ytdlp_cookies::remove();
                 std::process::exit(130);
             }
         });

@@ -26,7 +26,7 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
     // UTF-8 output regardless of the console code page (Windows), so titles
     // aren't mangled; user --ytdlp-opts come later and can override it.
     let mut args = vec!["--encoding".to_string(), "utf-8".into(), "--live-from-start".into()];
-    if let Some(c) = &opts.cookies_file {
+    if let Some(c) = opts.ytdlp_cookies_file.as_ref().or(opts.cookies_file.as_ref()) {
         args.push("--cookies".into());
         args.push(c.to_string_lossy().into_owned());
     }
@@ -270,6 +270,11 @@ mod tests {
         );
         assert_eq!(&a[a.len() - 2..], ["--", "https://youtu.be/x"]);
         assert!(!build_args(&Options::default(), "u", false).contains(&"--ignore-no-formats-error".to_string()));
+        let repaired = Options {
+            ytdlp_cookies_file: Some("fixed.txt".into()),
+            ..opts
+        };
+        assert_eq!(&build_args(&repaired, "u", false)[3..5], ["--cookies", "fixed.txt"]);
     }
 
     #[test]

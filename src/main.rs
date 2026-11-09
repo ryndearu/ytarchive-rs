@@ -32,6 +32,7 @@ mod version;
 mod video_info;
 mod watch_page;
 mod ytdlp;
+mod ytdlp_cookies;
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -41,7 +42,7 @@ async fn main() -> ExitCode {
     // Restored when main returns.
     let _console = platform::setup();
     let cli = cli::Cli::parse_normalized();
-    let options = match cli.into_options() {
+    let mut options = match cli.into_options() {
         Ok(v) => v,
         Err(e) => {
             log_error!("{e}");
@@ -63,11 +64,15 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let cookie_set = match &options.cookies_file {
-        Some(path) => match cookies::load_file(path) {
-            Ok(set) => {
+    let cookie_set = match options.cookies_file.clone() {
+        Some(path) => match std::fs::read(&path) {
+            Ok(data) => {
                 log_info!("Loaded cookie file {}", path.display());
-                set
+                match ytdlp_cookies::prepare(&path, &data) {
+                    Ok(copy) => options.ytdlp_cookies_file = copy,
+                    Err(e) => log_warn!("Couldn't write a repaired cookies file for yt-dlp: {e}"),
+                }
+                cookies::parse_netscape(&data)
             }
             Err(e) => {
                 log_error!("Failed to load cookies file: {e}");
@@ -87,5 +92,7 @@ async fn main() -> ExitCode {
 
     log_debug!("{options:#?}");
     let interrupt = interrupt::Interrupt::install();
-    monitor::start(Arc::new(options), http, interrupt).await
+    let code = monitor::start(Arc::new(options), http, interrupt).await;
+    ytdlp_cookies::remove();
+    code
 }

@@ -130,6 +130,7 @@ impl Cli {
             video_url: self.video_url,
             audio_url: self.audio_url,
             cookies_file: self.cookies,
+            ytdlp_cookies_file: None,
             ytdlp_path: self.ytdlp_path,
             ytdlp_opts: self
                 .ytdlp_opts

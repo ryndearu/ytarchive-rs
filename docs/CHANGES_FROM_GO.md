@@ -27,6 +27,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - The version shown at startup (unless `-q`) and by `--version` includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)` for releases, `v0.1.0-abc1234 (2026-11-07)` for nightly and other builds.
 - `--help` groups the options under headings (General, Waiting, Download, Format Selection, Filesystem, Post-Processing, Interrupt, Extraction, Network, Verbosity).
 - Command-line arguments that aren't valid UTF-8 are converted (invalid bytes replaced) instead of rejected. Cookie files are read as in Go.
+- **yt-dlp gets a repaired copy of a cookies file it can't read**: one that isn't valid UTF-8, lacks the `# Netscape HTTP Cookie File` header, has a cookie whose include-subdomains column doesn't match its domain's leading dot, or has a stray line starting with `[`, `{`, or `"` (yt-dlp then stops with its "not JSON" error). A whole JSON export is passed as it is. Go passed the file as it was, and yt-dlp then failed. A file yt-dlp can read is still passed as-is, so yt-dlp keeps saving refreshed cookies to it; with a repaired copy ytarchive warns that they won't be saved back for that run.
 
 ### Downloading
 

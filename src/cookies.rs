@@ -2,9 +2,6 @@
 //! (Go's SAPISIDHASH auth was only used by its unreachable InnerTube
 //! request, so it isn't ported.)
 
-use std::path::Path;
-
-use crate::error::Result;
 use crate::log_warn;
 use crate::types::{CookieSet, NetscapeCookie};
 
@@ -71,11 +68,6 @@ fn sanitize_value(name: &str, value: &[u8]) -> String {
     } else {
         v
     }
-}
-
-/// Reads the cookie file as bytes, as Go did; see `parse_netscape`.
-pub fn load_file(path: &Path) -> Result<CookieSet> {
-    Ok(parse_netscape(&std::fs::read(path)?))
 }
 
 /// URL the cookie belongs to, for inserting into a cookie jar.

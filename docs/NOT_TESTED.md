@@ -26,6 +26,7 @@ Keep this file current: when something listed under "Not tested" gets verified, 
 - **`--recover-private` against a real stream going private**: whether YouTube keeps serving the old URLs, the recovery rounds against googlevideo, and the 5-minute round spacing and one-hour limit in practice (only the fake server was used).
 - **Retrying a kept download while its URLs are still valid**: the "kept" message and the `-1` file (the Windows run above only covered expired URLs). A 20-second network cut was fully recovered by normal retries, so it didn't get that far.
 - **Members-only streams and cookies** with a real account.
+- **The repaired cookies copy for yt-dlp on Windows and macOS** (temp folder, deletion on exit and after a double Ctrl-C). On Linux a file with an invalid byte, no header, and a mismatched subdomain column downloaded fine (and 15 sample files, including JSON-like lines, matched what yt-dlp accepts), left the original untouched, and the copy was deleted.
 - **A stream that ends mid-download**, and an ended stream whose processed VOD is already playable (default mode).
 - **Long-running behavior**: the 5-hour background URL refresh and URL refresh after repeated 403s. The longest real run was 5 minutes.
 - **Channel monitoring of a channel going live** while being watched, including going back to `/live` when it shows a stream marked playable that hasn't started (no test covers that path).
