@@ -1,6 +1,6 @@
 [package]
 name = "ytarchive"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Archive YouTube livestreams from the start (Rust port of dreammu/ytarchive)"
 license = "MIT"
