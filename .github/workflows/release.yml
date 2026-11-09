@@ -1,7 +1,8 @@
 name: Release
 
 # Manual releases: push a tag like v0.1.0 to build every platform and publish
-# a normal (non-pre) GitHub release with generated notes. The assets are
+# a normal (non-pre) GitHub release whose notes are a collapsible changelog
+# since the previous v* tag. The assets are
 # zips (ytarchive_<os>_<arch>.zip) holding the executable.
 on:
   push:
@@ -25,6 +26,50 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Write release notes
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          # Previous manual release tag, so the changelog covers everything since it.
+          last=$(git describe --tags --abbrev=0 --match 'v*' --exclude "$TAG" "$SHA" 2>/dev/null || true)
+          commits="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit"
+          {
+            dl="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG"
+            echo "## Downloads"
+            echo
+            echo "One zip per platform, holding only the executable. Linux builds are static and run on any distribution."
+            echo
+            echo "| Platform | x64 | arm64 |"
+            echo "| --- | --- | --- |"
+            echo "| Windows | [\`ytarchive_windows_x64.zip\`]($dl/ytarchive_windows_x64.zip) | [\`ytarchive_windows_arm64.zip\`]($dl/ytarchive_windows_arm64.zip) |"
+            echo "| Linux | [\`ytarchive_linux_x64.zip\`]($dl/ytarchive_linux_x64.zip) | [\`ytarchive_linux_arm64.zip\`]($dl/ytarchive_linux_arm64.zip) |"
+            echo "| macOS | [\`ytarchive_macos_x64.zip\`]($dl/ytarchive_macos_x64.zip) (Intel) | [\`ytarchive_macos_arm64.zip\`]($dl/ytarchive_macos_arm64.zip) (Apple Silicon) |"
+            echo
+            echo "Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) (the nightly channel is recommended: \`yt-dlp --update-to nightly\`) and [ffmpeg](https://ffmpeg.org/download.html) on \`PATH\` or next to the executable."
+            echo
+            echo "<details>"
+            echo "<summary><h3>Changelog</h3></summary>"
+            echo
+            if [ -n "$last" ]; then
+              echo "**Full changelog**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$last...$TAG"
+              echo
+              range="$last..$SHA"
+            else
+              range="$SHA"
+            fi
+            # Same list as the nightly notes: every non-merge commit, hash linked.
+            git log --no-merges --format="- [\`%h\`]($commits/%H) %s" $range
+            echo
+            echo "</details>"
+          } > notes.md
+          cat notes.md
+
       - uses: actions/download-artifact@v8
         with:
           pattern: dist-*
@@ -33,6 +78,6 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: notes.md
           prerelease: false
           make_latest: true
