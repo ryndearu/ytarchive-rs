@@ -128,8 +128,15 @@ impl Sink {
                 }
             }
             Sink::Db(database, out) => {
-                let (count, bytes) = database.export(&out, mode).inspect_err(|error| {
-                    log_warn!("{name}: Failed to export {} to {}: {error}", database.path().display(), out.display());
+                let database_path = database.path().to_path_buf();
+                let target = out.clone();
+                // The export copies the whole stream; on a runtime thread it
+                // would hold up the other stream's download.
+                let exported = tokio::task::spawn_blocking(move || database.export(&target, mode))
+                    .await
+                    .unwrap_or_else(|error| Err(std::io::Error::other(error).into()));
+                let (count, bytes) = exported.inspect_err(|error| {
+                    log_warn!("{name}: Failed to export {} to {}: {error}", database_path.display(), out.display());
                 })?;
                 log_debug!("{name}: Exported {count} fragment(s), {bytes} bytes to {}", out.display());
             }

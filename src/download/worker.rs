@@ -37,7 +37,10 @@ pub(super) async fn worker(
         if session.is_stopping() || session.is_finished(data_type) {
             break;
         }
-        let take = lock(&dispatch).take(session.is_live());
+        let (take, downloaded) = {
+            let mut dispatch = lock(&dispatch);
+            (dispatch.take(session.is_live()), dispatch.downloaded)
+        };
         let (seq, max) = match take {
             // Only this worker stops. Go marked the whole stream finished here,
             // which made other workers abandon fragments they were retrying.
@@ -53,10 +56,10 @@ pub(super) async fn worker(
             }
             Take::Seq(seq, max) => (seq, max),
         };
-        state.reset_for(seq, max);
+        state.reset_for(seq, max, downloaded);
         let frag_file = frag_prefix.as_ref().map(|path| PathBuf::from(format!("{}.frag{seq}.ts", path.display())));
-        let frag = download_fragment(&session, &mut state, frag_file).await;
-        lock(&dispatch).complete(frag.as_ref().and_then(|fragment| fragment.x_head_seqnum));
+        let frag = download_fragment(&session, &mut state, frag_file, &|| lock(&dispatch).downloaded).await;
+        lock(&dispatch).complete(frag.is_some(), frag.as_ref().and_then(|fragment| fragment.x_head_seqnum));
         let msg = match frag {
             Some(fragment) => Msg::Done(fragment),
             None => Msg::Missing(seq),

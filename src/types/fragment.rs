@@ -60,18 +60,51 @@ pub struct FragThreadState {
     pub full_retries: u32,
     pub is_403: bool,
     pub sleep: Duration,
+    /// Failed attempts in a row where the server was unreachable, failing,
+    /// or asked for fewer requests; each one doubles the wait.
+    pub backoff_step: u32,
+    /// The wait the server asked for (`Retry-After`) on the last attempt.
+    pub retry_after: Option<Duration>,
+    /// Fragments the stream had downloaded when this one was first tried,
+    /// and when its tries last ran out.
+    pub downloaded_at_start: u64,
+    pub downloaded_at_round: u64,
+    /// Rounds of tries used up on a live stream while other fragments kept
+    /// downloading.
+    pub stuck_rounds: u32,
 }
 
 impl FragThreadState {
     pub fn new(name: impl Into<String>, data_type: DataType, sleep: Duration) -> Self {
-        Self { name: name.into(), data_type, seq: 0, max_seq: None, tries: 0, full_retries: 3, is_403: false, sleep }
+        Self {
+            name: name.into(),
+            data_type,
+            seq: 0,
+            max_seq: None,
+            tries: 0,
+            full_retries: 3,
+            is_403: false,
+            sleep,
+            backoff_step: 0,
+            retry_after: None,
+            downloaded_at_start: 0,
+            downloaded_at_round: 0,
+            stuck_rounds: 0,
+        }
     }
 
-    pub fn reset_for(&mut self, seq: u64, max_seq: Option<u64>) {
+    /// Starts on fragment `seq`; `downloaded` is how many fragments the
+    /// stream has downloaded so far.
+    pub fn reset_for(&mut self, seq: u64, max_seq: Option<u64>, downloaded: u64) {
         self.seq = seq;
         self.max_seq = max_seq;
         self.tries = 0;
         self.full_retries = 3;
         self.is_403 = false;
+        self.backoff_step = 0;
+        self.retry_after = None;
+        self.downloaded_at_start = downloaded;
+        self.downloaded_at_round = downloaded;
+        self.stuck_rounds = 0;
     }
 }

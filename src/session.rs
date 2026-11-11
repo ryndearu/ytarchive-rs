@@ -98,6 +98,12 @@ impl Session {
         self.live.load(Ordering::Relaxed)
     }
 
+    /// What a refresh finding the stream ended would do.
+    #[cfg(test)]
+    pub fn set_live(&self, live: bool) {
+        self.live.store(live, Ordering::Relaxed);
+    }
+
     pub fn is_unavailable(&self) -> bool {
         self.unavailable.load(Ordering::Relaxed)
     }

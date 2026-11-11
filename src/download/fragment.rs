@@ -1,6 +1,7 @@
 //! Downloading one fragment with Go ytarchive's retry policy.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use reqwest::StatusCode;
 use reqwest::header::{CONTENT_TYPE, ORIGIN, REFERER};
@@ -10,10 +11,34 @@ use crate::types::{FragData, FragThreadState, Fragment, FragmentUrl};
 use crate::util::write_file_with_mode;
 use crate::{log_debug, log_trace, log_warn};
 
+/// The longest wait between attempts that backing off can reach (a longer
+/// fragment duration or `Retry-After` still applies).
+const MAX_BACKOFF: Duration = Duration::from_secs(15);
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+/// A fragment of a live stream is given up on after its tries ran out this
+/// many times, each time with other fragments downloaded meanwhile, and at
+/// least `STUCK_BEHIND` of them since it was first tried.
+const STUCK_ROUNDS: u32 = 4;
+const STUCK_BEHIND: u64 = 30;
+
+/// Whether a live fragment whose tries just ran out is stuck: it keeps
+/// failing while the rest of the stream downloads. `downloaded` is the
+/// stream's fragment count now. A connection or server outage stops every
+/// fragment, so it never counts.
+fn stuck_while_live(state: &mut FragThreadState, downloaded: u64) -> bool {
+    if downloaded > state.downloaded_at_round {
+        state.stuck_rounds += 1;
+    }
+    state.downloaded_at_round = downloaded;
+    state.stuck_rounds >= STUCK_ROUNDS && downloaded.saturating_sub(state.downloaded_at_start) >= STUCK_BEHIND
+}
+
 /// Whether to keep retrying after a failed attempt. When the per-fragment
-/// try limit is hit: while live, start over; once the stream has ended,
-/// give up (or allow a few extra rounds for fragments well behind the head).
-pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState) -> bool {
+/// try limit is hit: while live, start over (unless only this fragment is
+/// failing); once the stream has ended, give up (or allow a few extra rounds
+/// for fragments well behind the head). `downloaded` is how many fragments
+/// the stream has downloaded so far.
+pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState, downloaded: u64) -> bool {
     if session.is_finished(state.data_type) {
         return false;
     }
@@ -26,6 +51,13 @@ pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState
     log_debug!("{}: Fragment {}: {}/{max} retries", state.name, state.seq, state.tries);
 
     if session.is_live() && !session.is_unavailable() {
+        // Go retried forever here, so one fragment YouTube never serves
+        // kept everything after it waiting (in memory or fragment files)
+        // until the stream ended.
+        if stuck_while_live(state, downloaded) {
+            log_debug!("{}: Fragment {}: giving up, the rest of the stream is downloading", state.name, state.seq);
+            return false;
+        }
         log_debug!("{}: Fragment {}: Stream still live, continuing download attempt", state.name, state.seq);
         state.tries = 0;
         return true;
@@ -81,8 +113,15 @@ async fn retry_fragment_url(session: &Session, state: &FragThreadState, url: &Fr
     }
 }
 
-fn handle_http_error(session: &Session, state: &mut FragThreadState, status: StatusCode) {
+fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &reqwest::Response) {
+    let status = response.status();
     log_debug!("{}: HTTP Error for fragment {}: {status}", state.name, state.seq);
+    if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+        state.backoff_step += 1;
+        state.retry_after = header_u64(response.headers(), "retry-after").map(Duration::from_secs);
+    } else {
+        state.backoff_step = 0;
+    }
     if status == StatusCode::FORBIDDEN {
         state.is_403 = true;
     } else if status == StatusCode::NOT_FOUND
@@ -97,8 +136,9 @@ fn handle_http_error(session: &Session, state: &mut FragThreadState, status: Sta
     }
 }
 
-fn handle_download_error(session: &Session, state: &FragThreadState, err: &dyn std::fmt::Display) {
+fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &dyn std::fmt::Display) {
     log_debug!("{}: Error with fragment {}: {err}", state.name, state.seq);
+    state.backoff_step += 1;
     if !session.is_live() && state.max_seq.is_some_and(|max| state.seq + 2 >= max) {
         log_debug!(
             "{}: Stream has ended and fragment number is within two of the known max, probably not actually created",
@@ -125,20 +165,32 @@ pub(super) fn content_type(headers: &reqwest::header::HeaderMap) -> String {
     headers.get(CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or("").to_string()
 }
 
+/// How long to wait before the next attempt: the fragment duration, as in
+/// Go, doubled for each failure in a row that says the server is unreachable
+/// or overloaded (Go kept the same pace), or what `Retry-After` asked for.
+pub(super) fn retry_delay(state: &FragThreadState) -> Duration {
+    if let Some(asked) = state.retry_after {
+        return asked.min(MAX_RETRY_AFTER).max(state.sleep);
+    }
+    let doublings = state.backoff_step.saturating_sub(1).min(8);
+    state.sleep.saturating_mul(1 << doublings).min(MAX_BACKOFF).max(state.sleep)
+}
+
 async fn sleep_or_stop(session: &Session, state: &FragThreadState) -> bool {
     tokio::select! {
         _ = session.cancel.cancelled() => false,
-        _ = tokio::time::sleep(state.sleep) => true,
+        _ = tokio::time::sleep(retry_delay(state)) => true,
     }
 }
 
 /// Downloads `st.seq`. With `frag_file`, the data goes to that file instead
-/// of memory. Returns `None` if the fragment was given up on or the
-/// download is stopping.
+/// of memory. `downloaded` gives the stream's fragment count so far. Returns
+/// `None` if the fragment was given up on or the download is stopping.
 pub async fn download_fragment(
     session: &Session,
     state: &mut FragThreadState,
     frag_file: Option<PathBuf>,
+    downloaded: &(dyn Fn() -> u64 + Sync),
 ) -> Option<Fragment> {
     let max = session.opts.frag_max_tries;
     while max == 0 || state.tries < max {
@@ -146,16 +198,17 @@ pub async fn download_fragment(
             return None;
         }
         let url = session.url(state.data_type)?;
+        state.retry_after = None;
         match fragment_request(session, &url, state.seq).send().await {
             Err(error) => handle_download_error(session, state, &error),
-            Ok(resp) if resp.status().as_u16() >= 400 => handle_http_error(session, state, resp.status()),
+            Ok(resp) if resp.status().as_u16() >= 400 => handle_http_error(session, state, &resp),
             Ok(resp) => {
                 let head = header_u64(resp.headers(), "x-head-seqnum");
                 let mime = content_type(resp.headers());
                 match resp.bytes().await {
                     Err(error) => handle_download_error(session, state, &error),
                     // Success with no data: the fragment isn't ready yet.
-                    Ok(body) if body.is_empty() => {}
+                    Ok(body) if body.is_empty() => state.backoff_step = 0,
                     Ok(body) => {
                         if !mime.ends_with("/mp4") && !mime.ends_with("/webm") {
                             log_trace!("{}: fragment {} has unknown MIME type '{mime}'", state.name, state.seq);
@@ -171,7 +224,7 @@ pub async fn download_fragment(
                                         state.seq
                                     );
                                     state.tries += 1;
-                                    if !continue_fragment_download(session, state)
+                                    if !continue_fragment_download(session, state, downloaded())
                                         || !sleep_or_stop(session, state).await
                                     {
                                         return None;
@@ -188,7 +241,7 @@ pub async fn download_fragment(
 
         state.tries += 1;
         retry_fragment_url(session, state, &url).await;
-        if !continue_fragment_download(session, state) || !sleep_or_stop(session, state).await {
+        if !continue_fragment_download(session, state, downloaded()) || !sleep_or_stop(session, state).await {
             return None;
         }
     }
