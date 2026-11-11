@@ -25,6 +25,11 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # For the build provenance attestation.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -53,6 +58,8 @@ jobs:
             echo
             echo "Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) (the nightly channel is recommended: \`yt-dlp --update-to nightly\`) and [ffmpeg](https://ffmpeg.org/download.html) on \`PATH\` or next to the executable."
             echo
+            echo "To check a download: compare it with [\`SHA256SUMS\`]($dl/SHA256SUMS), or run \`gh attestation verify <zip> --repo $GITHUB_REPOSITORY\`."
+            echo
             echo "<details>"
             echo "<summary><h3>Changelog</h3></summary>"
             echo
@@ -75,6 +82,11 @@ jobs:
           pattern: dist-*
           merge-multiple: true
           path: dist
+      - name: Checksums
+        run: cd dist && sha256sum *.zip > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*.zip
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
