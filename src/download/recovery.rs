@@ -14,7 +14,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::task::JoinSet;
 
 use super::db_sink::DbSink;
-use super::fragment::{content_type, fragment_request, header_u64};
+use super::fragment::{content_type, fragment_request, header_u64, without_query};
 use super::sink::Event;
 use crate::error::Result;
 use crate::session::Session;
@@ -92,7 +92,7 @@ async fn fetch(session: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, off
                 continue;
             }
             Err(error) => {
-                log_debug!("Recovery of fragment {seq}: {error}");
+                log_debug!("Recovery of fragment {seq}: {}", without_query(error));
                 continue;
             }
         };

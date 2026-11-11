@@ -21,6 +21,15 @@ const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 const STUCK_ROUNDS: u32 = 4;
 const STUCK_BEHIND: u64 = 30;
 
+/// A request error for logging: without the URL's query string, which holds
+/// the signature and the user's IP address.
+pub fn without_query(mut error: reqwest::Error) -> reqwest::Error {
+    if let Some(url) = error.url_mut() {
+        url.set_query(None);
+    }
+    error
+}
+
 /// Whether a live fragment whose tries just ran out is stuck: it keeps
 /// failing while the rest of the stream downloads. `downloaded` is the
 /// stream's fragment count now. A connection or server outage stops every
@@ -197,13 +206,13 @@ pub async fn download_fragment(
         let url = session.url(state.data_type)?;
         state.retry_after = None;
         match fragment_request(session, &url, state.seq).send().await {
-            Err(error) => handle_download_error(session, state, &error),
+            Err(error) => handle_download_error(session, state, &without_query(error)),
             Ok(resp) if resp.status().as_u16() >= 400 => handle_http_error(session, state, &resp),
             Ok(resp) => {
                 let head = header_u64(resp.headers(), "x-head-seqnum");
                 let mime = content_type(resp.headers());
                 match resp.bytes().await {
-                    Err(error) => handle_download_error(session, state, &error),
+                    Err(error) => handle_download_error(session, state, &without_query(error)),
                     // Success with no data: the fragment isn't ready yet.
                     Ok(body) if body.is_empty() => state.backoff_step = 0,
                     Ok(body) => {
