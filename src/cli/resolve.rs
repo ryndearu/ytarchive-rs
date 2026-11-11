@@ -1,6 +1,10 @@
-//! Validating flag combinations and resolving them into `Options`.
+//! Rewriting Go-style flags for clap, then validating flag combinations and
+//! resolving them into `Options`.
 
+use std::ffi::OsString;
 use std::time::Duration;
+
+use clap::CommandFactory;
 
 use super::Cli;
 use crate::duration::parse_duration_or_time;
@@ -15,6 +19,94 @@ fn is_googlevideo(url: &str) -> bool {
         .ok()
         .and_then(|parsed| parsed.host_str().map(|host| host.ends_with(".googlevideo.com")))
         .unwrap_or(false)
+}
+
+/// Go flag aliases that are multi-character but single-dash.
+const GO_SHORT_ALIASES: &[(&str, &str)] =
+    &[("td", "temporary-dir"), ("dp", "directory-permissions"), ("fp", "file-permissions")];
+
+/// Rewrites Go-style single-dash long options (`-threads 4`, `-td DIR`) to
+/// `--flag` so clap accepts them. Values following a value-taking flag are
+/// left untouched.
+pub fn normalize_args<I>(args: I) -> Vec<OsString>
+where
+    I: IntoIterator<Item = OsString>,
+{
+    let cmd = Cli::command();
+    let mut long_takes_value = std::collections::HashMap::new();
+    let mut short_takes_value = std::collections::HashSet::new();
+    for arg in cmd.get_arguments() {
+        let takes = arg.get_action().takes_values();
+        if let Some(line) = arg.get_long() {
+            long_takes_value.insert(line.to_string(), takes);
+        }
+        if let Some(character) = arg.get_short()
+            && takes
+        {
+            short_takes_value.insert(character);
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut iter = args.into_iter();
+    if let Some(prog) = iter.next() {
+        out.push(prog);
+    }
+
+    let mut skip_next = false;
+    let mut passthrough = false;
+    for arg in iter {
+        if passthrough || skip_next {
+            skip_next = false;
+            out.push(arg);
+            continue;
+        }
+        let Some(text) = arg.to_str() else {
+            out.push(arg);
+            continue;
+        };
+        if text == "--" {
+            passthrough = true;
+            out.push(arg);
+            continue;
+        }
+
+        let (rewritten, name) = if let Some(rest) = text.strip_prefix("--") {
+            (None, Some(rest.split('=').next().unwrap_or(rest).to_string()))
+        } else if let Some(rest) = text.strip_prefix('-').filter(|stripped| stripped.len() > 1) {
+            let name = rest.split('=').next().unwrap_or(rest);
+            let mapped = GO_SHORT_ALIASES
+                .iter()
+                .find(|(arg, _)| *arg == name)
+                .map(|(_, line)| *line)
+                .or_else(|| long_takes_value.contains_key(name).then_some(name));
+            match mapped {
+                Some(long) => {
+                    let suffix = &rest[name.len()..];
+                    (Some(format!("--{long}{suffix}")), Some(long.to_string()))
+                }
+                None => (None, None),
+            }
+        } else if let Some(character) = text.strip_prefix('-').and_then(|rest| rest.chars().next()) {
+            // Plain single-char short flag like `-o`.
+            if short_takes_value.contains(&character) && text.len() == 2 {
+                skip_next = true;
+            }
+            (None, None)
+        } else {
+            (None, None)
+        };
+
+        let final_arg = rewritten.unwrap_or_else(|| text.to_string());
+        if let Some(name) = name {
+            let has_inline_value = final_arg.contains('=');
+            if !has_inline_value && long_takes_value.get(&name).copied().unwrap_or(false) {
+                skip_next = true;
+            }
+        }
+        out.push(OsString::from(final_arg));
+    }
+    out
 }
 
 impl Cli {

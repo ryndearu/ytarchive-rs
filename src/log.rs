@@ -3,7 +3,68 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
-use crate::types::LogLevel;
+use tokio::sync::mpsc;
+
+use crate::types::{DataType, LogLevel, ProgressInfo};
+use crate::util::format_size;
+
+/// The "Video Fragments: N; Audio Fragments: M; ..." status line.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Totals {
+    pub audio_frags: u64,
+    pub video_frags: u64,
+    pub bytes: u64,
+    pub max_seq: Option<u64>,
+    pub start_frag: u64,
+}
+
+impl Totals {
+    pub fn add(&mut self, progress: &ProgressInfo) {
+        match progress.data_type {
+            DataType::Audio => self.audio_frags += 1,
+            DataType::Video => self.video_frags += 1,
+        }
+        self.bytes += progress.byte_count;
+        if progress.max_seq > self.max_seq {
+            self.max_seq = progress.max_seq;
+        }
+        self.start_frag = progress.start_frag;
+    }
+
+    pub fn line(&self, verbose: bool) -> String {
+        let mut text = format!("Video Fragments: {}; Audio Fragments: {}; ", self.video_frags, self.audio_frags);
+        if verbose && let Some(max) = self.max_seq {
+            text.push_str(&format!(
+                "Max Fragments: {}; Max Sequence: {max}; ",
+                (max + 1).saturating_sub(self.start_frag)
+            ));
+        }
+        text.push_str(&format!("Total Downloaded: {}", format_size(self.bytes)));
+        text
+    }
+}
+
+/// Prints a status line per progress message until the channel closes.
+/// Starts from `initial` (resumed fragment counts).
+pub async fn report_progress(
+    mut receiver: mpsc::UnboundedReceiver<ProgressInfo>,
+    initial: Totals,
+    newlines: bool,
+) -> Totals {
+    let mut totals = initial;
+    let verbose = enabled(LogLevel::Info);
+    while let Some(progress) = receiver.recv().await {
+        totals.add(&progress);
+        if level() > LogLevel::Quiet {
+            if newlines {
+                eprintln!("{}", totals.line(verbose));
+            } else {
+                eprint!("\r{}\x1b[K", totals.line(verbose));
+            }
+        }
+    }
+    totals
+}
 
 static LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Warning as u8);
 /// When false (default), log lines start with `\r` to overwrite the status line.

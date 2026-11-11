@@ -3,8 +3,7 @@
 
 use std::time::Duration;
 
-use super::wait::sleep_until_unix;
-use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY};
+use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY, sleep_until_unix};
 use crate::stream_meta::local_timestamp;
 use crate::types::player_response::{PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE};
 use crate::types::{Action, DEFAULT_POLL_SECS, PlayerResponse};

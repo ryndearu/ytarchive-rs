@@ -6,6 +6,10 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+/// Version string stamped by build.rs: `v0.1.0 (date)` for releases,
+/// `v0.1.0-<commit> (date)` for nightly and other builds.
+const VERSION: &str = env!("YTARCHIVE_VERSION_STRING");
+
 mod cli;
 mod cookies;
 mod download;
@@ -13,11 +17,9 @@ mod duration;
 mod error;
 mod finish;
 mod formats;
-mod gvideo;
 mod http;
 mod input_url;
 mod interrupt;
-mod kept;
 mod live_from;
 mod log;
 mod monitor;
@@ -26,14 +28,12 @@ mod mux;
 mod output;
 mod platform;
 mod prepare;
-mod progress;
 mod prompt;
 mod run;
 mod session;
 mod stream_meta;
 mod types;
 mod util;
-mod version;
 mod video_info;
 mod watch_page;
 mod ytdlp;
@@ -58,7 +58,7 @@ async fn main() -> ExitCode {
     log::set_newlines(options.status_newlines);
     // Go printed its version at startup too.
     if options.log_level > types::LogLevel::Quiet {
-        eprintln!("{}", version::banner());
+        eprintln!("ytarchive {VERSION}");
     }
 
     // Validate the output template early, as Go does, before any network work.

@@ -2,7 +2,6 @@
 //! work, including Go-style single-dash long flags (`-threads 4`, `-td DIR`).
 //! Options are grouped under headings like yt-dlp's help output.
 
-mod normalize;
 mod resolve;
 #[cfg(test)]
 mod tests;
@@ -11,7 +10,7 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
 
-pub use normalize::normalize_args;
+pub use resolve::normalize_args;
 
 use crate::types::{DEFAULT_FILENAME_FORMAT, DEFAULT_FRAG_MAX_TRIES, VideoCodec, parse_codec_list};
 
@@ -44,7 +43,7 @@ pub struct CodecList(pub Vec<VideoCodec>);
 #[derive(Debug, Parser)]
 #[command(
     name = "ytarchive",
-    version = crate::version::VERSION,
+    version = crate::VERSION,
     about = "Archive a YouTube livestream from the start",
     after_help = AFTER_HELP,
     disable_help_flag = true,
