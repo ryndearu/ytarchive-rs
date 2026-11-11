@@ -75,7 +75,7 @@ xattr -d com.apple.quarantine ytarchive   # unsigned binary
 
 ### Building from source
 
-Needs Rust (stable) and a C compiler (for SQLite and the TLS library; on Windows, the Visual Studio Build Tools that rustup asks for):
+Needs Rust 1.89 or newer (rustup installs the version the project is developed with) and a C compiler (for SQLite and the TLS library; on Windows, the Visual Studio Build Tools that rustup asks for):
 
 ```sh
 cargo build --release

@@ -51,3 +51,18 @@ jobs:
       - name: Test
         # Network tests are #[ignore]d and don't run here.
         run: cargo test
+
+  # Keeps `rust-version` in Cargo.toml true: the crate must build with it.
+  minimum-rust:
+    name: minimum Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the Rust version named in Cargo.toml
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].rust_version')
+          rustup toolchain install "$version" --profile minimal
+          echo "MINIMUM_RUST=$version" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        run: cargo "+$MINIMUM_RUST" check --locked
