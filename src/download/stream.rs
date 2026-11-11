@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::live_from::seekable_start_sq;
 use crate::session::Session;
 use crate::types::{DataType, DownloadState, ProgressInfo, SavedDownload, StorageMode};
-use crate::util::{lock, set_mode};
+use crate::util::{lock, write_atomic};
 use crate::{log_debug, log_error, log_trace, log_warn};
 
 pub struct StreamParams {
@@ -87,8 +87,7 @@ fn save_state(params: &StreamParams, mode: u32) {
     let Some(path) = &params.state_file else { return };
     let res = serde_json::to_vec(&params.state)
         .map_err(std::io::Error::other)
-        .and_then(|data| std::fs::write(path, data))
-        .and_then(|()| set_mode(path, mode));
+        .and_then(|data| write_atomic(path, &data, mode));
     if let Err(error) = res {
         log_warn!("Error when saving state: {error}");
     }

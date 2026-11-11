@@ -44,6 +44,25 @@ pub async fn write_file_with_mode(path: &Path, data: &[u8], mode: u32) -> Result
     res
 }
 
+/// Replaces `path` with `data` in one step (a temporary file renamed over
+/// it), so a crash mid-write leaves the old contents instead of a partial
+/// file.
+pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
+    let mut temp_name = path.as_os_str().to_os_string();
+    temp_name.push(".tmp");
+    let temp_path = std::path::PathBuf::from(temp_name);
+    let res = std::fs::write(&temp_path, data)
+        .and_then(|()| set_mode(&temp_path, mode))
+        .and_then(|()| std::fs::rename(&temp_path, path));
+    if res.is_err()
+        && let Err(error) = std::fs::remove_file(&temp_path)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        crate::log_debug!("Could not delete the partial file {}: {error}", temp_path.display());
+    }
+    res
+}
+
 /// Moves `src` to `dst`, copying across filesystems if rename fails.
 /// A missing `src` is not an error (nothing to move).
 pub fn try_move(src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -111,6 +130,18 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn atomic_write_replaces_and_leaves_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("ytarchive-rs-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("x.state");
+        write_atomic(&file, b"old", 0o644).unwrap();
+        write_atomic(&file, b"new", 0o644).unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"new");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

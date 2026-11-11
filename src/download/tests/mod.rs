@@ -177,6 +177,20 @@ async fn downloads_ended_stream_in_order() {
 }
 
 #[tokio::test]
+async fn keeps_data_that_has_no_usable_state() {
+    let url = serve(3, vec![]).await;
+    let dir = temp_dir("keep-old");
+    std::fs::write(dir.join("out.f140.ts"), b"earlier download").unwrap();
+    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (stream_params, _receiver) = params(&dir, 3, DownloadState::default());
+    let out = download_stream(session, stream_params).await.unwrap();
+
+    assert_eq!(out.state.fragments, 3);
+    assert_eq!(std::fs::read(dir.join("out.f140.ts.old")).unwrap(), b"earlier download");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
 async fn resumes_from_saved_state() {
     let url = serve(10, vec![]).await;
     let dir = temp_dir("resume");
