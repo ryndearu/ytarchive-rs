@@ -129,8 +129,14 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     }
 
     let end_seq = params.capture_duration.map(|duration| cur + duration.as_secs().div_ceil(u64::from(target)));
-    let dispatch =
-        Arc::new(Mutex::new(Dispatch { next: cur, max_seq: params.last_sq, end_seq, in_flight: 0, skip: opened.skip }));
+    let dispatch = Arc::new(Mutex::new(Dispatch {
+        next: cur,
+        max_seq: params.last_sq,
+        end_seq,
+        in_flight: 0,
+        downloaded: 0,
+        skip: opened.skip,
+    }));
 
     // A kept download whose stream can't be looked up anymore goes straight
     // to recovery (with SQLite); the workers would only use up their tries.

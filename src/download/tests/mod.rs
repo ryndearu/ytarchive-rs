@@ -1,5 +1,6 @@
 //! Downloader tests against a local fake googlevideo server.
 
+mod retry;
 mod sqlite;
 
 use std::path::{Path, PathBuf};

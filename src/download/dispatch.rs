@@ -12,6 +12,9 @@ pub(super) struct Dispatch {
     pub max_seq: Option<u64>,
     pub end_seq: Option<u64>,
     pub in_flight: usize,
+    /// Fragments downloaded so far; shows a worker stuck on one fragment
+    /// that the others are still getting through.
+    pub downloaded: u64,
     /// Already stored (SQLite resume).
     pub skip: HashSet<u64>,
 }
@@ -45,8 +48,9 @@ impl Dispatch {
         Take::Seq(seq, self.max_seq)
     }
 
-    pub fn complete(&mut self, head: Option<u64>) {
+    pub fn complete(&mut self, downloaded: bool, head: Option<u64>) {
         self.in_flight = self.in_flight.saturating_sub(1);
+        self.downloaded += u64::from(downloaded);
         if let Some(head_seq) = head {
             self.max_seq = Some(self.max_seq.map_or(head_seq, |max| max.max(head_seq)));
         }
