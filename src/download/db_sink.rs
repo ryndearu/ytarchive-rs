@@ -114,7 +114,7 @@ impl DbSink {
         let data = data?;
         self.conn.execute(
             "INSERT OR REPLACE INTO segments (seq, mime, data) VALUES (?1, ?2, ?3)",
-            params![seq as i64, frag.mime_type, data],
+            params![seq as i64, frag.mime_type, &data[..]],
         )?;
         Ok(vec![Event::Wrote(data.len() as u64)])
     }

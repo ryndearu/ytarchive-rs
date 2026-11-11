@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 use super::sink::Event;
@@ -21,10 +22,11 @@ pub struct TsSink {
     pending: BTreeMap<u64, Option<Fragment>>,
 }
 
-pub async fn fragment_bytes(data: &FragData) -> std::io::Result<Vec<u8>> {
+pub async fn fragment_bytes(data: &FragData) -> std::io::Result<Bytes> {
     match data {
-        FragData::Memory(bytes) => Ok(bytes.to_vec()),
-        FragData::File(path) => tokio::fs::read(path).await,
+        // Shares the downloaded buffer instead of copying it.
+        FragData::Memory(bytes) => Ok(bytes.clone()),
+        FragData::File(path) => Ok(tokio::fs::read(path).await?.into()),
     }
 }
 
@@ -88,7 +90,7 @@ impl TsSink {
             let written = async {
                 let raw = fragment_bytes(&frag.data).await?;
                 let first = self.next_write == self.start_frag;
-                let data = strip_for_concat(&raw, &frag.mime_type, first).unwrap_or(raw);
+                let data = strip_for_concat(&raw, &frag.mime_type, first).map_or(raw, Bytes::from);
                 self.file.write_all(&data).await?;
                 Ok::<_, std::io::Error>(data.len() as u64)
             }
