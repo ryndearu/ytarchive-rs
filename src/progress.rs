@@ -16,42 +16,45 @@ pub struct Totals {
 }
 
 impl Totals {
-    pub fn add(&mut self, p: &ProgressInfo) {
-        match p.data_type {
+    pub fn add(&mut self, progress: &ProgressInfo) {
+        match progress.data_type {
             DataType::Audio => self.audio_frags += 1,
             DataType::Video => self.video_frags += 1,
         }
-        self.bytes += p.byte_count;
-        if p.max_seq > self.max_seq {
-            self.max_seq = p.max_seq;
+        self.bytes += progress.byte_count;
+        if progress.max_seq > self.max_seq {
+            self.max_seq = progress.max_seq;
         }
-        self.start_frag = p.start_frag;
+        self.start_frag = progress.start_frag;
     }
 
     pub fn line(&self, verbose: bool) -> String {
-        let mut s = format!("Video Fragments: {}; Audio Fragments: {}; ", self.video_frags, self.audio_frags);
+        let mut text = format!("Video Fragments: {}; Audio Fragments: {}; ", self.video_frags, self.audio_frags);
         if verbose && let Some(max) = self.max_seq {
-            s.push_str(&format!("Max Fragments: {}; Max Sequence: {max}; ", (max + 1).saturating_sub(self.start_frag)));
+            text.push_str(&format!(
+                "Max Fragments: {}; Max Sequence: {max}; ",
+                (max + 1).saturating_sub(self.start_frag)
+            ));
         }
-        s.push_str(&format!("Total Downloaded: {}", format_size(self.bytes)));
-        s
+        text.push_str(&format!("Total Downloaded: {}", format_size(self.bytes)));
+        text
     }
 }
 
 /// Prints a status line per progress message until the channel closes.
 /// Starts from `initial` (resumed fragment counts).
-pub async fn report(mut rx: mpsc::UnboundedReceiver<ProgressInfo>, initial: Totals, newlines: bool) -> Totals {
-    let mut t = initial;
+pub async fn report(mut receiver: mpsc::UnboundedReceiver<ProgressInfo>, initial: Totals, newlines: bool) -> Totals {
+    let mut totals = initial;
     let verbose = log::enabled(LogLevel::Info);
-    while let Some(p) = rx.recv().await {
-        t.add(&p);
+    while let Some(progress) = receiver.recv().await {
+        totals.add(&progress);
         if log::level() > LogLevel::Quiet {
             if newlines {
-                eprintln!("{}", t.line(verbose));
+                eprintln!("{}", totals.line(verbose));
             } else {
-                eprint!("\r{}\x1b[K", t.line(verbose));
+                eprint!("\r{}\x1b[K", totals.line(verbose));
             }
         }
     }
-    t
+    totals
 }

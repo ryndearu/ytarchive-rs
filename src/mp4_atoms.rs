@@ -52,26 +52,29 @@ pub fn strip_for_concat(data: &[u8], mime_type: &str, first: bool) -> Option<Vec
 mod tests {
     use super::*;
 
-    fn bx(name: &str, payload: &[u8]) -> Vec<u8> {
-        let mut v = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
-        v.extend_from_slice(name.as_bytes());
-        v.extend_from_slice(payload);
-        v
+    fn mp4_box(name: &str, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
+        bytes.extend_from_slice(name.as_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
     }
 
     fn sample() -> Vec<u8> {
-        [bx("ftyp", b"iso6"), bx("sidx", b"xx"), bx("moof", b"m"), bx("mdat", b"data")].concat()
+        [mp4_box("ftyp", b"iso6"), mp4_box("sidx", b"xx"), mp4_box("moof", b"m"), mp4_box("mdat", b"data")].concat()
     }
 
     #[test]
     fn removes_boxes() {
-        let d = sample();
-        assert_eq!(strip_for_concat(&d, "video/mp4", false).unwrap(), [bx("moof", b"m"), bx("mdat", b"data")].concat());
+        let data = sample();
         assert_eq!(
-            strip_for_concat(&d, "", true).unwrap(),
-            [bx("ftyp", b"iso6"), bx("moof", b"m"), bx("mdat", b"data")].concat()
+            strip_for_concat(&data, "video/mp4", false).unwrap(),
+            [mp4_box("moof", b"m"), mp4_box("mdat", b"data")].concat()
         );
-        assert!(strip_for_concat(&d, "video/webm", false).is_none());
+        assert_eq!(
+            strip_for_concat(&data, "", true).unwrap(),
+            [mp4_box("ftyp", b"iso6"), mp4_box("moof", b"m"), mp4_box("mdat", b"data")].concat()
+        );
+        assert!(strip_for_concat(&data, "video/webm", false).is_none());
     }
 
     #[test]

@@ -21,14 +21,14 @@ pub type UrlMap = HashMap<u32, FragmentUrl>;
 /// All labels from the itag table, lowest first (used while waiting, when
 /// nothing is known about the stream yet).
 pub fn all_qualities() -> Vec<&'static str> {
-    VIDEO_QUALITIES.iter().map(|(l, _)| *l).collect()
+    VIDEO_QUALITIES.iter().map(|(line, _)| *line).collect()
 }
 
 /// `a, b, c, best`
 pub fn quality_list_string(qualities: &[&str]) -> String {
-    let mut s: String = qualities.iter().map(|q| format!("{q}, ")).collect();
-    s.push_str(DEFAULT_QUALITY);
-    s
+    let mut text: String = qualities.iter().map(|quality| format!("{quality}, ")).collect();
+    text.push_str(DEFAULT_QUALITY);
+    text
 }
 
 /// Splits `1080p60/720p/best` into valid labels (lowercased). `best` and
@@ -40,7 +40,7 @@ pub fn parse_quality_selection(quality: &str) -> Vec<String> {
         .to_lowercase()
         .split('/')
         .map(str::trim)
-        .filter(|q| *q == "best" || *q == "audio" || known.contains(q))
+        .filter(|quality| *quality == "best" || *quality == "audio" || known.contains(quality))
         .map(String::from)
         .collect()
 }
@@ -73,8 +73,8 @@ pub fn codecs_for_label(urls: &UrlMap, label: &str) -> Vec<VideoCodec> {
     };
     BEST_CODEC_ORDER
         .into_iter()
-        .filter(|&c| !(c == VideoCodec::Av1 && av1_ambiguous(label, itags, urls)))
-        .filter(|&c| urls.contains_key(&itag_for(itags, c)))
+        .filter(|&codec| !(codec == VideoCodec::Av1 && av1_ambiguous(label, itags, urls)))
+        .filter(|&codec| urls.contains_key(&itag_for(itags, codec)))
         .collect()
 }
 
@@ -100,9 +100,9 @@ pub fn try_select(
     let available = available_qualities(urls);
     let audio_url = if video_only { None } else { urls.get(&AUDIO_ITAG).cloned() };
 
-    for q in selected {
+    for quality in selected {
         let order = codecs.unwrap_or(&BEST_CODEC_ORDER);
-        let label = match q.trim() {
+        let label = match quality.trim() {
             "best" => *available.last()?,
             "audio" => "audio_only",
             other => other,
@@ -122,9 +122,9 @@ pub fn try_select(
         let offered = codecs_for_label(urls, label);
         log_debug!(
             "Codec priority order for {label}: {}",
-            order.iter().map(|c| c.name()).collect::<Vec<_>>().join(", ")
+            order.iter().map(|codec| codec.name()).collect::<Vec<_>>().join(", ")
         );
-        if let Some(&codec) = order.iter().find(|c| offered.contains(c)) {
+        if let Some(&codec) = order.iter().find(|candidate| offered.contains(candidate)) {
             let itag = itag_for(itags, codec);
             return Some(FormatSelection {
                 label: label.into(),
@@ -141,7 +141,7 @@ pub fn try_select(
 /// Selection when the video itag is already fixed (googlevideo URL input or
 /// `--no-video`). `video_itag == None` means audio only.
 pub fn select_fixed(urls: &UrlMap, video_itag: Option<u32>, video_only: bool) -> FormatSelection {
-    let fragmented = |itag: &u32| urls.get(itag).filter(|u| u.is_fragmented()).cloned();
+    let fragmented = |itag: &u32| urls.get(itag).filter(|url| url.is_fragmented()).cloned();
     FormatSelection {
         label: if video_itag.is_none() { "audio_only".into() } else { String::new() },
         codec: None,

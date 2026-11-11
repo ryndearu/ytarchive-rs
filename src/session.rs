@@ -45,8 +45,8 @@ impl Session {
         live: bool,
         target_duration: u32,
     ) -> Arc<Self> {
-        let page_url = extractor.as_ref().map(|e| e.page_url.clone()).unwrap_or_default();
-        let s = Self {
+        let page_url = extractor.as_ref().map(|inner| inner.page_url.clone()).unwrap_or_default();
+        let session = Self {
             opts,
             http,
             cancel,
@@ -61,8 +61,8 @@ impl Session {
             finished: PerType::default(),
             last_url_refresh: Mutex::new(Instant::now()),
         };
-        s.apply_selection(sel);
-        Arc::new(s)
+        session.apply_selection(sel);
+        Arc::new(session)
     }
 
     fn apply_selection(&self, sel: &FormatSelection) {
@@ -70,28 +70,28 @@ impl Session {
         self.set_url(DataType::Video, sel.video_url.clone());
     }
 
-    fn set_url(&self, dt: DataType, url: Option<FragmentUrl>) {
-        if let Some(u) = &url {
-            self.remember(dt, u);
+    fn set_url(&self, data_type: DataType, url: Option<FragmentUrl>) {
+        if let Some(new_url) = &url {
+            self.remember(data_type, new_url);
         }
-        *lock(self.urls.get(dt)) = url;
+        *lock(self.urls.get(data_type)) = url;
     }
 
     /// Adds `url` to the URLs recovery can use.
-    pub fn remember(&self, dt: DataType, url: &FragmentUrl) {
-        let mut known = lock(self.known.get(dt));
+    pub fn remember(&self, data_type: DataType, url: &FragmentUrl) {
+        let mut known = lock(self.known.get(data_type));
         if !known.contains(url) {
             known.push(url.clone());
         }
     }
 
-    pub fn url(&self, dt: DataType) -> Option<FragmentUrl> {
-        lock(self.urls.get(dt)).clone()
+    pub fn url(&self, data_type: DataType) -> Option<FragmentUrl> {
+        lock(self.urls.get(data_type)).clone()
     }
 
     /// Every URL used for `dt`, newest first.
-    pub fn known_urls(&self, dt: DataType) -> Vec<FragmentUrl> {
-        lock(self.known.get(dt)).iter().rev().cloned().collect()
+    pub fn known_urls(&self, data_type: DataType) -> Vec<FragmentUrl> {
+        lock(self.known.get(data_type)).iter().rev().cloned().collect()
     }
 
     pub fn is_live(&self) -> bool {
@@ -110,12 +110,12 @@ impl Session {
         self.target_duration.load(Ordering::Relaxed)
     }
 
-    pub fn is_finished(&self, dt: DataType) -> bool {
-        self.finished.get(dt).load(Ordering::Relaxed)
+    pub fn is_finished(&self, data_type: DataType) -> bool {
+        self.finished.get(data_type).load(Ordering::Relaxed)
     }
 
-    pub fn set_finished(&self, dt: DataType) {
-        self.finished.get(dt).store(true, Ordering::Relaxed);
+    pub fn set_finished(&self, data_type: DataType) {
+        self.finished.get(data_type).store(true, Ordering::Relaxed);
     }
 
     pub fn is_stopping(&self) -> bool {
@@ -132,17 +132,17 @@ impl Session {
     /// Re-runs extraction to update live status and URLs. Skipped if another
     /// refresh is in progress. Returns whether new URLs were applied.
     pub async fn refresh_info(&self) -> bool {
-        let Some(m) = &self.extractor else {
+        let Some(mutex) = &self.extractor else {
             return false;
         };
-        let Ok(mut ex) = m.try_lock() else {
+        let Ok(mut extractor) = mutex.try_lock() else {
             return false;
         };
-        let sel = ex.get_video_info().await;
-        self.live.store(ex.live, Ordering::Relaxed);
-        self.unavailable.store(ex.unavailable, Ordering::Relaxed);
-        if ex.target_duration > 0 {
-            self.target_duration.store(ex.target_duration, Ordering::Relaxed);
+        let sel = extractor.get_video_info().await;
+        self.live.store(extractor.live, Ordering::Relaxed);
+        self.unavailable.store(extractor.unavailable, Ordering::Relaxed);
+        if extractor.target_duration > 0 {
+            self.target_duration.store(extractor.target_duration, Ordering::Relaxed);
         }
         match sel {
             Some(sel) => {
@@ -155,9 +155,9 @@ impl Session {
     }
 
     /// Refreshes unless another worker already replaced `current`.
-    pub async fn refresh_url_if_unchanged(&self, dt: DataType, current: &FragmentUrl) {
-        if self.url(dt).as_ref() == Some(current) {
-            log_debug!("{}: Attempting to retrieve a new download URL", dt.as_str());
+    pub async fn refresh_url_if_unchanged(&self, data_type: DataType, current: &FragmentUrl) {
+        if self.url(data_type).as_ref() == Some(current) {
+            log_debug!("{}: Attempting to retrieve a new download URL", data_type.as_str());
             self.refresh_info().await;
         }
     }
@@ -166,26 +166,26 @@ impl Session {
     /// without pausing downloads. A failed refresh keeps the current URLs.
     pub fn spawn_periodic_refresh(self: &Arc<Self>) -> Option<JoinHandle<()>> {
         self.extractor.as_ref()?;
-        let s = Arc::clone(self);
+        let session = Arc::clone(self);
         Some(tokio::spawn(async move {
             let interval = Duration::from_secs(URL_REFRESH_INTERVAL_SECS);
             loop {
                 tokio::select! {
-                    _ = s.cancel.cancelled() => return,
+                    _ = session.cancel.cancelled() => return,
                     _ = tokio::time::sleep(REFRESH_CHECK_INTERVAL) => {}
                 }
-                if lock(&s.last_url_refresh).elapsed() < interval {
+                if lock(&session.last_url_refresh).elapsed() < interval {
                     continue;
                 }
-                s.periodic_refresh_once().await;
+                session.periodic_refresh_once().await;
             }
         }))
     }
 
     async fn periodic_refresh_once(&self) {
-        let Some(m) = &self.extractor else { return };
+        let Some(mutex) = &self.extractor else { return };
         // Don't overlap with a retry-triggered refresh.
-        let Ok(_guard) = m.try_lock() else { return };
+        let Ok(_guard) = mutex.try_lock() else { return };
         log_debug!("Refreshing download URLs in background (5-hour interval)");
         let info = ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await;
         *lock(&self.last_url_refresh) = Instant::now();
@@ -196,9 +196,9 @@ impl Session {
         let fresh = |itag: u32| {
             info.as_ref()
                 .ok()
-                .filter(|i| i.last_sq.is_some())
-                .and_then(|i| i.urls.get(&itag))
-                .filter(|u| u.is_fragmented())
+                .filter(|info| info.last_sq.is_some())
+                .and_then(|info| info.urls.get(&itag))
+                .filter(|url| url.is_fragmented())
                 .cloned()
         };
         let audio = (!self.opts.video_only).then(|| fresh(AUDIO_ITAG));
@@ -207,11 +207,11 @@ impl Session {
             log_warn!("Scheduled URL refresh failed; continuing with existing URLs");
             return;
         }
-        if let Some(Some(a)) = audio {
-            self.set_url(DataType::Audio, Some(a));
+        if let Some(Some(url)) = audio {
+            self.set_url(DataType::Audio, Some(url));
         }
-        if let Some(Some(v)) = video {
-            self.set_url(DataType::Video, Some(v));
+        if let Some(Some(url)) = video {
+            self.set_url(DataType::Video, Some(url));
         }
     }
 

@@ -25,7 +25,7 @@ static ACTIVE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Python's universal newlines: `\r\n`, `\r`, and `\n` all end a line.
 fn lines(text: &str) -> impl Iterator<Item = &str> {
-    text.split('\n').flat_map(|l| l.strip_suffix('\r').unwrap_or(l).split('\r'))
+    text.split('\n').flat_map(|line| line.strip_suffix('\r').unwrap_or(line).split('\r'))
 }
 
 /// Python's `NETSCAPE_MAGIC_RGX.match`: `#( Netscape)? HTTP Cookie File` at the start.
@@ -33,9 +33,9 @@ fn is_header(line: &str) -> bool {
     line.starts_with("# HTTP Cookie File") || line.starts_with(HEADER)
 }
 
-fn valid_expiry(e: &str) -> bool {
-    let mut parts = e.splitn(2, '.');
-    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+fn valid_expiry(expiry: &str) -> bool {
+    let mut parts = expiry.splitn(2, '.');
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
     parts.next().is_some_and(digits) && parts.next().is_none_or(digits)
 }
 
@@ -100,9 +100,9 @@ pub fn problem(data: &[u8]) -> Option<&'static str> {
         return Some("a line looks like JSON");
     }
     lines(text)
-        .filter(|l| kept(l).is_some())
+        .filter(|line| kept(line).is_some())
         .skip(1)
-        .any(|l| fixed_flag(l).is_some())
+        .any(|line| fixed_flag(line).is_some())
         .then_some("a cookie's include-subdomains column doesn't match its domain")
 }
 
@@ -110,7 +110,7 @@ pub fn problem(data: &[u8]) -> Option<&'static str> {
 /// dropped, the header added if missing, and include-subdomains columns
 /// matched to the domains' leading dots.
 pub fn repair(data: &[u8]) -> String {
-    let text: String = data.utf8_chunks().map(|c| c.valid()).collect();
+    let text: String = data.utf8_chunks().map(|chunk| chunk.valid()).collect();
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
     let mut all: Vec<&str> = lines(text).collect();
     if all.last() == Some(&"") {
@@ -121,7 +121,7 @@ pub fn repair(data: &[u8]) -> String {
         out.push_str(HEADER);
         out.push('\n');
     }
-    for line in all.into_iter().filter(|l| !json_like(l)) {
+    for line in all.into_iter().filter(|candidate| !json_like(candidate)) {
         let line: Cow<str> = match fixed_flag(line) {
             Some(flag) => {
                 let fields: Vec<&str> = line

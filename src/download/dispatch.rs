@@ -27,7 +27,7 @@ impl Dispatch {
         while self.skip.remove(&self.next) {
             self.next += 1;
         }
-        if self.end_seq.is_some_and(|e| self.next >= e) {
+        if self.end_seq.is_some_and(|end| self.next >= end) {
             log_debug!("Reached the maximum duration specified by --capture-duration.");
             return Take::Done;
         }
@@ -47,8 +47,8 @@ impl Dispatch {
 
     pub fn complete(&mut self, head: Option<u64>) {
         self.in_flight = self.in_flight.saturating_sub(1);
-        if let Some(h) = head {
-            self.max_seq = Some(self.max_seq.map_or(h, |m| m.max(h)));
+        if let Some(head_seq) = head {
+            self.max_seq = Some(self.max_seq.map_or(head_seq, |max| max.max(head_seq)));
         }
     }
 }

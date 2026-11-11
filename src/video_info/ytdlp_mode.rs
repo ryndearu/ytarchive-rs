@@ -59,21 +59,21 @@ impl Extractor {
 
         loop {
             let info = match ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await {
-                Ok(i) => i,
+                Ok(info) => info,
                 // Unparsable output is retried; yt-dlp itself failing (after its
                 // own retries) means the stream is gone, as in Go.
-                Err(Error::Json(e)) => {
+                Err(Error::Json(error)) => {
                     self.last_updated = Some(Instant::now());
-                    let msg = format!("Failed to parse yt-dlp JSON: {e}");
+                    let msg = format!("Failed to parse yt-dlp JSON: {error}");
                     match self.retry_or_fail(&mut retries, &msg) {
                         Step::Retry => continue,
                         Step::Fail => return self.fail_info(&msg),
                     }
                 }
-                Err(e) => {
+                Err(error) => {
                     self.last_updated = Some(Instant::now());
                     if !self.cancel.is_cancelled() {
-                        log_debug!("yt-dlp extraction failed: {e}");
+                        log_debug!("yt-dlp extraction failed: {error}");
                         self.live = false;
                         self.unavailable = true;
                     }

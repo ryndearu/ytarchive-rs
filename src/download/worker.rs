@@ -24,20 +24,20 @@ pub(super) enum Msg {
 }
 
 pub(super) async fn worker(
-    s: Arc<Session>,
-    dt: DataType,
+    session: Arc<Session>,
+    data_type: DataType,
     name: String,
     dispatch: Arc<Mutex<Dispatch>>,
-    tx: mpsc::Sender<Msg>,
+    sender: mpsc::Sender<Msg>,
     frag_prefix: Option<PathBuf>,
     retry_sleep: Duration,
 ) {
-    let mut st = FragThreadState::new(name.clone(), dt, retry_sleep);
+    let mut state = FragThreadState::new(name.clone(), data_type, retry_sleep);
     loop {
-        if s.is_stopping() || s.is_finished(dt) {
+        if session.is_stopping() || session.is_finished(data_type) {
             break;
         }
-        let take = lock(&dispatch).take(s.is_live());
+        let take = lock(&dispatch).take(session.is_live());
         let (seq, max) = match take {
             // Only this worker stops. Go marked the whole stream finished here,
             // which made other workers abandon fragments they were retrying.
@@ -47,21 +47,21 @@ pub(super) async fn worker(
             }
             Take::Wait => {
                 tokio::select! {
-                    _ = s.cancel.cancelled() => break,
+                    _ = session.cancel.cancelled() => break,
                     _ = tokio::time::sleep(AHEAD_WAIT) => continue,
                 }
             }
             Take::Seq(seq, max) => (seq, max),
         };
-        st.reset_for(seq, max);
-        let frag_file = frag_prefix.as_ref().map(|p| PathBuf::from(format!("{}.frag{seq}.ts", p.display())));
-        let frag = download_fragment(&s, &mut st, frag_file).await;
-        lock(&dispatch).complete(frag.as_ref().and_then(|f| f.x_head_seqnum));
+        state.reset_for(seq, max);
+        let frag_file = frag_prefix.as_ref().map(|path| PathBuf::from(format!("{}.frag{seq}.ts", path.display())));
+        let frag = download_fragment(&session, &mut state, frag_file).await;
+        lock(&dispatch).complete(frag.as_ref().and_then(|fragment| fragment.x_head_seqnum));
         let msg = match frag {
-            Some(f) => Msg::Done(f),
+            Some(fragment) => Msg::Done(fragment),
             None => Msg::Missing(seq),
         };
-        if tx.send(msg).await.is_err() {
+        if sender.send(msg).await.is_err() {
             break;
         }
     }

@@ -25,21 +25,26 @@ pub struct NameStyle {
 
 /// Characters replaced when Windows rules are off: path separators (both, on
 /// Windows) and NUL, which no filesystem accepts.
-fn minimal_forbidden(c: char) -> bool {
-    c == '/' || c == '\0' || (cfg!(windows) && c == '\\')
+fn minimal_forbidden(character: char) -> bool {
+    character == '/' || character == '\0' || (cfg!(windows) && character == '\\')
 }
 
 /// Replaces characters that are illegal in filenames with `_`, or with
 /// yt-dlp's full-width lookalikes when `style.lookalike` is set. With Windows
 /// rules, that's `<>:"/\|?*` plus control characters (Go kept control
 /// characters); otherwise only path separators and NUL.
-pub fn sterilize_filename(s: &str, style: NameStyle) -> String {
-    s.chars()
-        .map(|c| {
-            let lookalike = FORBIDDEN.iter().find(|(f, _)| *f == c).map(|(_, l)| *l);
-            let replace = if style.windows { lookalike.is_some() || c.is_control() } else { minimal_forbidden(c) };
+pub fn sterilize_filename(text: &str, style: NameStyle) -> String {
+    text.chars()
+        .map(|character| {
+            let lookalike =
+                FORBIDDEN.iter().find(|(forbidden, _)| *forbidden == character).map(|(_, replacement)| *replacement);
+            let replace = if style.windows {
+                lookalike.is_some() || character.is_control()
+            } else {
+                minimal_forbidden(character)
+            };
             match (replace, lookalike) {
-                (false, _) => c,
+                (false, _) => character,
                 (true, Some(look)) if style.lookalike => look,
                 (true, _) => '_',
             }
@@ -61,7 +66,7 @@ pub fn portable_file_name(name: &str) -> String {
     let trimmed = name.trim_end_matches(['.', ' ']);
     let mut out = format!("{trimmed}{}", "_".repeat(name.len() - trimmed.len()));
     let stem = out.split('.').next().unwrap_or("");
-    if WINDOWS_RESERVED.iter().any(|r| r.eq_ignore_ascii_case(stem.trim_end())) {
+    if WINDOWS_RESERVED.iter().any(|reserved| reserved.eq_ignore_ascii_case(stem.trim_end())) {
         out.insert(0, '_');
     }
     out
@@ -100,7 +105,8 @@ fn pieces(format: &str) -> Vec<Piece<'_>> {
     let mut rest = format;
     while let Some((before, after)) = rest.split_once("%(") {
         out.push(Piece::Text(before));
-        let key_len = after.find(|c: char| !c.is_alphanumeric() && c != '_').unwrap_or(after.len());
+        let key_len =
+            after.find(|character: char| !character.is_alphanumeric() && character != '_').unwrap_or(after.len());
         let (key, tail) = after.split_at(key_len);
         match tail.strip_prefix(")s") {
             Some(tail) if !key.is_empty() => {
@@ -131,17 +137,17 @@ pub fn format_filename(
 ) -> Result<String> {
     let mut fname_vals: BTreeMap<String, String> = vals
         .iter()
-        .map(|(k, v)| {
-            let blacklisted = FILENAME_FORMAT_BLACKLIST.iter().any(|b| b.eq_ignore_ascii_case(k.trim()));
-            let v = if blacklisted { String::new() } else { sterilize_filename(v, style) };
-            (k.clone(), v)
+        .map(|(key, value)| {
+            let blacklisted = FILENAME_FORMAT_BLACKLIST.iter().any(|blocked| blocked.eq_ignore_ascii_case(key.trim()));
+            let safe = if blacklisted { String::new() } else { sterilize_filename(value, style) };
+            (key.clone(), safe)
         })
         .collect();
 
     let out = format_python_map(format, &fname_vals)?;
-    let base = Path::new(&out).file_name().map_or("", |n| n.to_str().unwrap_or(""));
+    let base = Path::new(&out).file_name().map_or("", |name| name.to_str().unwrap_or(""));
     let mut over_bytes = base.len().saturating_sub(MAX_FILENAME_LEN);
-    let mut over_units = max_units.map_or(0, |m| base.encode_utf16().count().saturating_sub(m));
+    let mut over_units = max_units.map_or(0, |limit| base.encode_utf16().count().saturating_sub(limit));
     if over_bytes == 0 && over_units == 0 {
         return Ok(out);
     }
@@ -149,7 +155,7 @@ pub fn format_filename(
     log_warn!("Formatted filename is too long. Truncating the title to try and fix.");
     if let Some(title) = fname_vals.get_mut("title") {
         // The title may appear several times in the base name.
-        let occurrences = pieces(Path::new(format).file_name().map_or("", |n| n.to_str().unwrap_or("")))
+        let occurrences = pieces(Path::new(format).file_name().map_or("", |name| name.to_str().unwrap_or("")))
             .iter()
             .filter(|piece| matches!(piece, Piece::Key(key) if key.eq_ignore_ascii_case("title")))
             .count()
@@ -157,9 +163,9 @@ pub fn format_filename(
         over_bytes = over_bytes.div_ceil(occurrences);
         over_units = over_units.div_ceil(occurrences);
         while over_bytes > 0 || over_units > 0 {
-            let Some(c) = title.pop() else { break };
-            over_bytes = over_bytes.saturating_sub(c.len_utf8());
-            over_units = over_units.saturating_sub(c.len_utf16());
+            let Some(character) = title.pop() else { break };
+            over_bytes = over_bytes.saturating_sub(character.len_utf8());
+            over_units = over_units.saturating_sub(character.len_utf16());
         }
     }
     format_python_map(format, &fname_vals)
@@ -170,7 +176,7 @@ mod tests {
     use super::*;
 
     fn vals(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
     }
 
     const WIN: NameStyle = NameStyle { lookalike: false, windows: true };
@@ -212,55 +218,55 @@ mod tests {
 
     #[test]
     fn python_map() {
-        let v = vals(&[("title", "T"), ("id", "abc")]);
-        assert_eq!(format_python_map("%(title)s-%(ID)s", &v).unwrap(), "T-abc");
-        assert_eq!(format_python_map("no keys", &v).unwrap(), "no keys");
-        assert!(format_python_map("%(nope)s", &v).is_err());
+        let values = vals(&[("title", "T"), ("id", "abc")]);
+        assert_eq!(format_python_map("%(title)s-%(ID)s", &values).unwrap(), "T-abc");
+        assert_eq!(format_python_map("no keys", &values).unwrap(), "no keys");
+        assert!(format_python_map("%(nope)s", &values).is_err());
     }
 
     #[test]
     fn python_map_does_not_reexpand_values() {
-        let v = vals(&[("title", "%(title)s %(id)s"), ("id", "abc")]);
-        assert_eq!(format_python_map("%(title)s", &v).unwrap(), "%(title)s %(id)s");
+        let values = vals(&[("title", "%(title)s %(id)s"), ("id", "abc")]);
+        assert_eq!(format_python_map("%(title)s", &values).unwrap(), "%(title)s %(id)s");
     }
 
     #[test]
     fn filename_blacklist_and_sanitize() {
-        let v = vals(&[("title", "a/b"), ("id", "x"), ("description", "secret")]);
-        assert_eq!(format_filename("%(title)s-%(id)s%(description)s", &v, WIN, None).unwrap(), "a_b-x");
+        let values = vals(&[("title", "a/b"), ("id", "x"), ("description", "secret")]);
+        assert_eq!(format_filename("%(title)s-%(id)s%(description)s", &values, WIN, None).unwrap(), "a_b-x");
         // Directory separators in the template itself are kept.
-        assert_eq!(format_filename("dir/%(id)s", &v, MIN, None).unwrap(), "dir/x");
+        assert_eq!(format_filename("dir/%(id)s", &values, MIN, None).unwrap(), "dir/x");
         // A separator inside a value is always replaced.
-        assert_eq!(format_filename("%(title)s", &v, MIN, None).unwrap(), "a_b");
+        assert_eq!(format_filename("%(title)s", &values, MIN, None).unwrap(), "a_b");
     }
 
     #[test]
     fn filename_truncates_long_title() {
         let title = "あ".repeat(200); // 600 bytes
-        let v = vals(&[("title", &title), ("id", "abcdefghijk")]);
-        let out = format_filename("out/%(title)s [%(id)s]", &v, WIN, None).unwrap();
+        let values = vals(&[("title", &title), ("id", "abcdefghijk")]);
+        let out = format_filename("out/%(title)s [%(id)s]", &values, WIN, None).unwrap();
         let base = Path::new(&out).file_name().unwrap().to_str().unwrap();
         assert!(base.len() <= MAX_FILENAME_LEN, "{}", base.len());
         assert!(base.ends_with(" [abcdefghijk]"));
 
-        let v = vals(&[("title", &title)]);
-        let out = format_filename("%(title)s %(title)s", &v, MIN, None).unwrap();
+        let values = vals(&[("title", &title)]);
+        let out = format_filename("%(title)s %(title)s", &values, MIN, None).unwrap();
         assert!(out.len() <= MAX_FILENAME_LEN, "{}", out.len());
     }
 
     #[test]
     fn filename_fits_windows_path_room() {
         // Fits in 243 bytes but not 100 units; emoji are 2 units each.
-        let v = vals(&[("title", &"a".repeat(200)), ("id", "abcdefghijk")]);
-        let out = format_filename("%(title)s [%(id)s]", &v, WIN, Some(100)).unwrap();
+        let values = vals(&[("title", &"a".repeat(200)), ("id", "abcdefghijk")]);
+        let out = format_filename("%(title)s [%(id)s]", &values, WIN, Some(100)).unwrap();
         assert_eq!(out.encode_utf16().count(), 100);
         assert!(out.ends_with(" [abcdefghijk]"));
 
-        let v = vals(&[("title", &"🎄".repeat(50))]);
-        let out = format_filename("%(title)s", &v, WIN, Some(51)).unwrap();
+        let values = vals(&[("title", &"🎄".repeat(50))]);
+        let out = format_filename("%(title)s", &values, WIN, Some(51)).unwrap();
         assert_eq!(out.encode_utf16().count(), 50, "a surrogate pair is never split");
         // Short names are left alone.
-        let v = vals(&[("title", "short")]);
-        assert_eq!(format_filename("%(title)s", &v, WIN, Some(100)).unwrap(), "short");
+        let values = vals(&[("title", "short")]);
+        assert_eq!(format_filename("%(title)s", &values, WIN, Some(100)).unwrap(), "short");
     }
 }

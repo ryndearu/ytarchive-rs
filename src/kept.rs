@@ -21,8 +21,8 @@ fn state_itags(dir: &Path, video_id: &str) -> Vec<u32> {
     };
     let mut itags: Vec<u32> = entries
         .filter_map(Result::ok)
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
             name.strip_prefix(&prefix)?.strip_suffix(".state")?.parse().ok()
         })
         .collect();
@@ -40,20 +40,26 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
     let mut kept: Vec<(u32, KeptStream)> = Vec::new();
     let mut temp_dir = PathBuf::new();
     for itag in state_itags(&dir, video_id) {
-        let Some(st) = load_state(&state_file(opts, video_id, itag)) else {
+        let Some(state) = load_state(&state_file(opts, video_id, itag)) else {
             continue;
         };
-        if st.fragments == 0 || !st.temp_dir.is_dir() {
+        if state.fragments == 0 || !state.temp_dir.is_dir() {
             continue;
         }
-        if let Some(k) = read_kept(&st.temp_dir, itag, opts.file_mode).filter(|k| k.info.video_id == video_id) {
-            temp_dir = st.temp_dir;
-            kept.push((itag, k));
+        if let Some(kept_stream) =
+            read_kept(&state.temp_dir, itag, opts.file_mode).filter(|found| found.info.video_id == video_id)
+        {
+            temp_dir = state.temp_dir;
+            kept.push((itag, kept_stream));
         }
     }
     let info = kept.first()?.1.info.clone();
     // The newest URL of each stream; recovery tries the others too.
-    let url = |itag: u32| kept.iter().find(|(i, _)| *i == itag).and_then(|(_, k)| k.urls.last().cloned());
+    let url = |itag: u32| {
+        kept.iter()
+            .find(|(kept_itag, _)| *kept_itag == itag)
+            .and_then(|(_, kept_stream)| kept_stream.urls.last().cloned())
+    };
     let audio_url = url(AUDIO_ITAG);
     let video_url = info.video_itag.and_then(url);
     if audio_url.is_none() && video_url.is_none() {
@@ -74,7 +80,7 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
         },
         video_id: video_id.to_string(),
         live: false,
-        last_sq: kept.iter().filter_map(|(_, k)| k.head).max(),
+        last_sq: kept.iter().filter_map(|(_, kept_stream)| kept_stream.head).max(),
         target_duration: info.target_duration,
         format_info: info.format_info,
         metadata: info.metadata,

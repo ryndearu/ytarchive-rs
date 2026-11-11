@@ -42,20 +42,20 @@ pub async fn open(
     mode: u32,
     name: &str,
 ) -> Result<Opened> {
-    let db = db_path(data_file);
+    let database_path = db_path(data_file);
     // A download is resumed in the storage it was started with, whatever
     // the flags say now: a .ts download isn't replaced by an empty
     // database's export (e.g. when rerun with --recover-private), and a
     // database isn't ignored.
-    let resume_db = state.fragments > 0 && db.exists();
-    let resume_ts = state.fragments > 0 && !db.exists() && data_file.exists();
+    let resume_db = state.fragments > 0 && database_path.exists();
+    let resume_ts = state.fragments > 0 && !database_path.exists() && data_file.exists();
     let use_db = resume_db || (sqlite && !resume_ts);
     if use_db != sqlite {
         let how = if use_db { "with SQLite" } else { "without SQLite" };
         log_info!("{name}: Resuming {} {how}, as it was started", data_file.display());
     }
     if use_db {
-        let sink = DbSink::open(&db, mode)?;
+        let sink = DbSink::open(&database_path, mode)?;
         let skip = sink.stored()?;
         let (fragments, size) = sink.totals()?;
         let cur = if fragments > 0 && state.fragments > 0 {
@@ -91,23 +91,23 @@ impl Sink {
 
     pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> Result<Vec<Event>> {
         match self {
-            Sink::Ts(t) => Ok(t.push(seq, frag).await?),
-            Sink::Db(d, _) => d.push(seq, frag).await,
+            Sink::Ts(ts_sink) => Ok(ts_sink.push(seq, frag).await?),
+            Sink::Db(database, _) => database.push(seq, frag).await,
         }
     }
 
     /// Finalizes storage; for SQLite, exports the `.ts` file.
     pub async fn finish(self, name: &str, mode: u32) -> Result<()> {
         match self {
-            Sink::Ts(t) => {
-                let leftover = t.finish().await?;
+            Sink::Ts(ts_sink) => {
+                let leftover = ts_sink.finish().await?;
                 if leftover > 0 {
                     log_debug!("{name}: {leftover} downloaded fragment(s) after a gap were not written");
                 }
             }
-            Sink::Db(d, out) => {
-                let (count, bytes) = d.export(&out, mode).inspect_err(|e| {
-                    log_warn!("{name}: Failed to export {} to {}: {e}", d.path().display(), out.display());
+            Sink::Db(database, out) => {
+                let (count, bytes) = database.export(&out, mode).inspect_err(|error| {
+                    log_warn!("{name}: Failed to export {} to {}: {error}", database.path().display(), out.display());
                 })?;
                 log_debug!("{name}: Exported {count} fragment(s), {bytes} bytes to {}", out.display());
             }

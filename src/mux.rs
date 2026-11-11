@@ -26,84 +26,85 @@ pub struct MuxCommand {
     pub output: PathBuf,
 }
 
-fn s(p: &Path) -> String {
-    p.to_string_lossy().into_owned()
+fn path_text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 /// First of `name.ext`, `name-1.ext` ... `name-10.ext` that doesn't exist.
 fn unused_output(dir: &Path, name: &str, ext: &str) -> PathBuf {
     let mut out = dir.join(format!("{name}.{ext}"));
-    let mut n = 0;
-    while out.exists() && n < 10 {
-        n += 1;
-        out = dir.join(format!("{name}-{n}.{ext}"));
+    let mut number = 0;
+    while out.exists() && number < 10 {
+        number += 1;
+        out = dir.join(format!("{name}-{number}.{ext}"));
     }
     out
 }
 
-pub fn ffmpeg_args(m: &MuxInput<'_>) -> MuxCommand {
-    let audio_only = m.video.is_none();
-    let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "fatal", "-stats"].map(String::from).to_vec();
+pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
+    let audio_only = mux_input.video.is_none();
+    let mut args: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "fatal", "-stats"].map(String::from).to_vec();
 
     // mp4/m4a take the thumbnail as an input stream; mkv attaches it.
-    let thumb_input = m.thumbnail.filter(|_| !m.mkv);
-    if let Some(t) = thumb_input {
-        a.extend(["-i".into(), s(t)]);
+    let thumb_input = mux_input.thumbnail.filter(|_| !mux_input.mkv);
+    if let Some(thumbnail) = thumb_input {
+        args.extend(["-i".into(), path_text(thumbnail)]);
     }
 
     let ext = if audio_only {
         "m4a"
-    } else if m.mkv {
+    } else if mux_input.mkv {
         "mkv"
     } else {
         "mp4"
     };
-    let output = unused_output(m.out_dir, m.file_name, ext);
+    let output = unused_output(mux_input.out_dir, mux_input.file_name, ext);
 
-    for input in [m.audio, m.video].into_iter().flatten() {
-        a.extend(["-seekable", "0", "-thread_queue_size", "1024", "-i"].map(String::from));
-        a.push(s(input));
+    for input in [mux_input.audio, mux_input.video].into_iter().flatten() {
+        args.extend(["-seekable", "0", "-thread_queue_size", "1024", "-i"].map(String::from));
+        args.push(path_text(input));
     }
-    if m.video.is_some() {
-        if !m.mkv {
-            a.extend(["-movflags".into(), "faststart".into()]);
+    if mux_input.video.is_some() {
+        if !mux_input.mkv {
+            args.extend(["-movflags".into(), "faststart".into()]);
         }
         if thumb_input.is_some() {
-            let inputs = 1 + usize::from(m.audio.is_some()) + 1;
-            for i in 0..inputs {
-                a.extend(["-map".into(), i.to_string()]);
+            let inputs = 1 + usize::from(mux_input.audio.is_some()) + 1;
+            for index in 0..inputs {
+                args.extend(["-map".into(), index.to_string()]);
             }
         }
     }
 
-    a.extend(["-c".into(), "copy".into()]);
-    if let Some(t) = m.thumbnail {
-        if m.mkv {
-            a.extend([
+    args.extend(["-c".into(), "copy".into()]);
+    if let Some(thumbnail) = mux_input.thumbnail {
+        if mux_input.mkv {
+            args.extend([
                 "-attach".into(),
-                s(t),
+                path_text(thumbnail),
                 "-metadata:s:t".into(),
                 "filename=cover_land.jpg".into(),
                 "-metadata:s:t".into(),
                 "mimetype=image/jpeg".into(),
             ]);
         } else {
-            a.extend(["-disposition:v:0".into(), "attached_pic".into()]);
+            args.extend(["-disposition:v:0".into(), "attached_pic".into()]);
         }
     }
-    if let Some(meta) = m.metadata {
-        for (k, v) in meta.iter().filter(|(_, v)| !v.is_empty()) {
-            a.extend(["-metadata".into(), format!("{}={v}", k.to_uppercase())]);
+    if let Some(meta) = mux_input.metadata {
+        for (key, value) in meta.iter().filter(|(_, value)| !value.is_empty()) {
+            args.extend(["-metadata".into(), format!("{}={value}", key.to_uppercase())]);
         }
     }
-    a.push(s(&output));
-    MuxCommand { args: a, output }
+    args.push(path_text(&output));
+    MuxCommand { args, output }
 }
 
 /// POSIX shell quoting, for the human-readable `.ffmpeg.txt` command on
 /// Linux/macOS.
 pub fn posix_quote(arg: &str) -> String {
-    let safe = !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:,+@%".contains(c));
+    let safe = !arg.is_empty()
+        && arg.chars().all(|character| character.is_ascii_alphanumeric() || "-_./=:,+@%".contains(character));
     if safe { arg.to_string() } else { format!("'{}'", arg.replace('\'', r"'\''")) }
 }
 
@@ -115,8 +116,8 @@ pub fn windows_quote(arg: &str) -> String {
     }
     let mut out = String::from("\"");
     let mut backslashes = 0;
-    for c in arg.chars() {
-        match c {
+    for character in arg.chars() {
+        match character {
             '\\' => backslashes += 1,
             '"' => {
                 out.push_str(&"\\".repeat(backslashes * 2 + 1));
@@ -125,7 +126,7 @@ pub fn windows_quote(arg: &str) -> String {
             }
             _ => {
                 out.push_str(&"\\".repeat(backslashes));
-                out.push(c);
+                out.push(character);
                 backslashes = 0;
             }
         }
@@ -143,17 +144,17 @@ pub fn command_line(program: &str, args: &[String]) -> String {
 /// Whether `program` can be run: a path that exists, a name on PATH, or (as
 /// Windows users often do) a file next to the ytarchive executable.
 pub fn program_exists(program: &str) -> bool {
-    let p = Path::new(program);
-    if p.components().count() > 1 {
-        return p.is_file() || cfg!(windows) && p.with_extension("exe").is_file();
+    let path = Path::new(program);
+    if path.components().count() > 1 {
+        return path.is_file() || cfg!(windows) && path.with_extension("exe").is_file();
     }
-    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
     let path_dirs =
         std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>()).unwrap_or_default();
     exe_dir.into_iter().chain(path_dirs).any(|dir| {
-        let c = dir.join(program);
-        c.is_file() || cfg!(windows) && c.with_extension("exe").is_file()
-    }) || p.is_file()
+        let candidate = dir.join(program);
+        candidate.is_file() || cfg!(windows) && candidate.with_extension("exe").is_file()
+    }) || path.is_file()
 }
 
 /// Runs ffmpeg, passing its stderr (progress stats) through. Returns the exit
@@ -162,25 +163,25 @@ pub async fn execute(program: &str, args: &[String]) -> i32 {
     log_debug!("Executing command: {}", command_line(program, args));
     let mut child =
         match tokio::process::Command::new(program).args(args).stdin(Stdio::null()).stderr(Stdio::piped()).spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                log_error!("{e}");
+            Ok(child) => child,
+            Err(error) => {
+                log_error!("{error}");
                 return -1;
             }
         };
     if let Some(mut err) = child.stderr.take() {
         let mut buf = [0u8; 2048];
-        while let Ok(n) = err.read(&mut buf).await {
-            if n == 0 {
+        while let Ok(count) = err.read(&mut buf).await {
+            if count == 0 {
                 break;
             }
-            eprint!("{}", String::from_utf8_lossy(buf.get(..n).unwrap_or(&buf)));
+            eprint!("{}", String::from_utf8_lossy(buf.get(..count).unwrap_or(&buf)));
         }
     }
     match child.wait().await {
-        Ok(st) => st.code().unwrap_or(-1),
-        Err(e) => {
-            log_error!("{e}");
+        Ok(status) => status.code().unwrap_or(-1),
+        Err(error) => {
+            log_error!("{error}");
             -1
         }
     }
@@ -196,7 +197,7 @@ mod tests {
 
     #[test]
     fn audio_and_video_mp4_with_thumbnail_and_metadata() {
-        let d = dir();
+        let out_dir = dir();
         let meta: MetaInfo = [("title".to_string(), "T".to_string()), ("date".into(), String::new())].into();
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
@@ -204,46 +205,46 @@ mod tests {
             thumbnail: Some(Path::new("t.jpg")),
             mkv: false,
             metadata: Some(&meta),
-            out_dir: &d,
+            out_dir: &out_dir,
             file_name: "out",
         });
-        let a = cmd.args.join(" ");
-        assert!(a.starts_with("-hide_banner -nostdin -loglevel fatal -stats -i t.jpg -seekable 0"));
-        assert!(a.contains("-i a.ts -seekable 0 -thread_queue_size 1024 -i v.ts -movflags faststart -map 0 -map 1 -map 2 -c copy -disposition:v:0 attached_pic"));
-        assert!(a.contains("-metadata TITLE=T"));
-        assert!(!a.contains("DATE"));
-        assert_eq!(cmd.output, d.join("out.mp4"));
+        let joined = cmd.args.join(" ");
+        assert!(joined.starts_with("-hide_banner -nostdin -loglevel fatal -stats -i t.jpg -seekable 0"));
+        assert!(joined.contains("-i a.ts -seekable 0 -thread_queue_size 1024 -i v.ts -movflags faststart -map 0 -map 1 -map 2 -c copy -disposition:v:0 attached_pic"));
+        assert!(joined.contains("-metadata TITLE=T"));
+        assert!(!joined.contains("DATE"));
+        assert_eq!(cmd.output, out_dir.join("out.mp4"));
     }
 
     #[test]
     fn mkv_attaches_thumbnail() {
-        let d = dir();
+        let out_dir = dir();
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
             video: Some(Path::new("v.ts")),
             thumbnail: Some(Path::new("t.jpg")),
             mkv: true,
             metadata: None,
-            out_dir: &d,
+            out_dir: &out_dir,
             file_name: "out",
         });
-        let a = cmd.args.join(" ");
-        assert!(!a.contains("-i t.jpg"));
-        assert!(!a.contains("faststart"));
-        assert!(a.contains("-attach t.jpg"));
+        let joined = cmd.args.join(" ");
+        assert!(!joined.contains("-i t.jpg"));
+        assert!(!joined.contains("faststart"));
+        assert!(joined.contains("-attach t.jpg"));
         assert!(cmd.output.ends_with("out.mkv"));
     }
 
     #[test]
     fn audio_only_is_m4a() {
-        let d = dir();
+        let out_dir = dir();
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
             video: None,
             thumbnail: None,
             mkv: true,
             metadata: None,
-            out_dir: &d,
+            out_dir: &out_dir,
             file_name: "out",
         });
         assert!(cmd.output.ends_with("out.m4a"));
@@ -252,11 +253,11 @@ mod tests {
 
     #[test]
     fn avoids_existing_output() {
-        let d = dir().join("exists");
-        std::fs::create_dir_all(&d).unwrap();
-        std::fs::write(d.join("out.mp4"), b"").unwrap();
-        assert_eq!(unused_output(&d, "out", "mp4"), d.join("out-1.mp4"));
-        std::fs::remove_dir_all(&d).unwrap();
+        let out_dir = dir().join("exists");
+        std::fs::create_dir_all(&out_dir).unwrap();
+        std::fs::write(out_dir.join("out.mp4"), b"").unwrap();
+        assert_eq!(unused_output(&out_dir, "out", "mp4"), out_dir.join("out-1.mp4"));
+        std::fs::remove_dir_all(&out_dir).unwrap();
     }
 
     #[test]

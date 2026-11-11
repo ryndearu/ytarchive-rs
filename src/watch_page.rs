@@ -47,18 +47,27 @@ pub fn newest_live_stream(data: &YtInitialData, members_only: bool) -> Option<St
         .tabs
         .iter()
         .rev()
-        .find(|t| t.tab_renderer.endpoint.command_metadata.web_command_metadata.url.ends_with("/streams"))
-        .map(|t| &t.tab_renderer.content.rich_grid_renderer.contents)?;
+        .find(|tab| tab.tab_renderer.endpoint.command_metadata.web_command_metadata.url.ends_with("/streams"))
+        .map(|tab| &tab.tab_renderer.content.rich_grid_renderer.contents)?;
 
     contents
         .iter()
         .take(MAX_STREAM_ITEM_CHECK)
-        .map(|c| &c.rich_item_renderer.content.video_renderer)
-        .filter(|v| {
-            !members_only || v.badges.iter().any(|b| b.metadata_badge_renderer.style == "BADGE_STYLE_TYPE_MEMBERS_ONLY")
+        .map(|content| &content.rich_item_renderer.content.video_renderer)
+        .filter(|video| {
+            !members_only
+                || video
+                    .badges
+                    .iter()
+                    .any(|badge| badge.metadata_badge_renderer.style == "BADGE_STYLE_TYPE_MEMBERS_ONLY")
         })
-        .find(|v| v.thumbnail_overlays.iter().any(|o| o.thumbnail_overlay_time_status_renderer.style == "LIVE"))
-        .map(|v| format!("https://www.youtube.com/watch?v={}", v.video_id))
+        .find(|video| {
+            video
+                .thumbnail_overlays
+                .iter()
+                .any(|overlay| overlay.thumbnail_overlay_time_status_renderer.style == "LIVE")
+        })
+        .map(|video| format!("https://www.youtube.com/watch?v={}", video.video_id))
 }
 
 /// Looks for a live stream on the /streams tab of a channel's /live URL.
@@ -68,7 +77,7 @@ pub async fn fetch_newest_live_stream(http: &Http, live_url: &str, members_only:
     let html = String::from_utf8_lossy(&html);
     let json = extract_json(&html, INITIAL_DATA_DECL)?;
     let data: YtInitialData =
-        serde_json::from_str(json).inspect_err(|e| log_debug!("Failed to parse ytInitialData: {e}")).ok()?;
+        serde_json::from_str(json).inspect_err(|error| log_debug!("Failed to parse ytInitialData: {error}")).ok()?;
     newest_live_stream(&data, members_only)
 }
 
@@ -77,17 +86,17 @@ pub async fn fetch_newest_live_stream(http: &Http, live_url: &str, members_only:
 pub async fn get_video_html(http: &Http, page_url: &str, is_channel: bool, members_only: bool) -> Option<String> {
     if is_channel
         && let Some(stream_url) = fetch_newest_live_stream(http, page_url, members_only).await
-        && let Ok(b) = http.get_bytes(&stream_url).await
+        && let Ok(badge) = http.get_bytes(&stream_url).await
     {
-        return Some(String::from_utf8_lossy(&b).into_owned());
+        return Some(String::from_utf8_lossy(&badge).into_owned());
     }
     if members_only {
         return None;
     }
     match http.get_bytes(page_url).await {
-        Ok(b) => Some(String::from_utf8_lossy(&b).into_owned()),
-        Err(e) => {
-            log_debug!("Failed to retrieve {page_url}: {e}");
+        Ok(badge) => Some(String::from_utf8_lossy(&badge).into_owned()),
+        Err(error) => {
+            log_debug!("Failed to retrieve {page_url}: {error}");
             None
         }
     }
@@ -106,13 +115,13 @@ mod tests {
 
     #[test]
     fn extracts_player_response() {
-        let pr = parse_player_response(WATCH_HTML).unwrap();
-        assert_eq!(pr.playability_status.status, "OK");
-        assert_eq!(pr.video_details.video_id, "vid123");
+        let player_response = parse_player_response(WATCH_HTML).unwrap();
+        assert_eq!(player_response.playability_status.status, "OK");
+        assert_eq!(player_response.video_details.video_id, "vid123");
         // A `};` inside a string doesn't end the object early.
-        assert_eq!(pr.video_details.short_description, "};x");
-        assert!(pr.microformat.player_microformat_renderer.live_broadcast_details.is_live_now);
-        assert_eq!(pr.streaming_data.adaptive_formats[0].target_duration_sec, 5.0);
+        assert_eq!(player_response.video_details.short_description, "};x");
+        assert!(player_response.microformat.player_microformat_renderer.live_broadcast_details.is_live_now);
+        assert_eq!(player_response.streaming_data.adaptive_formats[0].target_duration_sec, 5.0);
         assert_eq!(extract_json(WATCH_HTML, INITIAL_DATA_DECL), Some(r#"{"x":1}"#));
     }
 
@@ -147,14 +156,14 @@ mod tests {
 
     #[test]
     fn finds_live_stream() {
-        let d = initial_data(vec![item("a", false, false), item("b", true, false), item("c", true, true)]);
-        assert_eq!(newest_live_stream(&d, false).as_deref(), Some("https://www.youtube.com/watch?v=b"));
-        assert_eq!(newest_live_stream(&d, true).as_deref(), Some("https://www.youtube.com/watch?v=c"));
+        let data = initial_data(vec![item("a", false, false), item("b", true, false), item("c", true, true)]);
+        assert_eq!(newest_live_stream(&data, false).as_deref(), Some("https://www.youtube.com/watch?v=b"));
+        assert_eq!(newest_live_stream(&data, true).as_deref(), Some("https://www.youtube.com/watch?v=c"));
     }
 
     #[test]
     fn only_first_five_items() {
-        let mut items: Vec<_> = (0..5).map(|i| item(&i.to_string(), false, false)).collect();
+        let mut items: Vec<_> = (0..5).map(|number| item(&number.to_string(), false, false)).collect();
         items.push(item("late", true, false));
         assert_eq!(newest_live_stream(&initial_data(items), false), None);
     }
@@ -165,9 +174,9 @@ mod tests {
     async fn live_watch_page() {
         let http = Http::new(&Default::default(), Default::default()).unwrap();
         let html = get_video_html(&http, "https://www.youtube.com/@LofiGirl/live", true, false).await.unwrap();
-        let pr = parse_player_response(&html).unwrap();
-        assert_eq!(pr.playability_status.status, "OK", "{:?}", pr.playability_status);
-        assert!(!pr.video_details.video_id.is_empty());
+        let player_response = parse_player_response(&html).unwrap();
+        assert_eq!(player_response.playability_status.status, "OK", "{:?}", player_response.playability_status);
+        assert!(!player_response.video_details.video_id.is_empty());
         assert!(video_id_from_watch_page(&html).is_some());
     }
 }

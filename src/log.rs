@@ -60,9 +60,9 @@ pub fn write(at: LogLevel, general: bool, args: std::fmt::Arguments<'_>) {
     if !enabled(at) {
         return;
     }
-    let ts = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
-    let cr = if NEWLINES.load(Ordering::Relaxed) { "" } else { "\r" };
-    eprintln!("{cr}{ts} {}", format_line(at, general, &args.to_string()));
+    let timestamp = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
+    let line_start = if NEWLINES.load(Ordering::Relaxed) { "" } else { "\r" };
+    eprintln!("{line_start}{timestamp} {}", format_line(at, general, &args.to_string()));
 }
 
 /// Status line while polling for a stream. Rewrites the same line unless

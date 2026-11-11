@@ -35,11 +35,11 @@ pub async fn get_yes_no(prompt: &str) -> bool {
 }
 
 /// One trimmed line, or `None` at end of input or on a read error.
-pub fn read_line_or_eof(r: &mut impl BufRead) -> Option<String> {
-    let mut s = String::new();
-    match r.read_line(&mut s) {
+pub fn read_line_or_eof(reader: &mut impl BufRead) -> Option<String> {
+    let mut text = String::new();
+    match reader.read_line(&mut text) {
         Ok(0) | Err(_) => None,
-        Ok(_) => Some(s.trim().to_string()),
+        Ok(_) => Some(text.trim().to_string()),
     }
 }
 

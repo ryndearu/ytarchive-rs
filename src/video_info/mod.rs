@@ -80,7 +80,7 @@ impl Extractor {
             members_only: opts.members_only,
             video_id,
             wait: opts.wait,
-            retry_secs: opts.retry_stream.map(|d| d.as_secs()),
+            retry_secs: opts.retry_stream.map(|duration| duration.as_secs()),
             selected,
             codecs: opts.codecs.clone(),
             fixed_itag: opts.audio_only.then_some(None),
@@ -103,7 +103,7 @@ impl Extractor {
     fn due(&self) -> bool {
         !self.unavailable
             && !self.cancel.is_cancelled()
-            && self.last_updated.is_none_or(|t| t.elapsed() >= MIN_UPDATE_INTERVAL)
+            && self.last_updated.is_none_or(|updated| updated.elapsed() >= MIN_UPDATE_INTERVAL)
     }
 
     /// Before waiting for a scheduled stream, ask for the quality so nobody
@@ -140,8 +140,8 @@ impl Extractor {
     async fn get_video_info_player_response(&mut self) -> Option<FormatSelection> {
         let outcome = self.get_playable_player_response().await;
         self.last_updated = Some(Instant::now());
-        let pr = match outcome {
-            player::Outcome::Found(pr) => pr,
+        let player_response = match outcome {
+            player::Outcome::Found(player_response) => player_response,
             player::Outcome::NotFound => {
                 self.live = false;
                 self.unavailable = true;
@@ -150,25 +150,25 @@ impl Extractor {
             player::Outcome::NotUsable => return None,
         };
 
-        let details = &pr.microformat.player_microformat_renderer.live_broadcast_details;
+        let details = &player_response.microformat.player_microformat_renderer.live_broadcast_details;
         if !self.in_progress {
             log_general!("Stream started at time {}", local_timestamp(&details.start_timestamp));
         }
-        if let Some(f) = pr.streaming_data.adaptive_formats.first()
-            && f.target_duration_sec > 0.0
+        if let Some(format) = player_response.streaming_data.adaptive_formats.first()
+            && format.target_duration_sec > 0.0
         {
-            self.target_duration = f.target_duration_sec.round() as u32;
+            self.target_duration = format.target_duration_sec.round() as u32;
         }
 
         let info = match ytdlp::extract(&self.http, &self.opts, &self.page_url, false, &self.cancel).await {
-            Ok(i) => i,
-            Err(e) => {
-                log_debug!("yt-dlp extraction failed: {e}");
+            Ok(info) => info,
+            Err(error) => {
+                log_debug!("yt-dlp extraction failed: {error}");
                 Default::default()
             }
         };
-        if let Some(sq) = info.last_sq.filter(|s| *s > 0) {
-            self.last_sq = Some(sq);
+        if let Some(sequence) = info.last_sq.filter(|last| *last > 0) {
+            self.last_sq = Some(sequence);
         }
         if info.target_duration > 0 {
             self.target_duration = info.target_duration;
@@ -180,10 +180,11 @@ impl Extractor {
 
         let sel = self.select(&info.urls).await?;
         if !self.in_progress {
-            self.format_info = format_info_from_player_response(&pr);
+            self.format_info = format_info_from_player_response(&player_response);
             self.metadata = apply_metadata(&default_metadata(&self.opts.metadata_overrides), &self.format_info);
-            if let Some(t) = pr.microformat.player_microformat_renderer.thumbnail.thumbnails.first() {
-                self.thumbnail = t.url.clone();
+            if let Some(updated) = player_response.microformat.player_microformat_renderer.thumbnail.thumbnails.first()
+            {
+                self.thumbnail = updated.url.clone();
             }
             self.in_progress = true;
         }
@@ -209,7 +210,7 @@ impl Extractor {
                     video_only,
                 )
                 .await
-                .inspect_err(|e| log_error!("{e}"))
+                .inspect_err(|error| log_error!("{error}"))
                 .ok()?;
                 self.fixed_itag = Some(sel.video_itag);
                 sel
@@ -217,8 +218,8 @@ impl Extractor {
         };
         match formats::validate(&sel, video_only) {
             Ok(()) => Some(sel),
-            Err(e) => {
-                log_error!("{e}");
+            Err(error) => {
+                log_error!("{error}");
                 None
             }
         }

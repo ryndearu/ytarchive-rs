@@ -32,7 +32,7 @@ pub async fn sleep_until_unix(cancel: &CancellationToken, unix: i64) -> bool {
 
 /// Parses the poll-interval answer; anything invalid or too small becomes the default.
 pub fn parse_poll_secs(answer: &str) -> u64 {
-    answer.trim().parse::<u64>().ok().filter(|s| *s >= DEFAULT_POLL_SECS).unwrap_or(DEFAULT_POLL_SECS)
+    answer.trim().parse::<u64>().ok().filter(|seconds| *seconds >= DEFAULT_POLL_SECS).unwrap_or(DEFAULT_POLL_SECS)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -46,10 +46,10 @@ pub enum WaitChoice {
 /// are new, the words still work, and anything else (Enter, closed stdin) is
 /// "no", as in Go.
 pub fn parse_wait_choice(answer: &str) -> WaitChoice {
-    let a = answer.trim().to_lowercase();
-    if a == "1" || a.starts_with("wait") {
+    let arg = answer.trim().to_lowercase();
+    if arg == "1" || arg.starts_with("wait") {
         WaitChoice::Wait
-    } else if a == "2" || a.starts_with("poll") {
+    } else if arg == "2" || arg.starts_with("poll") {
         WaitChoice::Poll
     } else {
         WaitChoice::No
@@ -85,19 +85,19 @@ impl Extractor {
         if self.wait == Action::DoNot {
             return None;
         }
-        if let Some(s) = self.retry_secs {
-            return Some(Duration::from_secs(s));
+        if let Some(seconds) = self.retry_secs {
+            return Some(Duration::from_secs(seconds));
         }
         if self.wait == Action::Ask {
             if !self.ask_wait_for_stream().await {
                 return None;
             }
-            if let Some(s) = self.retry_secs {
-                return Some(Duration::from_secs(s));
+            if let Some(seconds) = self.retry_secs {
+                return Some(Duration::from_secs(seconds));
             }
         }
-        let until_start = start_unix.map(|t| t - chrono::Utc::now().timestamp()).filter(|s| *s > 0);
-        Some(Duration::from_secs(until_start.map_or(DEFAULT_POLL_SECS, |s| s as u64)))
+        let until_start = start_unix.map(|time| time - chrono::Utc::now().timestamp()).filter(|seconds| *seconds > 0);
+        Some(Duration::from_secs(until_start.map_or(DEFAULT_POLL_SECS, |seconds| seconds as u64)))
     }
 }
 

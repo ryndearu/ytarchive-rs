@@ -5,13 +5,13 @@ const MIB: f64 = KIB * 1024.0;
 const GIB: f64 = MIB * 1024.0;
 
 pub fn format_size(bytes: u64) -> String {
-    let b = bytes as f64;
-    if b >= GIB {
-        format!("{:.2}GiB", b / GIB)
-    } else if b >= MIB {
-        format!("{:.2}MiB", b / MIB)
-    } else if b >= KIB {
-        format!("{:.2}KiB", b / KIB)
+    let size = bytes as f64;
+    if size >= GIB {
+        format!("{:.2}GiB", size / GIB)
+    } else if size >= MIB {
+        format!("{:.2}MiB", size / MIB)
+    } else if size >= KIB {
+        format!("{:.2}KiB", size / KIB)
     } else {
         format!("{bytes}B")
     }

@@ -25,13 +25,13 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
     // UTF-8 output regardless of the console code page (Windows), so titles
     // aren't mangled; user --ytdlp-opts come later and can override it.
     let mut args = vec!["--encoding".to_string(), "utf-8".into(), "--live-from-start".into()];
-    if let Some(c) = opts.ytdlp_cookies_file.as_ref().or(opts.cookies_file.as_ref()) {
+    if let Some(path) = opts.ytdlp_cookies_file.as_ref().or(opts.cookies_file.as_ref()) {
         args.push("--cookies".into());
-        args.push(c.to_string_lossy().into_owned());
+        args.push(path.to_string_lossy().into_owned());
     }
-    if let Some(p) = &opts.proxy {
+    if let Some(url) = &opts.proxy {
         args.push("--proxy".into());
-        args.push(p.to_string());
+        args.push(url.to_string());
     }
     if ignore_no_formats {
         args.push("--ignore-no-formats-error".into());
@@ -59,7 +59,7 @@ pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool) -> Result<S
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| Error::Ytdlp(format!("failed to start '{}': {e}", opts.ytdlp_path)))?;
+        .map_err(|error| Error::Ytdlp(format!("failed to start '{}': {error}", opts.ytdlp_path)))?;
 
     let out = tokio::time::timeout(RUN_TIMEOUT, child.wait_with_output())
         .await
@@ -67,7 +67,7 @@ pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool) -> Result<S
 
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+        let last = stderr.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("");
         return Err(Error::Ytdlp(format!("{}: {last}", out.status)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
@@ -85,9 +85,9 @@ pub async fn run_with_retry(
     for attempt in 1..=attempts {
         match run(opts, url, ignore_no_formats).await {
             Ok(out) => return Ok(out),
-            Err(e) => {
-                log_warn!("yt-dlp attempt {attempt}/{attempts} failed: {e}");
-                last_err = e;
+            Err(error) => {
+                log_warn!("yt-dlp attempt {attempt}/{attempts} failed: {error}");
+                last_err = error;
             }
         }
         if attempt < attempts {
@@ -113,32 +113,32 @@ pub fn parse_output(stdout: &str) -> Result<YtdlpRawInfo> {
             *offset += line.len();
             Some((at, line))
         })
-        .find(|(_, l)| l.trim_start().starts_with('{'))
+        .find(|(_, line)| line.trim_start().starts_with('{'))
         .map(|(at, _)| at)
         .ok_or_else(|| Error::Ytdlp("no JSON in yt-dlp output".into()))?;
     let mut stream = serde_json::Deserializer::from_str(&stdout[start..]).into_iter::<YtdlpRawInfo>();
     match stream.next() {
-        Some(r) => Ok(r?),
+        Some(result) => Ok(result?),
         None => Err(Error::Ytdlp("no JSON in yt-dlp output".into())),
     }
 }
 
 /// Adaptive fragment URLs: plain googlevideo `noclen` URLs delivered as DASH
 /// segments, not manifest-based (HLS/DASH manifest) formats.
-pub fn is_adaptive_format(f: &YtdlpFormat) -> bool {
-    let Some(url) = f.url.as_deref() else {
+pub fn is_adaptive_format(format: &YtdlpFormat) -> bool {
+    let Some(url) = format.url.as_deref() else {
         return false;
     };
     crate::types::is_fragmented(url)
-        && f.manifest_url.as_deref().is_none_or(str::is_empty)
-        && matches!(f.protocol.as_deref(), Some("http_dash_segments" | "http_dash_segments_generator"))
+        && format.manifest_url.as_deref().is_none_or(str::is_empty)
+        && matches!(format.protocol.as_deref(), Some("http_dash_segments" | "http_dash_segments_generator"))
 }
 
 /// Converts raw yt-dlp output into an extraction, without network access.
 /// Returns the raw URL of the first adaptive format for the sequence probe.
 pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
     let live_status = LiveStatus::parse(raw.live_status.as_deref().unwrap_or(""));
-    let start_unix = raw.release_timestamp.filter(|t| *t > 0).or(raw.timestamp.filter(|t| *t > 0));
+    let start_unix = raw.release_timestamp.filter(|time| *time > 0).or(raw.timestamp.filter(|time| *time > 0));
 
     let mut info = YtdlpExtraction {
         id: raw.id.unwrap_or_default(),
@@ -155,17 +155,17 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
     };
 
     let mut probe_url = None;
-    for f in raw.formats.unwrap_or_default() {
-        let Some(itag) = f.itag() else { continue };
+    for format in raw.formats.unwrap_or_default() {
+        let Some(itag) = format.itag() else { continue };
         if info.target_duration == 0
-            && let Some(td) = f.target_duration.filter(|t| *t > 0.0)
+            && let Some(target) = format.target_duration.filter(|seconds| *seconds > 0.0)
         {
-            info.target_duration = td.round() as u32;
+            info.target_duration = target.round() as u32;
         }
-        if !is_adaptive_format(&f) {
+        if !is_adaptive_format(&format) {
             continue;
         }
-        let url = f.url.unwrap_or_default();
+        let url = format.url.unwrap_or_default();
         probe_url.get_or_insert_with(|| url.clone());
         info.urls.insert(itag, FragmentUrl::with_sq_param(&url));
     }
@@ -195,9 +195,9 @@ pub async fn extract(
 ) -> Result<YtdlpExtraction> {
     let out = run_with_retry(opts, url, ignore_no_formats, DEFAULT_ATTEMPTS, cancel).await?;
     let (mut info, probe_url) = to_extraction(parse_output(&out)?);
-    if let Some(p) = probe_url {
+    if let Some(part) = probe_url {
         let post_live = info.live_status == LiveStatus::PostLive;
-        info.last_sq = probe_x_head_seqnum(http, &p).await.and_then(|h| seq_boundary(h, post_live));
+        info.last_sq = probe_x_head_seqnum(http, &part).await.and_then(|head| seq_boundary(head, post_live));
     }
     if !info.urls.is_empty() {
         log_debug!("Loaded {} adaptive format URLs from yt-dlp", info.urls.len());
@@ -226,9 +226,9 @@ mod tests {
             ytdlp_opts: vec!["--extractor-args".into(), "youtube:x".into()],
             ..Default::default()
         };
-        let a = build_args(&opts, "https://youtu.be/x", true);
+        let args = build_args(&opts, "https://youtu.be/x", true);
         assert_eq!(
-            &a[..10],
+            &args[..10],
             [
                 "--encoding",
                 "utf-8",
@@ -242,7 +242,7 @@ mod tests {
                 "youtube:x"
             ]
         );
-        assert_eq!(&a[a.len() - 2..], ["--", "https://youtu.be/x"]);
+        assert_eq!(&args[args.len() - 2..], ["--", "https://youtu.be/x"]);
         assert!(!build_args(&Options::default(), "u", false).contains(&"--ignore-no-formats-error".to_string()));
         let repaired = Options { ytdlp_cookies_file: Some("fixed.txt".into()), ..opts };
         assert_eq!(&build_args(&repaired, "u", false)[3..5], ["--cookies", "fixed.txt"]);

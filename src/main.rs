@@ -43,9 +43,9 @@ async fn main() -> ExitCode {
     let _console = platform::setup();
     let cli = cli::Cli::parse_normalized();
     let mut options = match cli.into_options() {
-        Ok(v) => v,
-        Err(e) => {
-            log_error!("{e}");
+        Ok(options) => options,
+        Err(error) => {
+            log_error!("{error}");
             return ExitCode::FAILURE;
         }
     };
@@ -57,8 +57,8 @@ async fn main() -> ExitCode {
     }
 
     // Validate the output template early, as Go does, before any network work.
-    if let Err(e) = util::format_python_map(&options.output_format, &types::new_format_info()) {
-        log_error!("{e}");
+    if let Err(error) = util::format_python_map(&options.output_format, &types::new_format_info()) {
+        log_error!("{error}");
         return ExitCode::FAILURE;
     }
 
@@ -68,12 +68,12 @@ async fn main() -> ExitCode {
                 log_info!("Loaded cookie file {}", path.display());
                 match ytdlp_cookies::prepare(&path, &data) {
                     Ok(copy) => options.ytdlp_cookies_file = copy,
-                    Err(e) => log_warn!("Couldn't write a repaired cookies file for yt-dlp: {e}"),
+                    Err(error) => log_warn!("Couldn't write a repaired cookies file for yt-dlp: {error}"),
                 }
                 cookies::parse_netscape(&data)
             }
-            Err(e) => {
-                log_error!("Failed to load cookies file: {e}");
+            Err(error) => {
+                log_error!("Failed to load cookies file: {error}");
                 return ExitCode::FAILURE;
             }
         },
@@ -81,9 +81,9 @@ async fn main() -> ExitCode {
     };
 
     let http = match http::Http::new(&options, cookie_set) {
-        Ok(h) => h,
-        Err(e) => {
-            log_error!("Failed to create HTTP client: {e}");
+        Ok(http) => http,
+        Err(error) => {
+            log_error!("Failed to create HTTP client: {error}");
             return ExitCode::FAILURE;
         }
     };

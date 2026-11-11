@@ -11,7 +11,10 @@ use crate::types::{
 };
 
 fn is_googlevideo(url: &str) -> bool {
-    url::Url::parse(url).ok().and_then(|u| u.host_str().map(|h| h.ends_with(".googlevideo.com"))).unwrap_or(false)
+    url::Url::parse(url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(|host| host.ends_with(".googlevideo.com")))
+        .unwrap_or(false)
 }
 
 impl Cli {
@@ -24,7 +27,7 @@ impl Cli {
         let flagged: Vec<VideoCodec> =
             [(VideoCodec::Av1, self.av1), (VideoCodec::Vp9, self.vp9), (VideoCodec::H264, self.h264)]
                 .into_iter()
-                .filter_map(|(c, on)| on.then_some(c))
+                .filter_map(|(codec, on)| on.then_some(codec))
                 .collect();
         (!flagged.is_empty()).then(|| complete_codec_order(&flagged))
     }
@@ -49,7 +52,7 @@ impl Cli {
         // Googlevideo URLs given via flags take precedence over positionals (as in Go).
         let gv_url = self.video_url.clone().or_else(|| self.audio_url.clone());
         let (url, quality) = match gv_url {
-            Some(u) => (Some(u), None),
+            Some(url) => (Some(url), None),
             None => (self.url.clone(), self.quality.clone()),
         };
         let direct_download =
@@ -67,26 +70,30 @@ impl Cli {
         }
 
         let mut metadata_overrides = Vec::with_capacity(self.metadata.len());
-        for kv in &self.metadata {
-            let (k, v) = kv
+        for pair in &self.metadata {
+            let (key, value) = pair
                 .split_once('=')
-                .ok_or_else(|| Error::InvalidArg(format!("--metadata expects KEY=VALUE, got '{kv}'")))?;
-            let k = k.trim();
-            if k.is_empty() {
-                return Err(Error::InvalidArg(format!("--metadata key is empty in '{kv}'")));
+                .ok_or_else(|| Error::InvalidArg(format!("--metadata expects KEY=VALUE, got '{pair}'")))?;
+            let key = key.trim();
+            if key.is_empty() {
+                return Err(Error::InvalidArg(format!("--metadata key is empty in '{pair}'")));
             }
-            metadata_overrides.push((k.to_string(), v.trim().to_string()));
+            metadata_overrides.push((key.to_string(), value.trim().to_string()));
         }
 
-        let mut retry_stream = self.retry_stream.filter(|s| *s > 0).map(|s| s.max(DEFAULT_POLL_SECS));
-        if self.monitor_channel && retry_stream.is_none_or(|s| s < MINIMUM_MONITOR_SECS) {
+        let mut retry_stream =
+            self.retry_stream.filter(|seconds| *seconds > 0).map(|seconds| seconds.max(DEFAULT_POLL_SECS));
+        if self.monitor_channel && retry_stream.is_none_or(|seconds| seconds < MINIMUM_MONITOR_SECS) {
             retry_stream = Some(DEFAULT_MONITOR_SECS);
         }
 
         let start_delay =
-            self.start_delay.as_deref().map(|s| parse_duration_or_time("--start-delay", s)).transpose()?;
-        let capture_duration =
-            self.capture_duration.as_deref().map(|s| parse_duration_or_time("--capture-duration", s)).transpose()?;
+            self.start_delay.as_deref().map(|text| parse_duration_or_time("--start-delay", text)).transpose()?;
+        let capture_duration = self
+            .capture_duration
+            .as_deref()
+            .map(|text| parse_duration_or_time("--capture-duration", text))
+            .transpose()?;
 
         let log_level = if self.trace {
             LogLevel::Trace
@@ -116,7 +123,10 @@ impl Cli {
             cookies_file: self.cookies,
             ytdlp_cookies_file: None,
             ytdlp_path: self.ytdlp_path,
-            ytdlp_opts: self.ytdlp_opts.map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default(),
+            ytdlp_opts: self
+                .ytdlp_opts
+                .map(|text| text.split_whitespace().map(String::from).collect())
+                .unwrap_or_default(),
             ytdlp_info: self.ytdlp_info,
             codecs,
             mkv: self.mkv,

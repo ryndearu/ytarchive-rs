@@ -46,15 +46,15 @@ pub async fn run(
 ) -> RunResult {
     let cancel = interrupt.child_token();
     let prepared = match prepare(&opts, &http, &cancel, input).await {
-        Some(p) => p,
+        Some(prepared) => prepared,
         None => {
             // A download kept for retrying missing fragments can still go on
             // with its saved URLs after the stream went private.
             if !interrupt.is_set()
                 && let InputUrl::Video { id } = input
-                && let Some(p) = prepared_from_kept(&opts, id)
+                && let Some(prepared) = prepared_from_kept(&opts, id)
             {
-                let code = download(opts.clone(), http, cancel, p, None, interrupt).await;
+                let code = download(opts.clone(), http, cancel, prepared, None, interrupt).await;
                 return RunResult { code, video_id: Some(id.clone()), downloaded: true };
             }
             return RunResult::code(if interrupt.is_set() { 2 } else { 1 });
@@ -68,13 +68,13 @@ pub async fn run(
 
     let live_from_sq = match (&opts.live_from, prepared.last_sq) {
         (None, _) => None,
-        (Some(v), Some(last)) => match resolve_live_from(v, last, prepared.target_duration) {
-            Ok(lf) => {
-                log_general!("{}", lf.message);
-                Some(lf.start_sq)
+        (Some(value), Some(last)) => match resolve_live_from(value, last, prepared.target_duration) {
+            Ok(live_from) => {
+                log_general!("{}", live_from.message);
+                Some(live_from.start_sq)
             }
-            Err(e) => {
-                log_error!("{e}");
+            Err(error) => {
+                log_error!("{error}");
                 return RunResult::code(1);
             }
         },

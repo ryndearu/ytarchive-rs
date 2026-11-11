@@ -29,7 +29,7 @@ const CHANNEL_PREFIXES: &[&str] = &["/channel/", "/c/", "/user/", "/@"];
 
 pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
     let raw = raw.trim();
-    let parsed = url::Url::parse(raw).map_err(|e| Error::InvalidArg(format!("invalid URL '{raw}': {e}")))?;
+    let parsed = url::Url::parse(raw).map_err(|error| Error::InvalidArg(format!("invalid URL '{raw}': {error}")))?;
     let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
     let host = host.strip_prefix("www.").or_else(|| host.strip_prefix("m.")).unwrap_or(&host);
     let path = parsed.path();
@@ -38,11 +38,11 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
     if host == "youtube.com" {
         if lower_path.starts_with("/watch") {
             let id = query_param(&parsed, "v")
-                .filter(|v| !v.is_empty())
+                .filter(|value| !value.is_empty())
                 .ok_or_else(|| Error::InvalidArg("youtube URL missing video ID".into()))?;
             return Ok(InputUrl::Video { id });
         }
-        if CHANNEL_PREFIXES.iter().any(|p| lower_path.starts_with(p)) {
+        if CHANNEL_PREFIXES.iter().any(|prefix| lower_path.starts_with(prefix)) {
             // Keep only the channel part (/@name, /channel/ID, ...) and append /live,
             // dropping sub pages like /streams or /videos.
             let mut segs = path.trim_matches('/').split('/');
@@ -75,7 +75,7 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
         let (url, itag) = parse_gvideo_url(raw, data_type)?;
         let id = query_param(&parsed, "id").unwrap_or_default();
         // The id parameter looks like `VIDEOID.N`.
-        let id = id.rsplit_once('.').map_or(id.as_str(), |(v, _)| v).to_string();
+        let id = id.rsplit_once('.').map_or(id.as_str(), |(value, _)| value).to_string();
         return Ok(InputUrl::GoogleVideo { id, itag, url });
     }
 
@@ -85,8 +85,8 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
 /// Validates a googlevideo fragment URL for `data_type` and returns it as a
 /// fragment template plus its itag.
 pub fn parse_gvideo_url(raw: &str, data_type: DataType) -> Result<(FragmentUrl, u32)> {
-    let parsed =
-        url::Url::parse(raw.trim()).map_err(|e| Error::InvalidArg(format!("error parsing Google Video URL: {e}")))?;
+    let parsed = url::Url::parse(raw.trim())
+        .map_err(|error| Error::InvalidArg(format!("error parsing Google Video URL: {error}")))?;
     let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
     if !host.ends_with(".googlevideo.com") {
         return Err(Error::InvalidArg("not a Google Video URL".into()));
@@ -106,15 +106,15 @@ pub fn parse_gvideo_url(raw: &str, data_type: DataType) -> Result<(FragmentUrl, 
     }
 }
 
-fn parse_itag(u: &url::Url) -> Result<u32> {
-    query_param(u, "itag")
-        .and_then(|s| s.parse().ok())
-        .filter(|i| *i > 0)
+fn parse_itag(url: &url::Url) -> Result<u32> {
+    query_param(url, "itag")
+        .and_then(|text| text.parse().ok())
+        .filter(|itag| *itag > 0)
         .ok_or_else(|| Error::InvalidArg("error parsing itag parameter of Google Video URL".into()))
 }
 
-fn query_param(u: &url::Url, key: &str) -> Option<String> {
-    u.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.into_owned())
+fn query_param(url: &url::Url, key: &str) -> Option<String> {
+    url.query_pairs().find(|(name, _)| name == key).map(|(_, value)| value.into_owned())
 }
 
 #[cfg(test)]
@@ -125,8 +125,8 @@ mod tests {
         InputUrl::Video { id: id.into() }
     }
 
-    fn channel(u: &str) -> InputUrl {
-        InputUrl::Channel { live_url: u.into() }
+    fn channel(url: &str) -> InputUrl {
+        InputUrl::Channel { live_url: url.into() }
     }
 
     #[test]

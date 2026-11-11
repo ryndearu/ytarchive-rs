@@ -63,15 +63,15 @@ impl DbSink {
     /// Sequence numbers already stored.
     pub fn stored(&self) -> Result<HashSet<u64>> {
         let mut stmt = self.conn.prepare("SELECT seq FROM segments")?;
-        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
-        Ok(rows.filter_map(|r| r.ok()).map(|s| s as u64).collect())
+        let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
+        Ok(rows.filter_map(|result| result.ok()).map(|sequence| sequence as u64).collect())
     }
 
     /// Adds download URLs (already stored ones are ignored).
     pub fn save_urls(&self, urls: &[FragmentUrl]) -> Result<()> {
         let mut stmt = self.conn.prepare_cached("INSERT OR IGNORE INTO urls (prefix, suffix) VALUES (?1, ?2)")?;
-        for u in urls {
-            let (prefix, suffix) = u.parts();
+        for url in urls {
+            let (prefix, suffix) = url.parts();
             stmt.execute(params![prefix, suffix])?;
         }
         Ok(())
@@ -80,7 +80,7 @@ impl DbSink {
     /// Stored download URLs, oldest first.
     pub fn urls(&self) -> Result<Vec<FragmentUrl>> {
         let mut stmt = self.conn.prepare("SELECT prefix, suffix FROM urls ORDER BY rowid")?;
-        let rows = stmt.query_map([], |r| Ok(FragmentUrl::from_parts(r.get(0)?, r.get(1)?)))?;
+        let rows = stmt.query_map([], |row| Ok(FragmentUrl::from_parts(row.get(0)?, row.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -93,15 +93,15 @@ impl DbSink {
         let mut stmt = self.conn.prepare("SELECT value FROM meta WHERE key = ?1")?;
         let mut rows = stmt.query(params![key])?;
         Ok(match rows.next()? {
-            Some(r) => Some(r.get(0)?),
+            Some(row) => Some(row.get(0)?),
             None => None,
         })
     }
 
     /// (fragment count, total bytes) stored.
     pub fn totals(&self) -> Result<(u64, u64)> {
-        Ok(self.conn.query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |r| {
-            Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64))
+        Ok(self.conn.query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |row| {
+            Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
         })?)
     }
 
@@ -158,19 +158,19 @@ mod tests {
     async fn stores_out_of_order_and_exports_in_order() {
         let dir = std::env::temp_dir().join(format!("ytarchive-rs-db-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let db = db_path(&dir.join("x.f140.ts"));
-        assert!(db.ends_with("x.f140.sqlite"));
+        let database_path = db_path(&dir.join("x.f140.ts"));
+        assert!(database_path.ends_with("x.f140.sqlite"));
 
-        let mut sink = DbSink::open(&db, 0o644).unwrap();
+        let mut sink = DbSink::open(&database_path, 0o644).unwrap();
         for seq in [3u64, 1, 2] {
-            let ev = sink.push(seq, Some(frag(seq, format!("<{seq}>").as_bytes()))).await.unwrap();
-            assert!(matches!(ev[..], [Event::Wrote(3)]));
+            let events = sink.push(seq, Some(frag(seq, format!("<{seq}>").as_bytes()))).await.unwrap();
+            assert!(matches!(events[..], [Event::Wrote(3)]));
         }
         assert!(matches!(sink.push(4, None).await.unwrap()[..], [Event::Gap(4)]));
         drop(sink);
 
         // Reopen: data persisted, duplicates replaced.
-        let mut sink = DbSink::open(&db, 0o644).unwrap();
+        let mut sink = DbSink::open(&database_path, 0o644).unwrap();
         assert_eq!(sink.stored().unwrap(), HashSet::from([1, 2, 3]));
         sink.push(2, Some(frag(2, b"<2>"))).await.unwrap();
         assert_eq!(sink.totals().unwrap(), (3, 9));
@@ -179,11 +179,11 @@ mod tests {
         assert_eq!(sink.export(&out, 0o644).unwrap(), (3, 9));
         assert_eq!(std::fs::read(&out).unwrap(), b"<1><2><3>");
 
-        let a = FragmentUrl::with_sq_param("https://a/videoplayback?itag=140");
-        let b = FragmentUrl::with_sq_param("https://b/videoplayback?itag=140");
-        sink.save_urls(&[a.clone(), b.clone()]).unwrap();
-        sink.save_urls(std::slice::from_ref(&a)).unwrap();
-        assert_eq!(sink.urls().unwrap(), [a, b]);
+        let first = FragmentUrl::with_sq_param("https://a/videoplayback?itag=140");
+        let second = FragmentUrl::with_sq_param("https://b/videoplayback?itag=140");
+        sink.save_urls(&[first.clone(), second.clone()]).unwrap();
+        sink.save_urls(std::slice::from_ref(&first)).unwrap();
+        assert_eq!(sink.urls().unwrap(), [first, second]);
         assert_eq!(sink.meta("head").unwrap(), None);
         sink.set_meta("head", "9").unwrap();
         sink.set_meta("head", "10").unwrap();

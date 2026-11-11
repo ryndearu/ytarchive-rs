@@ -266,33 +266,33 @@ pub struct Cli {
     pub newline: bool,
 }
 
-fn parse_octal(s: &str) -> std::result::Result<u32, String> {
-    let digits = s.strip_prefix("0o").unwrap_or(s);
+fn parse_octal(text: &str) -> std::result::Result<u32, String> {
+    let digits = text.strip_prefix("0o").unwrap_or(text);
     u32::from_str_radix(digits, 8)
         .ok()
-        .filter(|m| *m <= 0o7777)
-        .ok_or_else(|| format!("'{s}' is not an octal permission mode like 0644"))
+        .filter(|mode| *mode <= 0o7777)
+        .ok_or_else(|| format!("'{text}' is not an octal permission mode like 0644"))
 }
 
-fn parse_proxy(s: &str) -> std::result::Result<url::Url, String> {
-    let u = url::Url::parse(s).map_err(|_| "invalid proxy URL".to_string())?;
-    match u.scheme() {
-        "http" | "https" | "socks5" => Ok(u),
+fn parse_proxy(text: &str) -> std::result::Result<url::Url, String> {
+    let url = url::Url::parse(text).map_err(|_| "invalid proxy URL".to_string())?;
+    match url.scheme() {
+        "http" | "https" | "socks5" => Ok(url),
         _ => Err("the proxy URL scheme must be http, https, or socks5".into()),
     }
 }
 
-fn parse_codecs(s: &str) -> std::result::Result<CodecList, String> {
-    parse_codec_list(s)
+fn parse_codecs(text: &str) -> std::result::Result<CodecList, String> {
+    parse_codec_list(text)
         .map(CodecList)
-        .ok_or_else(|| format!("'{s}' is not a codec list like vp9/h264 (valid: av1, vp9, h264, best)"))
+        .ok_or_else(|| format!("'{text}' is not a codec list like vp9/h264 (valid: av1, vp9, h264, best)"))
 }
 
 impl Cli {
     pub fn parse_normalized() -> Self {
         // Arguments that aren't valid UTF-8 (e.g. typed in a legacy code
         // page) are converted lossily instead of being rejected.
-        let args = std::env::args_os().map(|a| a.to_string_lossy().into_owned().into());
+        let args = std::env::args_os().map(|arg| arg.to_string_lossy().into_owned().into());
         Cli::parse_from(normalize_args(args))
     }
 }

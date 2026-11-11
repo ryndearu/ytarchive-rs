@@ -39,12 +39,12 @@ impl Extractor {
             }
             let html = get_video_html(&self.http, &self.page_url, self.is_channel, self.members_only).await;
             let parsed = match &html {
-                Some(h) => parse_player_response(h).map_err(|e| e.to_string()),
+                Some(host) => parse_player_response(host).map_err(|error| error.to_string()),
                 None => Err("unable to retrieve data from video page".to_string()),
             };
 
-            let pr = match parsed {
-                Ok(pr) => pr,
+            let player_response = match parsed {
+                Ok(player_response) => player_response,
                 Err(err) => {
                     if wait_on_channel {
                         let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
@@ -85,8 +85,8 @@ impl Extractor {
                 self.video_id = id;
             }
 
-            let vd = &pr.video_details;
-            if vd.video_id.is_empty() {
+            let details = &player_response.video_details;
+            if details.video_id.is_empty() {
                 if details_retries < MAX_RETRIES {
                     details_retries += 1;
                     log_warn!(
@@ -108,11 +108,12 @@ impl Extractor {
                 return Outcome::NotUsable;
             }
 
-            let (author, title) = (vd.author.clone(), vd.title.clone());
+            let (author, title) = (details.author.clone(), details.title.clone());
             self.print_info(&author, &title);
 
-            let streamability_id = &pr.playability_status.live_streamability.live_streamability_renderer.video_id;
-            if streamability_id.is_empty() && !vd.is_live_content {
+            let streamability_id =
+                &player_response.playability_status.live_streamability.live_streamability_renderer.video_id;
+            if streamability_id.is_empty() && !details.is_live_content {
                 if self.live {
                     self.live = false;
                 } else {
@@ -121,30 +122,34 @@ impl Extractor {
                 return Outcome::NotUsable;
             }
 
-            let status = pr.playability_status.status.as_str();
+            let status = player_response.playability_status.status.as_str();
             match status {
                 PLAYABLE_ERROR => {
                     if self.in_progress {
                         log_info!("Finishing download");
                     }
-                    log_error!("Playability status: ERROR. Reason: {}", pr.playability_status.reason);
+                    log_error!("Playability status: ERROR. Reason: {}", player_response.playability_status.reason);
                     self.live = false;
                     return Outcome::NotUsable;
                 }
                 PLAYABLE_UNPLAYABLE => {
                     // An ended stream is unplayable while YouTube processes
                     // it, and its live download is gone by then.
-                    let ended =
-                        !pr.microformat.player_microformat_renderer.live_broadcast_details.end_timestamp.is_empty();
+                    let ended = !player_response
+                        .microformat
+                        .player_microformat_renderer
+                        .live_broadcast_details
+                        .end_timestamp
+                        .is_empty();
                     if ended && !self.in_progress {
                         log_general!("{ENDED_MESSAGE}");
-                        log_general!("Reason: {}", pr.playability_status.reason);
+                        log_general!("Reason: {}", player_response.playability_status.reason);
                         self.unavailable = true;
                         return Outcome::NotUsable;
                     }
-                    let logged_in = !pr.response_context.main_app_web_response_context.logged_out;
+                    let logged_in = !player_response.response_context.main_app_web_response_context.logged_out;
                     log_error!("Playability status: UNPLAYABLE.");
-                    log_error!("Reason: {}", pr.playability_status.reason);
+                    log_error!("Reason: {}", player_response.playability_status.reason);
                     log_error!("Logged in status: {logged_in}");
                     log_error!(
                         "If this is a members only stream, you provided a cookies.txt file, and the above 'logged in' status is not True, please try updating your cookies file."
@@ -157,7 +162,7 @@ impl Extractor {
                         log_debug!("Livestream status is {PLAYABLE_OFFLINE} mid-download");
                         return Outcome::NotUsable;
                     }
-                    if self.opts.live_from.as_deref().is_some_and(|v| v.trim().starts_with('-')) {
+                    if self.opts.live_from.as_deref().is_some_and(|value| value.trim().starts_with('-')) {
                         log_error!("Option --live-from with a negative duration is not valid for a scheduled stream.");
                         return Outcome::NotUsable;
                     }
@@ -189,7 +194,7 @@ impl Extractor {
                         continue;
                     }
 
-                    let scheduled = pr
+                    let scheduled = player_response
                         .playability_status
                         .live_streamability
                         .live_streamability_renderer
@@ -216,7 +221,11 @@ impl Extractor {
                         log_general!(
                             "Stream starts at {} in {until} seconds. Waiting for this time to elapse...",
                             local_timestamp(
-                                &pr.microformat.player_microformat_renderer.live_broadcast_details.start_timestamp
+                                &player_response
+                                    .microformat
+                                    .player_microformat_renderer
+                                    .live_broadcast_details
+                                    .start_timestamp
                             )
                         );
                         if !sleep_until_unix(&self.cancel, scheduled).await {
@@ -241,7 +250,7 @@ impl Extractor {
                     // via the resolved watch URL.
                     if self.is_channel {
                         if self.video_id.is_empty() {
-                            self.video_id = vd.video_id.clone();
+                            self.video_id = details.video_id.clone();
                         }
                         self.page_url = format!("https://www.youtube.com/watch?v={}", self.video_id);
                         self.members_only = false;
@@ -249,7 +258,7 @@ impl Extractor {
                         continue;
                     }
 
-                    let details = &pr.microformat.player_microformat_renderer.live_broadcast_details;
+                    let details = &player_response.microformat.player_microformat_renderer.live_broadcast_details;
                     // An ended stream is downloadable as long as its live
                     // fragments still exist; that is decided from yt-dlp's
                     // URLs afterwards, not from the watch page's formats.
@@ -300,7 +309,7 @@ impl Extractor {
             if secs_late > 0 {
                 eprintln!();
             }
-            return Outcome::Found(Box::new(pr));
+            return Outcome::Found(Box::new(player_response));
         }
     }
 }

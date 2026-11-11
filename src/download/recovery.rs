@@ -45,32 +45,32 @@ impl Span {
     /// Not stored yet. The head itself is excluded, as the downloader never
     /// fetches it once a stream has ended (same as Go).
     fn unstored(&self, stored: &HashSet<u64>) -> Vec<u64> {
-        let limit = self.end.map_or(self.head, |e| e.min(self.head));
-        (self.start..limit).filter(|q| !stored.contains(q)).collect()
+        let limit = self.end.map_or(self.head, |end| end.min(self.head));
+        (self.start..limit).filter(|sequence| !stored.contains(sequence)).collect()
     }
 
     /// Not stored and really missing: the last two before the head of an
     /// ended stream were often never created (see `continue_fragment_download`),
     /// so they're tried but not required.
     pub fn missing(&self, stored: &HashSet<u64>) -> Vec<u64> {
-        self.unstored(stored).into_iter().filter(|&q| q + 2 < self.head).collect()
+        self.unstored(stored).into_iter().filter(|&sequence| sequence + 2 < self.head).collect()
     }
 }
 
 fn unix_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |duration| duration.as_secs())
 }
 
 /// The URLs that haven't expired.
 fn usable(urls: Vec<FragmentUrl>) -> Vec<FragmentUrl> {
     let now = unix_now();
-    urls.into_iter().filter(|u| !u.is_expired(now)).collect()
+    urls.into_iter().filter(|url| !url.is_expired(now)).collect()
 }
 
 /// Until when (Unix seconds) at least one of `urls` works; `u64::MAX` for
 /// URLs without an `expire` parameter, `None` if all have expired.
 pub fn usable_until(urls: &[FragmentUrl]) -> Option<u64> {
-    usable(urls.to_vec()).iter().map(|u| u.expires_at().unwrap_or(u64::MAX)).max()
+    usable(urls.to_vec()).iter().map(|url| url.expires_at().unwrap_or(u64::MAX)).max()
 }
 
 /// Local time for Unix seconds, for messages.
@@ -79,20 +79,20 @@ pub fn local_time(unix: u64) -> String {
 }
 
 /// Tries `seq` once with each URL, starting at a different one each round.
-async fn fetch(s: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, offset: usize) -> (u64, Option<Fragment>) {
+async fn fetch(session: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, offset: usize) -> (u64, Option<Fragment>) {
     let start = offset % urls.len().max(1);
     for url in urls.iter().cycle().skip(start).take(urls.len()) {
-        if s.is_stopping() {
+        if session.is_stopping() {
             break;
         }
-        let resp = match fragment_request(&s, url, seq).send().await {
-            Ok(r) if r.status().is_success() => r,
-            Ok(r) => {
-                log_debug!("Recovery of fragment {seq}: HTTP {}", r.status());
+        let resp = match fragment_request(&session, url, seq).send().await {
+            Ok(response) if response.status().is_success() => response,
+            Ok(response) => {
+                log_debug!("Recovery of fragment {seq}: HTTP {}", response.status());
                 continue;
             }
-            Err(e) => {
-                log_debug!("Recovery of fragment {seq}: {e}");
+            Err(error) => {
+                log_debug!("Recovery of fragment {seq}: {error}");
                 continue;
             }
         };
@@ -112,17 +112,17 @@ async fn fetch(s: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, offset: u
 /// gets the size of each fragment stored. Returns the span with the newest
 /// known head.
 pub async fn recover(
-    s: &Arc<Session>,
-    dt: DataType,
-    db: &mut DbSink,
+    session: &Arc<Session>,
+    data_type: DataType,
+    database: &mut DbSink,
     mut span: Span,
     mut on_stored: impl FnMut(u64),
 ) -> Result<Span> {
-    let name = format!("{}-recovery", dt.as_str());
-    let threads = s.opts.threads.max(1);
+    let name = format!("{}-recovery", data_type.as_str());
+    let threads = session.opts.threads.max(1);
     let (mut round, mut idle) = (0usize, 0u32);
     loop {
-        let stored = db.stored()?;
+        let stored = database.stored()?;
         let missing = span.missing(&stored);
         if missing.is_empty() {
             if round > 0 {
@@ -136,18 +136,18 @@ pub async fn recover(
                 break;
             }
             tokio::select! {
-                _ = s.cancel.cancelled() => break,
+                _ = session.cancel.cancelled() => break,
                 _ = tokio::time::sleep(ROUND_INTERVAL) => {}
             }
         }
-        let urls = usable(s.known_urls(dt));
+        let urls = usable(session.known_urls(data_type));
         if urls.is_empty() {
             log_warn!("{name}: The download URLs have expired; {} fragment(s) can't be recovered", missing.len());
             break;
         }
         if round == 0 {
-            let until = usable_until(&urls).filter(|&t| t != u64::MAX);
-            let until = until.map_or(String::new(), |t| format!(" (they work until about {})", local_time(t)));
+            let until = usable_until(&urls).filter(|&time| time != u64::MAX);
+            let until = until.map_or(String::new(), |time| format!(" (they work until about {})", local_time(time)));
             log_warn!(
                 "{name}: The stream is no longer available. Trying to recover {} missing fragment(s) with the download URLs already in use{until}",
                 missing.len()
@@ -165,21 +165,21 @@ pub async fn recover(
             while tasks.len() < threads
                 && let Some(seq) = queue.next()
             {
-                tasks.spawn(fetch(s.clone(), urls.clone(), seq, round));
+                tasks.spawn(fetch(session.clone(), urls.clone(), seq, round));
             }
             let Some(res) = tasks.join_next().await else { break };
             let Ok((seq, Some(frag))) = res else { continue };
-            if let Some(h) = frag.x_head_seqnum {
-                span.head = span.head.max(h);
+            if let Some(head_seq) = frag.x_head_seqnum {
+                span.head = span.head.max(head_seq);
             }
-            for ev in db.push(seq, Some(frag)).await? {
-                if let Event::Wrote(n) = ev {
+            for event in database.push(seq, Some(frag)).await? {
+                if let Event::Wrote(bytes) = event {
                     recovered += 1;
-                    on_stored(n);
+                    on_stored(bytes);
                 }
             }
         }
-        if s.is_stopping() {
+        if session.is_stopping() {
             break;
         }
         if recovered > 0 {

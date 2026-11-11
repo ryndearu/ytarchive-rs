@@ -43,8 +43,8 @@ impl VideoCodec {
         }
     }
 
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().as_str() {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
             "av1" | "av01" => Some(VideoCodec::Av1),
             "vp9" | "vp09" => Some(VideoCodec::Vp9),
             "h264" | "h.264" | "avc" | "avc1" => Some(VideoCodec::H264),
@@ -57,9 +57,9 @@ impl VideoCodec {
 /// stream without the preferred codecs can still be downloaded.
 pub fn complete_codec_order(preferred: &[VideoCodec]) -> Vec<VideoCodec> {
     let mut out: Vec<VideoCodec> = Vec::with_capacity(3);
-    for c in preferred.iter().chain(BEST_CODEC_ORDER.iter()) {
-        if !out.contains(c) {
-            out.push(*c);
+    for codec in preferred.iter().chain(BEST_CODEC_ORDER.iter()) {
+        if !out.contains(codec) {
+            out.push(*codec);
         }
     }
     out
@@ -67,13 +67,15 @@ pub fn complete_codec_order(preferred: &[VideoCodec]) -> Vec<VideoCodec> {
 
 /// Parses a slash-delimited codec list (`vp9/h264`); `best`/`any`/empty
 /// mean the default order.
-pub fn parse_codec_list(s: &str) -> Option<Vec<VideoCodec>> {
-    let parts: Vec<&str> = s.split('/').map(str::trim).filter(|p| !p.is_empty()).collect();
-    if parts.is_empty() || parts.iter().any(|p| p.eq_ignore_ascii_case("best") || p.eq_ignore_ascii_case("any")) {
+pub fn parse_codec_list(text: &str) -> Option<Vec<VideoCodec>> {
+    let parts: Vec<&str> = text.split('/').map(str::trim).filter(|part| !part.is_empty()).collect();
+    if parts.is_empty()
+        || parts.iter().any(|part| part.eq_ignore_ascii_case("best") || part.eq_ignore_ascii_case("any"))
+    {
         return Some(BEST_CODEC_ORDER.to_vec());
     }
-    let codecs: Option<Vec<VideoCodec>> = parts.iter().map(|p| VideoCodec::parse(p)).collect();
-    codecs.map(|c| complete_codec_order(&c))
+    let codecs: Option<Vec<VideoCodec>> = parts.iter().map(|part| VideoCodec::parse(part)).collect();
+    codecs.map(|list| complete_codec_order(&list))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

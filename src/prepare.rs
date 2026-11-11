@@ -52,18 +52,18 @@ pub async fn prepare(
         });
     }
 
-    let mut ex = Extractor::new(opts.clone(), http.clone(), cancel.clone(), input);
-    let sel = ex.get_video_info().await?;
+    let mut extractor = Extractor::new(opts.clone(), http.clone(), cancel.clone(), input);
+    let sel = extractor.get_video_info().await?;
     Some(Prepared {
         sel,
-        video_id: ex.video_id.clone(),
-        live: ex.live,
-        last_sq: ex.last_sq,
-        target_duration: ex.target_duration,
-        format_info: ex.format_info.clone(),
-        metadata: ex.metadata.clone(),
-        thumbnail_url: ex.thumbnail.clone(),
+        video_id: extractor.video_id.clone(),
+        live: extractor.live,
+        last_sq: extractor.last_sq,
+        target_duration: extractor.target_duration,
+        format_info: extractor.format_info.clone(),
+        metadata: extractor.metadata.clone(),
+        thumbnail_url: extractor.thumbnail.clone(),
         unavailable: false,
-        extractor: Some(ex),
+        extractor: Some(extractor),
     })
 }

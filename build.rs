@@ -12,13 +12,13 @@ use std::process::Command;
 
 fn git(args: &[&str]) -> Option<String> {
     let out = Command::new("git").args(args).output().ok()?;
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (out.status.success() && !s.is_empty()).then_some(s)
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !text.is_empty()).then_some(text)
 }
 
 fn env(name: &str) -> Option<String> {
     println!("cargo:rerun-if-env-changed={name}");
-    std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
 fn main() {

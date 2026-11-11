@@ -50,16 +50,16 @@ async fn decide(action: Action, question: &str) -> bool {
 impl Finish<'_> {
     fn move_all(&self, items: &[&Option<Moved>]) -> bool {
         let mut ok = true;
-        for m in items.iter().copied().flatten() {
-            ok &= try_move(&m.temp, &m.dest).is_ok();
+        for moved in items.iter().copied().flatten() {
+            ok &= try_move(&moved.temp, &moved.dest).is_ok();
         }
         ok
     }
 
     fn delete_state_files(&self) {
         if !self.opts.disable_save_state {
-            for f in &self.state_files {
-                try_delete(f);
+            for file in &self.state_files {
+                try_delete(file);
             }
         }
     }
@@ -120,18 +120,19 @@ impl Finish<'_> {
     /// Handles a user interrupt. Returns `Some(exit code)` if done, `None`
     /// if the user chose to merge what was downloaded.
     pub async fn on_cancel(&self) -> Option<i32> {
-        let o = self.opts;
+        let options = self.opts;
         if decide(
-            o.merge_on_cancel,
+            options.merge_on_cancel,
             "\nDownload stopped prematurely. Would you like to merge the currently downloaded data?",
         )
         .await
         {
             return None;
         }
-        let save_files = decide(o.save_files_on_cancel, "\nWould you like to save any created files?").await;
+        let save_files = decide(options.save_files_on_cancel, "\nWould you like to save any created files?").await;
         let save_state = !save_files
-            && decide(o.save_state_on_cancel, "\nWould you like to leave files to resume downloading later?").await;
+            && decide(options.save_state_on_cancel, "\nWould you like to leave files to resume downloading later?")
+                .await;
 
         if save_files {
             let ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description]);
@@ -146,16 +147,16 @@ impl Finish<'_> {
 
     /// Moves files into place and muxes. Returns the exit code.
     pub async fn finish(&self) -> i32 {
-        let o = self.opts;
+        let options = self.opts;
         if self.retry_until().is_none() {
             self.delete_state_files();
         }
         log_general!("Download Finished");
 
-        if let (Some(a), Some(v)) = (self.audio_frags, self.video_frags)
-            && a != v
+        if let (Some(audio), Some(value)) = (self.audio_frags, self.video_frags)
+            && audio != value
         {
-            log_warn!("Mismatched number of video ({v}) and audio ({a}) fragments.");
+            log_warn!("Mismatched number of video ({value}) and audio ({audio}) fragments.");
             log_warn!("The files should still be mergeable but data might be missing.");
         }
 
@@ -163,37 +164,40 @@ impl Finish<'_> {
         let moves_ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]);
 
         let mut to_delete = vec![self.mux_file.dest.clone()];
-        if !o.keep_ts_files {
-            to_delete.extend(self.audio_ts.iter().chain(&self.video_ts).map(|m| m.dest.clone()));
+        if !options.keep_ts_files {
+            to_delete.extend(self.audio_ts.iter().chain(&self.video_ts).map(|moved| moved.dest.clone()));
         }
-        if !o.write_thumbnail {
-            to_delete.extend(self.thumbnail.iter().map(|m| m.dest.clone()));
+        if !options.write_thumbnail {
+            to_delete.extend(self.thumbnail.iter().map(|moved| moved.dest.clone()));
         }
 
-        if o.write_mux_file {
+        if options.write_mux_file {
             self.cleanup_or_keep(moves_ok);
             return if moves_ok { 0 } else { 1 };
         }
 
-        if !mux::program_exists(&o.ffmpeg_path) {
-            log_error!("{} not found. Please install ffmpeg or provide a location using --ffmpeg-path", o.ffmpeg_path);
+        if !mux::program_exists(&options.ffmpeg_path) {
+            log_error!(
+                "{} not found. Please install ffmpeg or provide a location using --ffmpeg-path",
+                options.ffmpeg_path
+            );
             self.cleanup_or_keep(moves_ok);
             return 1;
         }
 
         log_general!("Muxing final file...");
-        let mut code = mux::execute(&o.ffmpeg_path, &self.mux.args).await;
+        let mut code = mux::execute(&options.ffmpeg_path, &self.mux.args).await;
         if code != 0 {
             log_error!("ffmpeg returned code {code}. Something must have gone wrong with ffmpeg.");
             log_error!("The .ts files will not be deleted in case the final file is broken.");
             log_error!("The ffmpeg command was written to {}", self.mux_file.dest.display());
         }
-        if let Some(am) = &self.audio_mux {
+        if let Some(audio_mux) = &self.audio_mux {
             log_general!("Creating separate audio file...");
-            let ac = mux::execute(&o.ffmpeg_path, &am.args).await;
-            if ac != 0 {
-                code = ac;
-                log_error!("ffmpeg returned code {ac} for the separate audio file.");
+            let audio_code = mux::execute(&options.ffmpeg_path, &audio_mux.args).await;
+            if audio_code != 0 {
+                code = audio_code;
+                log_error!("ffmpeg returned code {audio_code} for the separate audio file.");
                 log_error!("The .ts files will not be deleted in case the final file is broken.");
             }
         }
@@ -202,18 +206,18 @@ impl Finish<'_> {
         if code != 0 {
             return code;
         }
-        for f in &to_delete {
-            try_delete(f);
+        for file in &to_delete {
+            try_delete(file);
         }
         // ffmpeg creates the final files with the default mode, so apply
         // --file-permissions afterwards. Go never did.
         let outputs = std::iter::once(&self.mux).chain(&self.audio_mux);
-        for out in outputs.map(|m| &m.output) {
-            apply_mode(out, o.file_mode);
+        for out in outputs.map(|command| &command.output) {
+            apply_mode(out, options.file_mode);
         }
         log_general!("Final file: {}", self.mux.output.display());
-        if let Some(am) = &self.audio_mux {
-            log_general!("Final audio file: {}", am.output.display());
+        if let Some(audio_mux) = &self.audio_mux {
+            log_general!("Final audio file: {}", audio_mux.output.display());
         }
         0
     }

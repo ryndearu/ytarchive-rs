@@ -43,29 +43,29 @@ pub struct VideoItag {
     pub av1: u32,
 }
 
-const fn vi(h264: u32, vp9: u32, av1: u32) -> VideoItag {
+const fn itags(h264: u32, vp9: u32, av1: u32) -> VideoItag {
     VideoItag { h264, vp9, av1 }
 }
 
 /// Ordered lowest to highest; order matters for "best" selection.
 pub const VIDEO_QUALITIES: &[(&str, VideoItag)] = &[
-    ("audio_only", vi(0, 0, 0)),
-    ("144p", vi(160, 278, 394)),
-    ("240p", vi(133, 242, 395)),
-    ("360p", vi(134, 243, 396)),
-    ("480p", vi(135, 244, 397)),
-    ("720p", vi(136, 247, 398)),
-    ("720p60", vi(298, 302, 398)),
-    ("1080p", vi(137, 248, 399)),
-    ("1080p60", vi(299, 303, 399)),
-    ("1440p", vi(264, 271, 400)),
-    ("1440p60", vi(304, 308, 400)),
-    ("2160p", vi(266, 313, 401)),
-    ("2160p60", vi(305, 315, 401)),
+    ("audio_only", itags(0, 0, 0)),
+    ("144p", itags(160, 278, 394)),
+    ("240p", itags(133, 242, 395)),
+    ("360p", itags(134, 243, 396)),
+    ("480p", itags(135, 244, 397)),
+    ("720p", itags(136, 247, 398)),
+    ("720p60", itags(298, 302, 398)),
+    ("1080p", itags(137, 248, 399)),
+    ("1080p60", itags(299, 303, 399)),
+    ("1440p", itags(264, 271, 400)),
+    ("1440p60", itags(304, 308, 400)),
+    ("2160p", itags(266, 313, 401)),
+    ("2160p60", itags(305, 315, 401)),
 ];
 
 pub fn itags_for_label(label: &str) -> Option<VideoItag> {
-    VIDEO_QUALITIES.iter().find(|(l, _)| *l == label).map(|(_, v)| *v)
+    VIDEO_QUALITIES.iter().find(|(line, _)| *line == label).map(|(_, found)| *found)
 }
 
 /// `--print` template used with yt-dlp to get only the fields we need.

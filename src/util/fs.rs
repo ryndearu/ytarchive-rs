@@ -60,7 +60,7 @@ pub fn try_move(src: &Path, dst: &Path) -> std::io::Result<()> {
     crate::log_warn!("Rename failed; copying {} instead", src.display());
     std::fs::copy(src, dst)
         .and_then(|_| std::fs::remove_file(src))
-        .inspect_err(|e| crate::log_warn!("Error moving file {}: {e}", src.display()))
+        .inspect_err(|error| crate::log_warn!("Error moving file {}: {error}", src.display()))
 }
 
 /// Deletes `path` if it exists, logging (not returning) errors.
@@ -69,26 +69,27 @@ pub fn try_delete(path: &Path) {
         return;
     }
     crate::log_info!("Deleting file {}", path.display());
-    if let Err(e) = std::fs::remove_file(path)
-        && e.kind() != std::io::ErrorKind::NotFound
+    if let Err(error) = std::fs::remove_file(path)
+        && error.kind() != std::io::ErrorKind::NotFound
     {
-        crate::log_warn!("Error deleting file {}: {e}", path.display());
+        crate::log_warn!("Error deleting file {}: {error}", path.display());
     }
 }
 
 /// Creates a new uniquely named directory `{parent}/{prefix}{random}`.
 pub fn create_temp_dir(parent: &Path, prefix: &str, mode: u32) -> std::io::Result<std::path::PathBuf> {
-    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())
-        ^ u128::from(std::process::id());
-    for i in 0..100u128 {
-        let dir = parent.join(format!("{prefix}{:x}", (seed.wrapping_add(i)) & 0xffff_ffff));
+    let seed =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |duration| duration.as_nanos())
+            ^ u128::from(std::process::id());
+    for attempt in 0..100u128 {
+        let dir = parent.join(format!("{prefix}{:x}", (seed.wrapping_add(attempt)) & 0xffff_ffff));
         match std::fs::create_dir(&dir) {
             Ok(()) => {
                 apply_mode(&dir, mode);
                 return Ok(dir);
             }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
         }
     }
     Err(std::io::Error::other("could not create a unique temporary directory"))

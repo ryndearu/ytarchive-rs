@@ -22,7 +22,7 @@ pub struct YtdlpFormat {
 impl YtdlpFormat {
     /// yt-dlp format ids look like `299` or `299-drc`; we want the itag.
     pub fn itag(&self) -> Option<u32> {
-        self.format_id.split('-').next()?.parse().ok().filter(|i| *i > 0)
+        self.format_id.split('-').next()?.parse().ok().filter(|itag| *itag > 0)
     }
 }
 
@@ -58,8 +58,8 @@ pub enum LiveStatus {
 }
 
 impl LiveStatus {
-    pub fn parse(s: &str) -> Self {
-        match s {
+    pub fn parse(text: &str) -> Self {
+        match text {
             "is_live" => Self::IsLive,
             "is_upcoming" => Self::IsUpcoming,
             "post_live" => Self::PostLive,

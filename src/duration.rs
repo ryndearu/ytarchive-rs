@@ -15,11 +15,11 @@ pub struct SignedDuration {
 /// Parses `[-+]<num><unit>...` with units w, d, h, m, s, ms, us/µs, ns.
 /// Fractions are allowed (`1.5h`). `"0"` is accepted on its own.
 pub fn parse_duration_units(input: &str) -> Option<SignedDuration> {
-    let s = input.trim();
-    let (negative, mut rest) = match s.as_bytes().first()? {
-        b'-' => (true, &s[1..]),
-        b'+' => (false, &s[1..]),
-        _ => (false, s),
+    let text = input.trim();
+    let (negative, mut rest) = match text.as_bytes().first()? {
+        b'-' => (true, &text[1..]),
+        b'+' => (false, &text[1..]),
+        _ => (false, text),
     };
     if rest == "0" {
         return Some(SignedDuration { negative, duration: Duration::ZERO });
@@ -30,14 +30,16 @@ pub fn parse_duration_units(input: &str) -> Option<SignedDuration> {
 
     let mut total_nanos: f64 = 0.0;
     while !rest.is_empty() {
-        let num_end = rest.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(rest.len());
+        let num_end =
+            rest.find(|character: char| !(character.is_ascii_digit() || character == '.')).unwrap_or(rest.len());
         if num_end == 0 {
             return None;
         }
         let value: f64 = rest[..num_end].parse().ok()?;
         rest = &rest[num_end..];
 
-        let unit_end = rest.find(|c: char| c.is_ascii_digit() || c == '.').unwrap_or(rest.len());
+        let unit_end =
+            rest.find(|character: char| character.is_ascii_digit() || character == '.').unwrap_or(rest.len());
         let unit = &rest[..unit_end];
         rest = &rest[unit_end..];
 
@@ -64,17 +66,17 @@ pub fn parse_duration_units(input: &str) -> Option<SignedDuration> {
 /// Parses `HH:MM:SS`, `MM:SS`, or `SS` into a duration.
 pub fn parse_time_string(input: &str) -> Option<Duration> {
     let parts: Vec<&str> = input.trim().split(':').collect();
-    if parts.is_empty() || parts.len() > 3 || parts.iter().any(|p| p.is_empty()) {
+    if parts.is_empty() || parts.len() > 3 || parts.iter().any(|part| part.is_empty()) {
         return None;
     }
     let mut secs: u64 = 0;
-    for (i, part) in parts.iter().enumerate() {
-        let v: u64 = part.parse().ok()?;
+    for (index, part) in parts.iter().enumerate() {
+        let value: u64 = part.parse().ok()?;
         // Minutes/seconds after the first component must be < 60.
-        if i > 0 && v >= 60 {
+        if index > 0 && value >= 60 {
             return None;
         }
-        secs = secs.checked_mul(60)?.checked_add(v)?;
+        secs = secs.checked_mul(60)?.checked_add(value)?;
     }
     Some(Duration::from_secs(secs))
 }
@@ -82,11 +84,11 @@ pub fn parse_time_string(input: &str) -> Option<Duration> {
 /// Duration string or time string; must be non-negative.
 /// Used by `--capture-duration` and `--start-delay`.
 pub fn parse_duration_or_time(flag: &str, input: &str) -> Result<Duration> {
-    if let Some(d) = parse_duration_units(input) {
-        if d.negative && !d.duration.is_zero() {
+    if let Some(parsed) = parse_duration_units(input) {
+        if parsed.negative && !parsed.duration.is_zero() {
             return Err(Error::InvalidArg(format!("{flag} cannot be negative: {input}")));
         }
-        return Ok(d.duration);
+        return Ok(parsed.duration);
     }
     parse_time_string(input).ok_or_else(|| {
         Error::InvalidArg(format!(
@@ -99,8 +101,8 @@ pub fn parse_duration_or_time(flag: &str, input: &str) -> Result<Duration> {
 mod tests {
     use super::*;
 
-    fn secs(s: &str) -> Option<(bool, u64)> {
-        parse_duration_units(s).map(|d| (d.negative, d.duration.as_secs()))
+    fn secs(text: &str) -> Option<(bool, u64)> {
+        parse_duration_units(text).map(|parsed| (parsed.negative, parsed.duration.as_secs()))
     }
 
     #[test]

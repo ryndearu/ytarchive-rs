@@ -22,13 +22,13 @@ where
     let mut short_takes_value = std::collections::HashSet::new();
     for arg in cmd.get_arguments() {
         let takes = arg.get_action().takes_values();
-        if let Some(l) = arg.get_long() {
-            long_takes_value.insert(l.to_string(), takes);
+        if let Some(line) = arg.get_long() {
+            long_takes_value.insert(line.to_string(), takes);
         }
-        if let Some(s) = arg.get_short()
+        if let Some(character) = arg.get_short()
             && takes
         {
-            short_takes_value.insert(s);
+            short_takes_value.insert(character);
         }
     }
 
@@ -46,24 +46,24 @@ where
             out.push(arg);
             continue;
         }
-        let Some(s) = arg.to_str() else {
+        let Some(text) = arg.to_str() else {
             out.push(arg);
             continue;
         };
-        if s == "--" {
+        if text == "--" {
             passthrough = true;
             out.push(arg);
             continue;
         }
 
-        let (rewritten, name) = if let Some(rest) = s.strip_prefix("--") {
+        let (rewritten, name) = if let Some(rest) = text.strip_prefix("--") {
             (None, Some(rest.split('=').next().unwrap_or(rest).to_string()))
-        } else if let Some(rest) = s.strip_prefix('-').filter(|r| r.len() > 1) {
+        } else if let Some(rest) = text.strip_prefix('-').filter(|stripped| stripped.len() > 1) {
             let name = rest.split('=').next().unwrap_or(rest);
             let mapped = GO_SHORT_ALIASES
                 .iter()
-                .find(|(a, _)| *a == name)
-                .map(|(_, l)| *l)
+                .find(|(arg, _)| *arg == name)
+                .map(|(_, line)| *line)
                 .or_else(|| long_takes_value.contains_key(name).then_some(name));
             match mapped {
                 Some(long) => {
@@ -72,9 +72,9 @@ where
                 }
                 None => (None, None),
             }
-        } else if let Some(c) = s.strip_prefix('-').and_then(|r| r.chars().next()) {
+        } else if let Some(character) = text.strip_prefix('-').and_then(|rest| rest.chars().next()) {
             // Plain single-char short flag like `-o`.
-            if short_takes_value.contains(&c) && s.len() == 2 {
+            if short_takes_value.contains(&character) && text.len() == 2 {
                 skip_next = true;
             }
             (None, None)
@@ -82,7 +82,7 @@ where
             (None, None)
         };
 
-        let final_arg = rewritten.unwrap_or_else(|| s.to_string());
+        let final_arg = rewritten.unwrap_or_else(|| text.to_string());
         if let Some(name) = name {
             let has_inline_value = final_arg.contains('=');
             if !has_inline_value && long_takes_value.get(&name).copied().unwrap_or(false) {

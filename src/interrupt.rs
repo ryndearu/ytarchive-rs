@@ -32,8 +32,8 @@ impl Signals {
     #[cfg(windows)]
     async fn recv(&mut self) -> bool {
         tokio::select! {
-            r = self.ctrl_c.recv() => r.is_some(),
-            r = self.ctrl_break.recv() => r.is_some(),
+            signal = self.ctrl_c.recv() => signal.is_some(),
+            signal = self.ctrl_break.recv() => signal.is_some(),
         }
     }
 
@@ -46,8 +46,8 @@ impl Signals {
 /// Waits for one interrupt (used by prompts); never returns if signals
 /// can't be received.
 pub async fn next() {
-    if let Ok(mut s) = Signals::new()
-        && s.recv().await
+    if let Ok(mut signals) = Signals::new()
+        && signals.recv().await
     {
         return;
     }
@@ -61,17 +61,17 @@ pub struct Interrupt {
 
 impl Interrupt {
     pub fn install() -> Arc<Self> {
-        let me = Arc::new(Self { flag: AtomicBool::new(false), token: CancellationToken::new() });
-        let m = me.clone();
+        let installed = Arc::new(Self { flag: AtomicBool::new(false), token: CancellationToken::new() });
+        let interrupt = installed.clone();
         tokio::spawn(async move {
             let Ok(mut signals) = Signals::new() else { return };
             if !signals.recv().await {
                 return;
             }
-            m.flag.store(true, Ordering::SeqCst);
+            interrupt.flag.store(true, Ordering::SeqCst);
             eprintln!();
             log_warn!("User Interrupt, Stopping download...");
-            m.token.cancel();
+            interrupt.token.cancel();
             if signals.recv().await {
                 eprintln!("\nExiting...");
                 crate::platform::restore();
@@ -79,7 +79,7 @@ impl Interrupt {
                 std::process::exit(130);
             }
         });
-        me
+        installed
     }
 
     pub fn is_set(&self) -> bool {

@@ -29,13 +29,16 @@ fn frags_for(secs: u64, target_duration: u32) -> u64 {
 }
 
 fn parse_unsigned(value: &str) -> Option<Duration> {
-    parse_duration_units(value).filter(|d| !d.negative).map(|d| d.duration).or_else(|| parse_time_string(value))
+    parse_duration_units(value)
+        .filter(|parsed| !parsed.negative)
+        .map(|parsed| parsed.duration)
+        .or_else(|| parse_time_string(value))
 }
 
 /// Resolves `--live-from` (`now`, `-DURATION`, or `DURATION`/time string)
 /// against the current stream position.
 pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Result<LiveFrom> {
-    let td = u64::from(target_duration.max(1));
+    let target = u64::from(target_duration.max(1));
     if value.trim().eq_ignore_ascii_case("now") {
         return Ok(LiveFrom { start_sq: last_sq, message: "Starting download from current time".into() });
     }
@@ -48,8 +51,8 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
         Error::InvalidArg(format!("--live-from: unable to parse '{value}' as either a duration or a time string"))
     })?;
     let frags = frags_for(dur.as_secs(), target_duration);
-    let rounded_secs = frags * td;
-    let live_for = || seconds_to_duration_and_time_str(last_sq * td);
+    let rounded_secs = frags * target;
+    let live_for = || seconds_to_duration_and_time_str(last_sq * target);
 
     if negative {
         if dur.as_secs() > LIVE_MAXIMUM_SEEKABLE_SECS {
@@ -82,7 +85,7 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
     if frags < earliest {
         return Err(Error::InvalidArg(format!(
             "YT only retains the livestream 7 days past for seeking; you must specify a --live-from value between {} and {}",
-            seconds_to_duration_and_time_str(earliest * td),
+            seconds_to_duration_and_time_str(earliest * target),
             live_for()
         )));
     }
@@ -90,8 +93,8 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
         start_sq: frags,
         message: format!(
             "Starting from stream time '{}' and grabbing '{}' of content (and counting).",
-            seconds_to_duration_and_time_str(frags * td),
-            seconds_to_duration_and_time_str((last_sq - frags) * td)
+            seconds_to_duration_and_time_str(frags * target),
+            seconds_to_duration_and_time_str((last_sq - frags) * target)
         ),
     })
 }
@@ -123,9 +126,9 @@ mod tests {
     #[test]
     fn negative() {
         // 61s rounds up to 13 fragments of 5s.
-        let lf = resolve_live_from("-61s", 500, 5).unwrap();
-        assert_eq!(lf.start_sq, 487);
-        assert!(lf.message.contains("65 seconds"));
+        let live_from = resolve_live_from("-61s", 500, 5).unwrap();
+        assert_eq!(live_from.start_sq, 487);
+        assert!(live_from.message.contains("65 seconds"));
         assert_eq!(resolve_live_from("-00:10:00", 500, 5).unwrap().start_sq, 380);
         assert!(resolve_live_from("-1h", 100, 5).is_err());
         assert!(resolve_live_from("-8d", 10_000_000, 5).is_err());

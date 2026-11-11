@@ -16,13 +16,13 @@ use crate::{log_debug, log_error, log_general, log_warn};
 
 pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) -> ExitCode {
     let raw_url = match &opts.url {
-        Some(u) => u.clone(),
+        Some(url) => url.clone(),
         None => get_user_input("Enter a youtube livestream URL: ").await,
     };
     let input = match parse_input_url(&raw_url) {
-        Ok(i) => i,
-        Err(e) => {
-            log_error!("{e}");
+        Ok(input) => input,
+        Err(error) => {
+            log_error!("{error}");
             return ExitCode::FAILURE;
         }
     };
@@ -38,12 +38,12 @@ pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) ->
 
     loop {
         let started = Instant::now();
-        let r = run(opts.clone(), http.clone(), &input, interrupt.clone(), &recorded).await;
+        let outcome = run(opts.clone(), http.clone(), &input, interrupt.clone(), &recorded).await;
         if interrupt.is_set() || !monitor {
-            return exit_code(r.code);
+            return exit_code(outcome.code);
         }
-        if r.downloaded
-            && let Some(id) = r.video_id
+        if outcome.downloaded
+            && let Some(id) = outcome.video_id
         {
             log_general!("Finished with {id}; continuing to monitor the channel.");
             recorded.insert(id);

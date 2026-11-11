@@ -6,22 +6,22 @@ use crate::prompt::get_user_input;
 use crate::types::{AUDIO_ITAG, DataType, FormatSelection, FragmentUrl, Options};
 use crate::{log_error, log_general};
 
-async fn prompt_url(dt: DataType) -> Option<(FragmentUrl, u32)> {
+async fn prompt_url(data_type: DataType) -> Option<(FragmentUrl, u32)> {
     loop {
-        let raw = get_user_input(&format!("Please enter the {} url, or nothing to skip: ", dt.as_str())).await;
+        let raw = get_user_input(&format!("Please enter the {} url, or nothing to skip: ", data_type.as_str())).await;
         if raw.is_empty() {
             return None;
         }
-        match parse_gvideo_url(&raw, dt) {
-            Ok(v) => return Some(v),
-            Err(e) => log_general!("{e}"),
+        match parse_gvideo_url(&raw, data_type) {
+            Ok(video) => return Some(video),
+            Err(error) => log_general!("{error}"),
         }
     }
 }
 
-fn from_flag(raw: Option<&str>, dt: DataType) -> Option<(FragmentUrl, u32)> {
+fn from_flag(raw: Option<&str>, data_type: DataType) -> Option<(FragmentUrl, u32)> {
     let raw = raw?;
-    parse_gvideo_url(raw, dt).inspect_err(|e| log_error!("--{}-url: {e}", dt.as_str())).ok()
+    parse_gvideo_url(raw, data_type).inspect_err(|error| log_error!("--{}-url: {error}", data_type.as_str())).ok()
 }
 
 /// Builds the selection from the input URL plus `--audio-url`/`--video-url`.
@@ -53,8 +53,8 @@ pub async fn selection(opts: &Options, input_itag: u32, input_url: FragmentUrl) 
     Some(FormatSelection {
         label: String::new(),
         codec: None,
-        video_itag: video.as_ref().map(|v| v.1),
-        audio_url: audio.map(|a| a.0),
-        video_url: video.map(|v| v.0),
+        video_itag: video.as_ref().map(|pair| pair.1),
+        audio_url: audio.map(|pair| pair.0),
+        video_url: video.map(|pair| pair.0),
     })
 }

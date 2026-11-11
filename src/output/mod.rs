@@ -31,14 +31,17 @@ impl OutputPlan {
     /// state file.
     pub fn owns_temp_dir(&self, video_id: &str) -> bool {
         self.temp_dir != self.final_dir
-            && self.temp_dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&format!("{video_id}__")))
+            && self
+                .temp_dir
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(&format!("{video_id}__")))
     }
 
     pub fn remove_temp_dir(&self, video_id: &str) {
         if self.owns_temp_dir(video_id)
-            && let Err(e) = std::fs::remove_dir_all(&self.temp_dir)
+            && let Err(error) = std::fs::remove_dir_all(&self.temp_dir)
         {
-            log_warn!("Error removing temporary directory {}: {e}", self.temp_dir.display());
+            log_warn!("Error removing temporary directory {}: {error}", self.temp_dir.display());
         }
     }
 }
@@ -54,22 +57,22 @@ const TEMP_DIR_RANDOM: usize = 8;
 /// Final directory and base file name from the output template. With
 /// `--windows-filenames` (unless `--no-path-limit`), the title is shortened
 /// so every file path (final and temporary, with any suffix) fits in MAX_PATH.
-pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, String)> {
+pub fn final_location(opts: &Options, format_info: &FormatInfo) -> Result<(PathBuf, String)> {
     let style = NameStyle { lookalike: opts.lookalike_chars, windows: opts.windows_filenames };
-    let mut full = format_filename(&opts.output_format, fi, style, None)?;
+    let mut full = format_filename(&opts.output_format, format_info, style, None)?;
     let mut dir = output_dir(opts, &full, style);
     let mut room = None;
     if style.windows && !opts.no_path_limit {
-        let video_id = fi.get("id").map_or("", String::as_str);
+        let video_id = format_info.get("id").map_or("", String::as_str);
         let units = windows_name_room(opts, &dir, video_id);
-        full = format_filename(&opts.output_format, fi, style, Some(units))?;
+        full = format_filename(&opts.output_format, format_info, style, Some(units))?;
         dir = output_dir(opts, &full, style);
         room = Some(units);
     }
     let full_path = Path::new(&full);
 
     let mut name = sterilize_filename(
-        full_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default().as_str(),
+        full_path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default().as_str(),
         style,
     );
     if name.starts_with('-') {
@@ -83,7 +86,7 @@ pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, Strin
     if name.len() > MAX_FILENAME_LEN {
         return Err(Error::InvalidFormat(format!("output file name is too long ({} bytes)", name.len())));
     }
-    if room.is_some_and(|r| name.encode_utf16().count() > r) {
+    if room.is_some_and(|limit| name.encode_utf16().count() > limit) {
         log_warn!(
             "The output paths are longer than the Windows limit of {WINDOWS_MAX_PATH} characters even after shortening the title; writing files may fail."
         );
@@ -96,7 +99,7 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
     let mut dir = Path::new(full).parent().map(Path::to_path_buf).unwrap_or_default();
     // Relative templates must stay relative (a value can't make them absolute).
     if !Path::new(&opts.output_format).is_absolute() {
-        dir = dir.components().filter(|c| !matches!(c, std::path::Component::RootDir)).collect();
+        dir = dir.components().filter(|component| !matches!(component, std::path::Component::RootDir)).collect();
     }
     // With --windows-filenames, folder names from the template (e.g.
     // %(channel)s) must be valid on Windows too; drive prefixes, roots, `.`
@@ -104,8 +107,8 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
     if style.windows {
         dir = dir
             .components()
-            .map(|c| match c {
-                std::path::Component::Normal(s) => PathBuf::from(portable_file_name(&s.to_string_lossy())),
+            .map(|component| match component {
+                std::path::Component::Normal(name) => PathBuf::from(portable_file_name(&name.to_string_lossy())),
                 other => PathBuf::from(other.as_os_str()),
             })
             .collect();
@@ -119,9 +122,9 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
 /// UTF-16 units left for the base name so that `{dir}\{name}{suffix}` fits
 /// in MAX_PATH for both the final dir and the `{id}__XXXX` temp dir.
 fn windows_name_room(opts: &Options, final_dir: &Path, video_id: &str) -> usize {
-    let units = |p: &Path| p.as_os_str().to_string_lossy().encode_utf16().count();
+    let units = |path: &Path| path.as_os_str().to_string_lossy().encode_utf16().count();
     let temp_parent = match &opts.temp_dir {
-        Some(t) => std::path::absolute(t).unwrap_or_else(|_| t.clone()),
+        Some(path) => std::path::absolute(path).unwrap_or_else(|_| path.clone()),
         None => final_dir.to_path_buf(),
     };
     let temp_dir = units(&temp_parent) + 1 + video_id.len() + 2 + TEMP_DIR_RANDOM;
@@ -140,8 +143,8 @@ pub fn ensure_dir(dir: PathBuf, mode: u32, what: &str) -> PathBuf {
             crate::util::apply_mode(&dir, mode);
             dir
         }
-        Err(e) => {
-            log_warn!("Error creating {what} directory {}: {e}", dir.display());
+        Err(error) => {
+            log_warn!("Error creating {what} directory {}: {error}", dir.display());
             log_warn!("Using the current working directory instead");
             PathBuf::from(".")
         }
@@ -164,11 +167,11 @@ pub fn load_states(opts: &Options, video_id: &str, itags: &[u32]) -> (Vec<Downlo
                 return DownloadState::default();
             }
             let path = state_file(opts, video_id, itag);
-            let st = load_state(&path).unwrap_or_default();
-            if prev_dir.is_none() && !st.temp_dir.as_os_str().is_empty() && st.temp_dir.is_dir() {
-                prev_dir = Some(st.temp_dir.clone());
+            let state = load_state(&path).unwrap_or_default();
+            if prev_dir.is_none() && !state.temp_dir.as_os_str().is_empty() && state.temp_dir.is_dir() {
+                prev_dir = Some(state.temp_dir.clone());
             }
-            DownloadState { file: path, ..st }
+            DownloadState { file: path, ..state }
         })
         .collect();
     (states, prev_dir)
@@ -177,14 +180,14 @@ pub fn load_states(opts: &Options, video_id: &str, itags: &[u32]) -> (Vec<Downlo
 /// Picks the temp dir: the previous run's, else a new `{id}__XXXX` under the
 /// temp-dir option (or the final dir). Falls back to the final dir.
 pub fn temp_dir(opts: &Options, prev: Option<PathBuf>, final_dir: &Path, video_id: &str) -> PathBuf {
-    if let Some(p) = prev {
-        return p;
+    if let Some(path) = prev {
+        return path;
     }
     let base = opts.temp_dir.clone().unwrap_or_else(|| final_dir.to_path_buf());
     match create_temp_dir(&base, &format!("{video_id}__"), opts.dir_mode) {
-        Ok(d) => d,
-        Err(e) => {
-            log_warn!("Error creating temp directory: {e}");
+        Ok(dir) => dir,
+        Err(error) => {
+            log_warn!("Error creating temp directory: {error}");
             log_warn!("Will download data directly to {} instead", final_dir.display());
             final_dir.to_path_buf()
         }

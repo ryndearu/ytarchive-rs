@@ -39,9 +39,9 @@ impl Http {
         }
 
         let jar = Arc::new(Jar::default());
-        for c in &cookies.cookies {
-            if let Some(url) = cookies::cookie_url(c) {
-                jar.add_cookie_str(&cookies::to_set_cookie(c), &url);
+        for cookie in &cookies.cookies {
+            if let Some(url) = cookies::cookie_url(cookie) {
+                jar.add_cookie_str(&cookies::to_set_cookie(cookie), &url);
             }
         }
 
@@ -106,11 +106,11 @@ mod tests {
         tokio::spawn(async move {
             let (mut sock, _) = listener.accept().await.unwrap();
             let mut buf = vec![0u8; 4096];
-            let n = sock.read(&mut buf).await.unwrap();
-            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let count = sock.read(&mut buf).await.unwrap();
+            let req = String::from_utf8_lossy(&buf[..count]).to_string();
             let cookie = req
                 .lines()
-                .find_map(|l| l.strip_prefix("cookie: ").or_else(|| l.strip_prefix("Cookie: ")))
+                .find_map(|line| line.strip_prefix("cookie: ").or_else(|| line.strip_prefix("Cookie: ")))
                 .unwrap_or("")
                 .to_string();
             let resp =

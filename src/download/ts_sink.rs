@@ -23,8 +23,8 @@ pub struct TsSink {
 
 pub async fn fragment_bytes(data: &FragData) -> std::io::Result<Vec<u8>> {
     match data {
-        FragData::Memory(b) => Ok(b.to_vec()),
-        FragData::File(p) => tokio::fs::read(p).await,
+        FragData::Memory(bytes) => Ok(bytes.to_vec()),
+        FragData::File(path) => tokio::fs::read(path).await,
     }
 }
 
@@ -42,8 +42,8 @@ impl TsSink {
     /// `None` so the caller starts fresh.
     pub async fn resume(path: &Path, state: &DownloadState, name: &str) -> std::io::Result<Option<(Self, u64)>> {
         match tokio::fs::OpenOptions::new().read(true).write(true).open(path).await {
-            Ok(mut f) => {
-                if f.metadata().await?.len() < state.size {
+            Ok(mut file) => {
+                if file.metadata().await?.len() < state.size {
                     log_warn!(
                         "{name}: {} is smaller than the saved state; starting from the beginning",
                         path.display()
@@ -51,14 +51,14 @@ impl TsSink {
                     return Ok(None);
                 }
                 // Drop anything written after the last saved state.
-                f.set_len(state.size).await?;
-                f.seek(SeekFrom::End(0)).await?;
+                file.set_len(state.size).await?;
+                file.seek(SeekFrom::End(0)).await?;
                 let cur = state.start_frag + state.fragments;
                 log_info!("{name}: Resuming download from sequence {cur}");
-                Ok(Some((Self::new(f, path, cur, state.start_frag), cur)))
+                Ok(Some((Self::new(file, path, cur, state.start_frag), cur)))
             }
-            Err(e) => {
-                log_warn!("{name}: Failed to open {} to resume download: {e}", path.display());
+            Err(error) => {
+                log_warn!("{name}: Failed to open {} to resume download: {error}", path.display());
                 log_warn!("{name}: Will start from the beginning");
                 Ok(None)
             }
@@ -66,9 +66,9 @@ impl TsSink {
     }
 
     pub async fn create(path: &Path, start: u64, mode: u32) -> std::io::Result<Self> {
-        let f = tokio::fs::File::create(path).await?;
+        let file = tokio::fs::File::create(path).await?;
         apply_mode(path, mode);
-        Ok(Self::new(f, path, start, start))
+        Ok(Self::new(file, path, start, start))
     }
 
     fn new(file: tokio::fs::File, path: &Path, next_write: u64, start_frag: u64) -> Self {
@@ -95,10 +95,10 @@ impl TsSink {
             .await;
             remove_frag_file(&frag.data).await;
             match written {
-                Ok(n) => events.push(Event::Wrote(n)),
-                Err(e) => {
-                    log_warn!("Error writing fragment {} to {}: {e}", self.next_write, self.path.display());
-                    return Err(e);
+                Ok(bytes) => events.push(Event::Wrote(bytes)),
+                Err(error) => {
+                    log_warn!("Error writing fragment {} to {}: {error}", self.next_write, self.path.display());
+                    return Err(error);
                 }
             }
             self.next_write += 1;
@@ -110,8 +110,8 @@ impl TsSink {
     /// (stuck behind a gap when the download stopped).
     pub async fn finish(mut self) -> std::io::Result<usize> {
         let mut leftover = 0;
-        for f in std::mem::take(&mut self.pending).into_values().flatten() {
-            remove_frag_file(&f.data).await;
+        for fragment in std::mem::take(&mut self.pending).into_values().flatten() {
+            remove_frag_file(&fragment.data).await;
             leftover += 1;
         }
         self.file.flush().await?;

@@ -18,11 +18,11 @@ pub async fn prompt_quality(qualities: &[&str], waiting: bool) -> Vec<String> {
     }
     println!("Available video qualities: {}", quality_list_string(qualities));
     loop {
-        let mut q = get_user_input("Enter desired video quality: ").await;
-        if q.is_empty() {
-            q = DEFAULT_QUALITY.into();
+        let mut quality = get_user_input("Enter desired video quality: ").await;
+        if quality.is_empty() {
+            quality = DEFAULT_QUALITY.into();
         }
-        let sel = parse_quality_selection(&q);
+        let sel = parse_quality_selection(&quality);
         if !sel.is_empty() {
             return sel;
         }

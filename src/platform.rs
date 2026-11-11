@@ -43,8 +43,8 @@ const ENABLE_EXTENDED_FLAGS: u32 = 0x0080;
 
 #[cfg(windows)]
 pub fn setup() -> ConsoleGuard {
-    if let Err(e) = enable_ansi_support::enable_ansi_support() {
-        crate::log_debug!("Could not enable ANSI colors: {e}");
+    if let Err(error) = enable_ansi_support::enable_ansi_support() {
+        crate::log_debug!("Could not enable ANSI colors: {error}");
     }
     // Same as Go's SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED),
     // made from the main thread, which lives for the whole run.
@@ -53,7 +53,7 @@ pub fn setup() -> ConsoleGuard {
         .reason("Downloading a livestream")
         .app_name("ytarchive")
         .create()
-        .inspect_err(|e| crate::log_debug!("Could not prevent system sleep: {e}"))
+        .inspect_err(|error| crate::log_debug!("Could not prevent system sleep: {error}"))
         .ok();
     disable_quick_edit();
     ConsoleGuard { _awake: awake }
@@ -65,9 +65,11 @@ pub fn setup() -> ConsoleGuard {
 fn disable_quick_edit() -> Option<()> {
     use winapi_util::console;
     let stdin = std::io::stdin();
-    let mode = console::mode(&stdin).inspect_err(|e| crate::log_debug!("Could not read the console mode: {e}")).ok()?;
+    let mode = console::mode(&stdin)
+        .inspect_err(|error| crate::log_debug!("Could not read the console mode: {error}"))
+        .ok()?;
     console::set_mode(&stdin, (mode | ENABLE_EXTENDED_FLAGS) & !ENABLE_QUICK_EDIT_MODE)
-        .inspect_err(|e| crate::log_debug!("Could not disable QuickEdit mode: {e}"))
+        .inspect_err(|error| crate::log_debug!("Could not disable QuickEdit mode: {error}"))
         .ok()?;
     INPUT_MODE.set(mode).ok()
 }
