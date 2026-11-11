@@ -11,7 +11,6 @@ license = "MIT"
 bytes = "1.12.1"
 chrono = "0.4.45"
 clap = { version = "4.6.7", features = ["derive"] }
-mimalloc = { version = "0.1.52", default-features = false }
 # rustls with the `ring` provider: no OpenSSL/cmake/nasm needed on Linux,
 # Windows, or macOS; certificates come from the OS store.
 reqwest = { version = "0.13.5", default-features = false, features = [

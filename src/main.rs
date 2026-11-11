@@ -1,11 +1,6 @@
 // Unsafe code is only allowed where it's truly necessary; there is none now.
 #![forbid(unsafe_code)]
 
-use mimalloc::MiMalloc;
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
-
 /// Version string stamped by build.rs: `v0.1.0 (date)` for releases,
 /// `v0.1.0-<commit> (date)` for nightly and other builds.
 const VERSION: &str = env!("YTARCHIVE_VERSION_STRING");
