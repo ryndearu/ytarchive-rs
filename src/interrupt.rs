@@ -93,9 +93,6 @@ impl Interrupt {
 
     /// Waits for `dur` unless interrupted first. Returns `false` if interrupted.
     pub async fn sleep(&self, dur: std::time::Duration) -> bool {
-        tokio::select! {
-            _ = self.token.cancelled() => false,
-            _ = tokio::time::sleep(dur) => true,
-        }
+        crate::util::sleep_or_cancel(&self.token, dur).await
     }
 }

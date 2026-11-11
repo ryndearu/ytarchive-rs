@@ -3,11 +3,12 @@
 
 use std::time::Duration;
 
-use super::wait::{sleep_or_cancel, sleep_until_unix};
+use super::wait::sleep_until_unix;
 use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY};
 use crate::stream_meta::local_timestamp;
 use crate::types::player_response::{PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE};
 use crate::types::{Action, DEFAULT_POLL_SECS, PlayerResponse};
+use crate::util::sleep_or_cancel;
 use crate::watch_page::{get_video_html, parse_player_response, video_id_from_watch_page};
 use crate::{log, log_debug, log_error, log_general, log_info, log_warn};
 

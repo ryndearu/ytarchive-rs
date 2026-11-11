@@ -177,10 +177,7 @@ pub(super) fn retry_delay(state: &FragThreadState) -> Duration {
 }
 
 async fn sleep_or_stop(session: &Session, state: &FragThreadState) -> bool {
-    tokio::select! {
-        _ = session.cancel.cancelled() => false,
-        _ = tokio::time::sleep(retry_delay(state)) => true,
-    }
+    crate::util::sleep_or_cancel(&session.cancel, retry_delay(state)).await
 }
 
 /// Downloads `st.seq`. With `frag_file`, the data goes to that file instead

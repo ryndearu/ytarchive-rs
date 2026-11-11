@@ -13,4 +13,5 @@ mod ts_sink;
 mod worker;
 
 pub use kept_db::{KeptStream, read_kept};
+pub use recovery::local_time;
 pub use stream::{StreamParams, download_stream, load_state};
