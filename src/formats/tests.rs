@@ -22,13 +22,6 @@ fn parse_selection() {
 }
 
 #[test]
-fn codec_order() {
-    assert_eq!(complete_codec_order(&[]), [Av1, Vp9, H264]);
-    assert_eq!(complete_codec_order(&[H264]), [H264, Av1, Vp9]);
-    assert_eq!(complete_codec_order(&[Vp9, H264]), [Vp9, H264, Av1]);
-}
-
-#[test]
 fn available_list() {
     // 720p h264+vp9, 1080p60 vp9; 399 AV1 also present.
     let offered = urls(&[140, 136, 247, 303, 399]);

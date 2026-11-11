@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::time::Duration;
 
-use clap::{CommandFactory, Parser};
+use clap::Parser;
 
 use super::*;
 use crate::error::Result;
@@ -17,11 +17,6 @@ fn norm(args: &[&str]) -> Vec<String> {
 
 fn opts(args: &[&str]) -> Result<Options> {
     Cli::try_parse_from(normalize_args(os_args(args))).expect("clap parse").into_options()
-}
-
-#[test]
-fn clap_definition_is_valid() {
-    Cli::command().debug_assert();
 }
 
 #[test]

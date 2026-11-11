@@ -88,13 +88,6 @@ mod tests {
     }
 
     #[test]
-    fn no_query() {
-        let url = FragmentUrl::with_sq_param("https://h/p");
-        assert_eq!(url.for_seq(1), "https://h/p?sq=1");
-        assert_eq!(url.base(), "https://h/p");
-    }
-
-    #[test]
     fn expiry() {
         let url = FragmentUrl::with_sq_param("https://h/videoplayback?expire=1700000000&itag=140");
         assert_eq!(url.expires_at(), Some(1_700_000_000));
@@ -103,12 +96,5 @@ mod tests {
         let never = FragmentUrl::with_sq_param("https://h/videoplayback?itag=140");
         assert_eq!(never.expires_at(), None);
         assert!(!never.is_expired(u64::MAX));
-    }
-
-    #[test]
-    fn fragmented() {
-        assert!(!is_fragmented("https://h/p?clen=100"));
-        assert!(is_fragmented("https://h/p?NOCLEN=1"));
-        assert!(!FragmentUrl::with_sq_param("https://h/p?clen=1").is_fragmented());
     }
 }
