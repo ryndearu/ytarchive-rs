@@ -3,23 +3,23 @@
 
 use std::io::{BufRead, Write};
 
-/// Prints `prompt` and reads one trimmed line from stdin.
+/// Prints `prompt` and reads one trimmed line from stdin (empty when stdin
+/// is closed or unreadable).
 pub async fn get_user_input(prompt: &str) -> String {
-    get_line_or_eof(prompt).await.unwrap_or_default()
-}
-
-/// Like `get_user_input`, but `None` when stdin is closed or unreadable, so
-/// a prompt whose empty answer means "go ahead" can tell a non-interactive
-/// run from a plain Enter.
-pub async fn get_line_or_eof(prompt: &str) -> Option<String> {
     print!("{prompt}");
     if let Err(error) = std::io::stdout().flush() {
         crate::log_debug!("Could not show the prompt: {error}");
     }
 
-    let read = tokio::task::spawn_blocking(|| read_line_or_eof(&mut std::io::stdin().lock()));
+    let read = tokio::task::spawn_blocking(|| {
+        let mut text = String::new();
+        if let Err(error) = std::io::stdin().lock().read_line(&mut text) {
+            crate::log_debug!("Could not read the answer: {error}");
+        }
+        text.trim().to_string()
+    });
     tokio::select! {
-        line = read => line.ok().flatten(),
+        line = read => line.unwrap_or_default(),
         _ = crate::interrupt::next() => {
             println!("\nExiting...");
             crate::platform::restore();
@@ -34,27 +34,6 @@ pub async fn get_yes_no(prompt: &str) -> bool {
     is_yes(&get_user_input(&format!("{prompt} [y/N]: ")).await)
 }
 
-/// One trimmed line, or `None` at end of input or on a read error.
-pub fn read_line_or_eof(reader: &mut impl BufRead) -> Option<String> {
-    let mut text = String::new();
-    match reader.read_line(&mut text) {
-        Ok(0) | Err(_) => None,
-        Ok(_) => Some(text.trim().to_string()),
-    }
-}
-
 pub fn is_yes(answer: &str) -> bool {
     answer.to_lowercase().starts_with('y')
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tells_an_empty_line_from_eof() {
-        let mut input = std::io::Cursor::new("\n");
-        assert_eq!(read_line_or_eof(&mut input), Some(String::new()));
-        assert_eq!(read_line_or_eof(&mut input), None);
-    }
 }

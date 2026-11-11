@@ -52,7 +52,7 @@ cargo build --release --locked   # when dependencies or build config change
 - Network tests are marked `#[ignore]`. Run them against a real 24/7 stream with: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the env var if deno is installed).
 - For changes to the download/mux flow, also do a short real run, e.g. `--live-from now --capture-duration 10s -o '/tmp/x/%(id)s'`, and check the result with ffprobe.
 - On Windows, processes started from a coding agent's shell can inherit "ignore Ctrl-C", so a scripted Ctrl-C never reaches ytarchive and it gets killed instead. Send Ctrl-Break, or reset the flag with `SetConsoleCtrlHandler(NULL, FALSE)` in the launcher, before judging interrupt behavior.
-- Prompts where an empty answer means "go ahead" must use `prompt::get_line_or_eof` and treat closed stdin as "no", so non-interactive runs never wait unattended.
+- Prompts where an empty answer means "go ahead" must tell closed stdin from an empty line (`prompt::get_user_input` returns an empty string for both) and treat closed stdin as "no", so non-interactive runs never wait unattended.
 - List what hasn't been verified in `docs/NOT_TESTED.md`, and delete a line once it is verified.
 
 ## Commits
