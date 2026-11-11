@@ -2,12 +2,12 @@
 
 use std::time::Instant;
 
-use super::wait::sleep_or_cancel;
 use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES};
 use crate::error::Error;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_ytdlp, local_unix_timestamp};
 use crate::types::{FormatSelection, LiveStatus, YtdlpExtraction};
 use crate::util::seconds_to_duration_and_time_str;
+use crate::util::sleep_or_cancel;
 use crate::{log, log_debug, log_error, log_general, log_warn, ytdlp};
 
 enum Step {

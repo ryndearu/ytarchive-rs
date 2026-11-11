@@ -3,10 +3,10 @@
 
 use std::path::PathBuf;
 
+use crate::download::local_time;
 use crate::mux::{self, MuxCommand};
 use crate::output::OutputPlan;
 use crate::prompt::get_yes_no;
-use crate::stream_meta::local_unix_timestamp;
 use crate::types::{Action, Options};
 use crate::util::{apply_mode, try_delete, try_move};
 use crate::{log_error, log_general, log_warn};
@@ -79,10 +79,7 @@ impl Finish<'_> {
         let until = if until == u64::MAX {
             String::new()
         } else {
-            format!(
-                " (before about {}, when the download URLs expire)",
-                local_unix_timestamp(i64::try_from(until).unwrap_or(i64::MAX))
-            )
+            format!(" (before about {}, when the download URLs expire)", local_time(until))
         };
         log_warn!(
             "Some fragments are still missing. The downloaded data was kept in {} so they can be retried: run the same command again{until}.",

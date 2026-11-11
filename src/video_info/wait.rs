@@ -8,14 +8,7 @@ use super::Extractor;
 use crate::log_general;
 use crate::prompt::get_user_input;
 use crate::types::{Action, DEFAULT_POLL_SECS};
-
-/// Sleeps unless cancelled first. Returns `false` if cancelled.
-pub async fn sleep_or_cancel(cancel: &CancellationToken, dur: Duration) -> bool {
-    tokio::select! {
-        _ = cancel.cancelled() => false,
-        _ = tokio::time::sleep(dur) => true,
-    }
-}
+use crate::util::sleep_or_cancel;
 
 /// Sleeps until `unix` (re-checking the clock, as a long sleep can drift).
 pub async fn sleep_until_unix(cancel: &CancellationToken, unix: i64) -> bool {
@@ -98,20 +91,5 @@ impl Extractor {
         }
         let until_start = start_unix.map(|time| time - chrono::Utc::now().timestamp()).filter(|seconds| *seconds > 0);
         Some(Duration::from_secs(until_start.map_or(DEFAULT_POLL_SECS, |seconds| seconds as u64)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn wait_choice() {
-        use WaitChoice::*;
-        for (answer, want) in
-            [("1", Wait), ("Wait", Wait), ("2", Poll), ("poll", Poll), ("", No), ("3", No), ("no", No), ("x", No)]
-        {
-            assert_eq!(parse_wait_choice(answer), want, "{answer:?}");
-        }
     }
 }
