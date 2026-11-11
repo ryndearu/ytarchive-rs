@@ -19,20 +19,21 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - **Windows, Linux, and macOS are supported**, each as x64 and arm64, and nothing else (no code or docs for other platforms); every change must build and pass tests on all three.
 - **File names**: anything that becomes a file or folder name goes through `util::sterilize_filename` with a `NameStyle`, and through `util::portable_file_name` when `--windows-filenames` is on (default on Windows: forbidden and control characters, reserved names like `CON`/`NUL`/`COM1`, trailing dots and spaces). `--no-windows-filenames` (default elsewhere) only replaces path separators and NUL. With Windows names, `output::final_location` also shortens the title so every path fits in MAX_PATH (unless `--no-path-limit`); if you add a longer file suffix than `.f{itag}.frag{seq}.ts`, raise `SUFFIX_ROOM`.
 - Don't assume Unix in code or tests: no hard-coded `/tmp`, `sh`, or unescaped paths in JSON; gate platform code with `#[cfg(windows)]` / `#[cfg(unix)]` (see `src/platform.rs`, `util::set_mode`).
+- The Rust version is pinned in `rust-toolchain.toml` (development, CI, and releases all use it); raise it in its own commit. `rust-version` in `Cargo.toml` is the oldest Rust that builds the crate; check it with that toolchain when dependencies change.
 - TLS is rustls with the `ring` provider and the OS certificate store; don't add OpenSSL.
 
 ## Code layout and style
 
 - One module per file. Shared types live in `src/types/`; define or update them before the feature that uses them.
-- Keep files under ~300 lines; split a file only when you are already editing it, and say so in the commit.
-- No crate-wide `allow(dead_code)`. Remove unused code, tests, and dependencies. If a feature is minor or unimportant, test it with a temporary test and delete the test afterwards.
+- A file over 400 lines must be split, but only when you are already editing it; say so in the commit.
+- No crate-wide `allow(dead_code)`. Remove unused code, tests, and dependencies. Tests for minor or unimportant features go only in `src/minor_tests.rs` (`#[cfg(test)] mod minor_tests;`), so they can be deleted all at once.
 - No `unsafe` unless it's truly necessary; prefer a maintained safe wrapper crate. `main.rs` has `#![forbid(unsafe_code)]`; lifting it needs a good reason.
 - Comments explain *why*, especially where behavior differs from Go.
 - Cookies are read twice, on purpose: `cookies.rs` follows Go for ytarchive's own requests, and `ytdlp_cookies.rs` mirrors yt-dlp's loader only to decide whether yt-dlp needs a repaired copy. Keep them separate; each must match its own target.
 
 ## Testing
 
-Run these as separate commands before pushing (CI runs clippy and tests on all three platforms; a change isn't done until they pass):
+Run these as separate commands before pushing (CI runs clippy and tests on all three platforms; a change isn't done until they pass). Clippy is also the typecheck; there's no separate `cargo check` step:
 
 ```sh
 cargo test

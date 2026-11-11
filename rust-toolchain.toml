@@ -1,0 +1,5 @@
+# The Rust version used for development, CI, and releases. Raise it on purpose,
+# so a new stable release can't break clippy (`-D warnings`) by itself.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]

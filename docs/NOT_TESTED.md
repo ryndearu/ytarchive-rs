@@ -4,7 +4,6 @@ Keep this file current: when something listed here gets verified, delete its lin
 
 ## Gaps
 
-- **The keep-the-data question on a real ended stream** whose URLs expired by themselves (5–6 hours after capture).
 - **The short post-live window** right after a stream ends.
 
 ## Not tested
