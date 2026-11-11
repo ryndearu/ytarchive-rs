@@ -9,11 +9,10 @@ use std::collections::HashMap;
 pub use interactive::{prompt_quality, select_interactive};
 
 use crate::error::{Error, Result};
-use crate::types::{
-    itags_for_label, FormatSelection, FragmentUrl, VideoCodec, VideoItag,
-    AUDIO_ITAG, BEST_CODEC_ORDER, VIDEO_QUALITIES,
-};
 use crate::log_debug;
+use crate::types::{
+    AUDIO_ITAG, BEST_CODEC_ORDER, FormatSelection, FragmentUrl, VIDEO_QUALITIES, VideoCodec, VideoItag, itags_for_label,
+};
 
 pub const DEFAULT_QUALITY: &str = "best";
 
@@ -99,11 +98,7 @@ pub fn try_select(
     video_only: bool,
 ) -> Option<FormatSelection> {
     let available = available_qualities(urls);
-    let audio_url = if video_only {
-        None
-    } else {
-        urls.get(&AUDIO_ITAG).cloned()
-    };
+    let audio_url = if video_only { None } else { urls.get(&AUDIO_ITAG).cloned() };
 
     for q in selected {
         let order = codecs.unwrap_or(&BEST_CODEC_ORDER);
@@ -148,11 +143,7 @@ pub fn try_select(
 pub fn select_fixed(urls: &UrlMap, video_itag: Option<u32>, video_only: bool) -> FormatSelection {
     let fragmented = |itag: &u32| urls.get(itag).filter(|u| u.is_fragmented()).cloned();
     FormatSelection {
-        label: if video_itag.is_none() {
-            "audio_only".into()
-        } else {
-            String::new()
-        },
+        label: if video_itag.is_none() { "audio_only".into() } else { String::new() },
         codec: None,
         video_itag,
         audio_url: if video_only { None } else { fragmented(&AUDIO_ITAG) },

@@ -11,12 +11,11 @@ use reqwest::{Client, Proxy};
 
 use crate::cookies;
 use crate::error::{Error, Result};
-use crate::{log_debug, log_trace};
 use crate::types::{CookieSet, IpVersion, Options};
 use crate::util::write_file_with_mode;
+use crate::{log_debug, log_trace};
 
-pub const USER_AGENT: &str =
-    "Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0";
+pub const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0";
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Max idle time between body reads; catches stalled fragment downloads.
@@ -67,9 +66,7 @@ impl Http {
             builder = builder.proxy(Proxy::all(proxy.as_str())?);
         }
 
-        Ok(Self {
-            client: builder.build()?,
-        })
+        Ok(Self { client: builder.build()? })
     }
 
     /// GETs `url` and returns the body; non-2xx statuses are errors.
@@ -77,10 +74,7 @@ impl Http {
         let resp = self.client.get(url).send().await?;
         let status = resp.status();
         if !status.is_success() {
-            return Err(Error::HttpStatus {
-                status: status.as_u16(),
-                what: redact_query(url),
-            });
+            return Err(Error::HttpStatus { status: status.as_u16(), what: redact_query(url) });
         }
         Ok(resp.bytes().await?)
     }
@@ -119,10 +113,8 @@ mod tests {
                 .find_map(|l| l.strip_prefix("cookie: ").or_else(|| l.strip_prefix("Cookie: ")))
                 .unwrap_or("")
                 .to_string();
-            let resp = format!(
-                "HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{cookie}",
-                cookie.len()
-            );
+            let resp =
+                format!("HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{cookie}", cookie.len());
             sock.write_all(resp.as_bytes()).await.unwrap();
         });
         format!("http://{addr}/x?sig=secret")

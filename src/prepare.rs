@@ -7,9 +7,7 @@ use tokio_util::sync::CancellationToken;
 use crate::gvideo;
 use crate::http::Http;
 use crate::input_url::InputUrl;
-use crate::types::{
-    new_format_info, FormatInfo, FormatSelection, MetaInfo, Options, DEFAULT_TARGET_DURATION_SECS,
-};
+use crate::types::{DEFAULT_TARGET_DURATION_SECS, FormatInfo, FormatSelection, MetaInfo, Options, new_format_info};
 use crate::video_info::Extractor;
 
 /// Everything known about the stream once formats are selected.

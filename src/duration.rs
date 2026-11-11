@@ -30,18 +30,14 @@ pub fn parse_duration_units(input: &str) -> Option<SignedDuration> {
 
     let mut total_nanos: f64 = 0.0;
     while !rest.is_empty() {
-        let num_end = rest
-            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
-            .unwrap_or(rest.len());
+        let num_end = rest.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(rest.len());
         if num_end == 0 {
             return None;
         }
         let value: f64 = rest[..num_end].parse().ok()?;
         rest = &rest[num_end..];
 
-        let unit_end = rest
-            .find(|c: char| c.is_ascii_digit() || c == '.')
-            .unwrap_or(rest.len());
+        let unit_end = rest.find(|c: char| c.is_ascii_digit() || c == '.').unwrap_or(rest.len());
         let unit = &rest[..unit_end];
         rest = &rest[unit_end..];
 
@@ -114,10 +110,7 @@ mod tests {
         assert_eq!(secs("+1.5h"), Some((false, 5400)));
         assert_eq!(secs("2w"), Some((false, 1_209_600)));
         assert_eq!(secs("0"), Some((false, 0)));
-        assert_eq!(
-            parse_duration_units("1s500ms").unwrap().duration,
-            Duration::from_millis(1500)
-        );
+        assert_eq!(parse_duration_units("1s500ms").unwrap().duration, Duration::from_millis(1500));
     }
 
     #[test]

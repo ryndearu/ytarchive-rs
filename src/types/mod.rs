@@ -14,12 +14,12 @@ pub mod ytdlp;
 pub use consts::*;
 pub use cookie::{CookieSet, NetscapeCookie};
 pub use download_state::DownloadState;
-pub use format_info::{new_format_info, FormatInfo, MetaInfo};
+pub use format_info::{FormatInfo, MetaInfo, new_format_info};
 pub use fragment::{DataType, FragData, FragThreadState, Fragment, ProgressInfo};
-pub use fragment_url::{is_fragmented, FragmentUrl};
+pub use fragment_url::{FragmentUrl, is_fragmented};
 pub use options::{
-    complete_codec_order, parse_codec_list, Action, IpVersion, LogLevel, Options, StorageMode,
-    VideoCodec, BEST_CODEC_ORDER,
+    Action, BEST_CODEC_ORDER, IpVersion, LogLevel, Options, StorageMode, VideoCodec, complete_codec_order,
+    parse_codec_list,
 };
 pub use per_type::PerType;
 pub use player_response::{PlayerResponse, YtInitialData};

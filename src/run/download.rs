@@ -7,17 +7,17 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::download::{download_stream, StreamParams};
+use crate::download::{StreamParams, download_stream};
 use crate::finish::{Finish, Moved};
 use crate::http::Http;
 use crate::interrupt::Interrupt;
 use crate::live_from::start_delay;
-use crate::mux::{command_line, ffmpeg_args, MuxInput};
-use crate::output::{ensure_dir, final_location, load_states, temp_dir, OutputPlan};
+use crate::mux::{MuxInput, command_line, ffmpeg_args};
+use crate::output::{OutputPlan, ensure_dir, final_location, load_states, temp_dir};
 use crate::prepare::Prepared;
 use crate::progress::{self, Totals};
 use crate::session::Session;
-use crate::types::{DataType, Options, PerType, SavedDownload, AUDIO_ITAG, DEFAULT_POLL_SECS};
+use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, Options, PerType, SavedDownload};
 use crate::util::{seconds_to_duration_and_time_str, write_file_with_mode};
 use crate::{log_debug, log_error, log_general, log_info, log_warn};
 
@@ -61,7 +61,9 @@ pub(super) async fn download(
     if let Some(delay) = opts.start_delay {
         if resuming {
             log_warn!("Option --start-delay is being ignored as a download is being resumed.");
-        } else if p.live && let Some(last) = p.last_sq {
+        } else if p.live
+            && let Some(last) = p.last_sq
+        {
             let (sq, wait) = start_delay(delay, last, p.target_duration);
             log_general!("Waiting {} before starting to download...", seconds_to_duration_and_time_str(wait.as_secs()));
             log_debug!("Will start from sequence {sq} [current is {last}]");
@@ -87,11 +89,7 @@ pub(super) async fn download(
         }
     }
 
-    let plan = OutputPlan {
-        temp_dir: temp_dir(&opts, prev_temp, &final_dir, &p.video_id),
-        final_dir,
-        file_name,
-    };
+    let plan = OutputPlan { temp_dir: temp_dir(&opts, prev_temp, &final_dir, &p.video_id), final_dir, file_name };
     for st in &mut states {
         st.temp_dir = plan.temp_dir.clone();
     }
@@ -116,10 +114,8 @@ pub(super) async fn download(
         }
     }
 
-    let ts = |itag: u32| Moved {
-        temp: plan.temp(&format!(".f{itag}.ts")),
-        dest: plan.final_path(&format!(".f{itag}.ts")),
-    };
+    let ts =
+        |itag: u32| Moved { temp: plan.temp(&format!(".f{itag}.ts")), dest: plan.final_path(&format!(".f{itag}.ts")) };
     let audio_ts = streams.iter().find(|s| s.0 == DataType::Audio).map(|s| ts(s.1));
     let video_ts = streams.iter().find(|s| s.0 == DataType::Video).map(|s| ts(s.1));
 
@@ -139,25 +135,14 @@ pub(super) async fn download(
     let audio_mux = (opts.separate_audio && audio_ts.is_some() && video_ts.is_some())
         .then(|| ffmpeg_args(&MuxInput { video: None, ..main_input }));
     let mux_file = Moved { temp: plan.temp(".ffmpeg.txt"), dest: plan.final_path(".ffmpeg.txt") };
-    if let Err(e) = write_file_with_mode(
-        &mux_file.temp,
-        command_line(&opts.ffmpeg_path, &mux.args).as_bytes(),
-        opts.file_mode,
-    )
-    .await
+    if let Err(e) =
+        write_file_with_mode(&mux_file.temp, command_line(&opts.ffmpeg_path, &mux.args).as_bytes(), opts.file_mode)
+            .await
     {
         log_warn!("Failed to write initial mux file: {e}");
     }
 
-    let session = Session::new(
-        opts.clone(),
-        http,
-        cancel,
-        p.extractor.take(),
-        &p.sel,
-        p.live,
-        p.target_duration,
-    );
+    let session = Session::new(opts.clone(), http, cancel, p.extractor.take(), &p.sel, p.live, p.target_duration);
     if p.unavailable {
         session.set_unavailable();
     }

@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Local, Utc};
 
-use crate::types::{new_format_info, FormatInfo, MetaInfo, PlayerResponse, YtdlpExtraction};
+use crate::types::{FormatInfo, MetaInfo, PlayerResponse, YtdlpExtraction, new_format_info};
 use crate::util::format_python_map;
 
 /// Default metadata; values are output templates.
@@ -24,9 +24,7 @@ pub fn default_metadata(overrides: &[(String, String)]) -> MetaInfo {
 
 /// Expands each metadata template; values that fail to expand stay as-is.
 pub fn apply_metadata(meta: &MetaInfo, fi: &FormatInfo) -> MetaInfo {
-    meta.iter()
-        .map(|(k, v)| (k.clone(), format_python_map(v, fi).unwrap_or_else(|_| v.clone())))
-        .collect()
+    meta.iter().map(|(k, v)| (k.clone(), format_python_map(v, fi).unwrap_or_else(|_| v.clone()))).collect()
 }
 
 fn digits(s: &str) -> String {
@@ -73,10 +71,7 @@ pub fn format_info_from_player_response(pr: &PlayerResponse) -> FormatInfo {
     fi.insert("channel".into(), vd.author.clone());
     fi.insert("upload_date".into(), start_date.clone());
     fi.insert("start_date".into(), start_date);
-    fi.insert(
-        "publish_date".into(),
-        digits(&pmfr.publish_date).get(..8).unwrap_or("").into(),
-    );
+    fi.insert("publish_date".into(), digits(&pmfr.publish_date).get(..8).unwrap_or("").into());
     fi.insert("description".into(), vd.short_description.trim().into());
     fi
 }
@@ -84,9 +79,7 @@ pub fn format_info_from_player_response(pr: &PlayerResponse) -> FormatInfo {
 /// From yt-dlp. Start date/time are derived from the unix start time in UTC.
 pub fn format_info_from_ytdlp(info: &YtdlpExtraction, page_url: &str) -> FormatInfo {
     let mut fi = new_format_info();
-    let start = info
-        .start_unix
-        .and_then(|t| DateTime::<Utc>::from_timestamp(t, 0));
+    let start = info.start_unix.and_then(|t| DateTime::<Utc>::from_timestamp(t, 0));
     let start_date = match start {
         Some(dt) => {
             let d = dt.format("%Y%m%d").to_string();

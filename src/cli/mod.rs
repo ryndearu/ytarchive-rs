@@ -13,7 +13,7 @@ use clap::{ArgAction, Parser};
 
 pub use normalize::normalize_args;
 
-use crate::types::{parse_codec_list, VideoCodec, DEFAULT_FILENAME_FORMAT, DEFAULT_FRAG_MAX_TRIES};
+use crate::types::{DEFAULT_FILENAME_FORMAT, DEFAULT_FRAG_MAX_TRIES, VideoCodec, parse_codec_list};
 
 const AFTER_HELP: &str = "\
 QUALITY is a slash-delimited list from most to least wanted, e.g. 1080p60/720p/best.

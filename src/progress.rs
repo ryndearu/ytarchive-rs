@@ -29,15 +29,9 @@ impl Totals {
     }
 
     pub fn line(&self, verbose: bool) -> String {
-        let mut s = format!(
-            "Video Fragments: {}; Audio Fragments: {}; ",
-            self.video_frags, self.audio_frags
-        );
+        let mut s = format!("Video Fragments: {}; Audio Fragments: {}; ", self.video_frags, self.audio_frags);
         if verbose && let Some(max) = self.max_seq {
-            s.push_str(&format!(
-                "Max Fragments: {}; Max Sequence: {max}; ",
-                (max + 1).saturating_sub(self.start_frag)
-            ));
+            s.push_str(&format!("Max Fragments: {}; Max Sequence: {max}; ", (max + 1).saturating_sub(self.start_frag)));
         }
         s.push_str(&format!("Total Downloaded: {}", format_size(self.bytes)));
         s

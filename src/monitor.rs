@@ -7,11 +7,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::http::Http;
-use crate::input_url::{parse_input_url, InputUrl};
+use crate::input_url::{InputUrl, parse_input_url};
 use crate::interrupt::Interrupt;
 use crate::prompt::get_user_input;
 use crate::run::{exit_code, run};
-use crate::types::{Options, DEFAULT_MONITOR_SECS};
+use crate::types::{DEFAULT_MONITOR_SECS, Options};
 use crate::{log_debug, log_error, log_general, log_warn};
 
 pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) -> ExitCode {

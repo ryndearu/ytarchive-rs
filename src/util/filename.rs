@@ -10,17 +10,8 @@ use crate::types::FILENAME_FORMAT_BLACKLIST;
 /// Max bytes for the final path component: 255 minus room for `.description`.
 pub const MAX_FILENAME_LEN: usize = 243;
 
-const FORBIDDEN: [(char, char); 9] = [
-    ('<', '＜'),
-    ('>', '＞'),
-    (':', '：'),
-    ('"', '″'),
-    ('/', '⧸'),
-    ('\\', '⧹'),
-    ('|', '｜'),
-    ('?', '？'),
-    ('*', '＊'),
-];
+const FORBIDDEN: [(char, char); 9] =
+    [('<', '＜'), ('>', '＞'), (':', '：'), ('"', '″'), ('/', '⧸'), ('\\', '⧹'), ('|', '｜'), ('?', '？'), ('*', '＊')];
 
 /// How file and folder names are sanitized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,11 +37,7 @@ pub fn sterilize_filename(s: &str, style: NameStyle) -> String {
     s.chars()
         .map(|c| {
             let lookalike = FORBIDDEN.iter().find(|(f, _)| *f == c).map(|(_, l)| *l);
-            let replace = if style.windows {
-                lookalike.is_some() || c.is_control()
-            } else {
-                minimal_forbidden(c)
-            };
+            let replace = if style.windows { lookalike.is_some() || c.is_control() } else { minimal_forbidden(c) };
             match (replace, lookalike) {
                 (false, _) => c,
                 (true, Some(look)) if style.lookalike => look,
@@ -62,9 +49,9 @@ pub fn sterilize_filename(s: &str, style: NameStyle) -> String {
 
 /// Device names Windows reserves regardless of extension.
 const WINDOWS_RESERVED: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "COM1", "COM2", "COM3", "COM4", "COM5",
-    "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
-    "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "COM¹", "COM²", "COM³", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹",
+    "LPT²", "LPT³",
 ];
 
 /// Makes a single file or folder name valid on Windows (used with
@@ -145,14 +132,8 @@ pub fn format_filename(
     let mut fname_vals: BTreeMap<String, String> = vals
         .iter()
         .map(|(k, v)| {
-            let blacklisted = FILENAME_FORMAT_BLACKLIST
-                .iter()
-                .any(|b| b.eq_ignore_ascii_case(k.trim()));
-            let v = if blacklisted {
-                String::new()
-            } else {
-                sterilize_filename(v, style)
-            };
+            let blacklisted = FILENAME_FORMAT_BLACKLIST.iter().any(|b| b.eq_ignore_ascii_case(k.trim()));
+            let v = if blacklisted { String::new() } else { sterilize_filename(v, style) };
             (k.clone(), v)
         })
         .collect();
@@ -189,10 +170,7 @@ mod tests {
     use super::*;
 
     fn vals(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect()
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
     }
 
     const WIN: NameStyle = NameStyle { lookalike: false, windows: true };
@@ -249,10 +227,7 @@ mod tests {
     #[test]
     fn filename_blacklist_and_sanitize() {
         let v = vals(&[("title", "a/b"), ("id", "x"), ("description", "secret")]);
-        assert_eq!(
-            format_filename("%(title)s-%(id)s%(description)s", &v, WIN, None).unwrap(),
-            "a_b-x"
-        );
+        assert_eq!(format_filename("%(title)s-%(id)s%(description)s", &v, WIN, None).unwrap(), "a_b-x");
         // Directory separators in the template itself are kept.
         assert_eq!(format_filename("dir/%(id)s", &v, MIN, None).unwrap(), "dir/x");
         // A separator inside a value is always replaced.

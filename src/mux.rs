@@ -43,9 +43,7 @@ fn unused_output(dir: &Path, name: &str, ext: &str) -> PathBuf {
 
 pub fn ffmpeg_args(m: &MuxInput<'_>) -> MuxCommand {
     let audio_only = m.video.is_none();
-    let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "fatal", "-stats"]
-        .map(String::from)
-        .to_vec();
+    let mut a: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "fatal", "-stats"].map(String::from).to_vec();
 
     // mp4/m4a take the thumbnail as an input stream; mkv attaches it.
     let thumb_input = m.thumbnail.filter(|_| !m.mkv);
@@ -105,15 +103,8 @@ pub fn ffmpeg_args(m: &MuxInput<'_>) -> MuxCommand {
 /// POSIX shell quoting, for the human-readable `.ffmpeg.txt` command on
 /// Linux/macOS.
 pub fn posix_quote(arg: &str) -> String {
-    let safe = !arg.is_empty()
-        && arg
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "-_./=:,+@%".contains(c));
-    if safe {
-        arg.to_string()
-    } else {
-        format!("'{}'", arg.replace('\'', r"'\''"))
-    }
+    let safe = !arg.is_empty() && arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./=:,+@%".contains(c));
+    if safe { arg.to_string() } else { format!("'{}'", arg.replace('\'', r"'\''")) }
 }
 
 /// Windows command-line quoting (the rules ffmpeg's argument parser uses),
@@ -146,11 +137,7 @@ pub fn windows_quote(arg: &str) -> String {
 
 pub fn command_line(program: &str, args: &[String]) -> String {
     let quote = if cfg!(windows) { windows_quote } else { posix_quote };
-    std::iter::once(program)
-        .chain(args.iter().map(String::as_str))
-        .map(quote)
-        .collect::<Vec<_>>()
-        .join(" ")
+    std::iter::once(program).chain(args.iter().map(String::as_str)).map(quote).collect::<Vec<_>>().join(" ")
 }
 
 /// Whether `program` can be run: a path that exists, a name on PATH, or (as
@@ -160,12 +147,9 @@ pub fn program_exists(program: &str) -> bool {
     if p.components().count() > 1 {
         return p.is_file() || cfg!(windows) && p.with_extension("exe").is_file();
     }
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(Path::to_path_buf));
-    let path_dirs = std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-        .unwrap_or_default();
+    let exe_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf));
+    let path_dirs =
+        std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>()).unwrap_or_default();
     exe_dir.into_iter().chain(path_dirs).any(|dir| {
         let c = dir.join(program);
         c.is_file() || cfg!(windows) && c.with_extension("exe").is_file()
@@ -176,18 +160,14 @@ pub fn program_exists(program: &str) -> bool {
 /// code, or -1 if it couldn't be run.
 pub async fn execute(program: &str, args: &[String]) -> i32 {
     log_debug!("Executing command: {}", command_line(program, args));
-    let mut child = match tokio::process::Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            log_error!("{e}");
-            return -1;
-        }
-    };
+    let mut child =
+        match tokio::process::Command::new(program).args(args).stdin(Stdio::null()).stderr(Stdio::piped()).spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                log_error!("{e}");
+                return -1;
+            }
+        };
     if let Some(mut err) = child.stderr.take() {
         let mut buf = [0u8; 2048];
         while let Ok(n) = err.read(&mut buf).await {

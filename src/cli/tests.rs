@@ -73,8 +73,26 @@ fn storage_flags() {
 fn repeated_flags_take_the_last_value() {
     // As with Go's flag package; lists keep every value.
     let o = opts(&[
-        "y", "-o", "a", "-o", "b", "--threads", "2", "--threads", "3", "--ytdlp-opts", "-x", "--ytdlp-opts",
-        "--js-runtimes node", "-t", "-t", "--metadata", "k=1", "--metadata", "j=2", "u",
+        "y",
+        "-o",
+        "a",
+        "-o",
+        "b",
+        "--threads",
+        "2",
+        "--threads",
+        "3",
+        "--ytdlp-opts",
+        "-x",
+        "--ytdlp-opts",
+        "--js-runtimes node",
+        "-t",
+        "-t",
+        "--metadata",
+        "k=1",
+        "--metadata",
+        "j=2",
+        "u",
     ])
     .unwrap();
     assert_eq!(o.output_format, "b");
@@ -131,9 +149,21 @@ fn validation_errors() {
 #[test]
 fn misc_resolution() {
     let o = opts(&[
-        "y", "--ytdlp-info", "--metadata", "title = %(title)s", "--ytdlp-opts",
-        "--extractor-args youtube:player_client=web", "--capture-duration", "1h30m", "--vp9",
-        "--av1", "--debug", "-6", "--save-state", "--disable-save-state", "u",
+        "y",
+        "--ytdlp-info",
+        "--metadata",
+        "title = %(title)s",
+        "--ytdlp-opts",
+        "--extractor-args youtube:player_client=web",
+        "--capture-duration",
+        "1h30m",
+        "--vp9",
+        "--av1",
+        "--debug",
+        "-6",
+        "--save-state",
+        "--disable-save-state",
+        "u",
     ])
     .unwrap();
     assert_eq!(o.metadata_overrides, vec![("title".into(), "%(title)s".into())]);

@@ -6,15 +6,12 @@ use super::Cli;
 use crate::duration::parse_duration_or_time;
 use crate::error::{Error, Result};
 use crate::types::{
-    complete_codec_order, Action, IpVersion, LogLevel, Options, StorageMode, VideoCodec,
-    DEFAULT_MONITOR_SECS, DEFAULT_POLL_SECS, MINIMUM_MONITOR_SECS,
+    Action, DEFAULT_MONITOR_SECS, DEFAULT_POLL_SECS, IpVersion, LogLevel, MINIMUM_MONITOR_SECS, Options, StorageMode,
+    VideoCodec, complete_codec_order,
 };
 
 fn is_googlevideo(url: &str) -> bool {
-    url::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(|h| h.ends_with(".googlevideo.com")))
-        .unwrap_or(false)
+    url::Url::parse(url).ok().and_then(|u| u.host_str().map(|h| h.ends_with(".googlevideo.com"))).unwrap_or(false)
 }
 
 impl Cli {
@@ -24,14 +21,11 @@ impl Cli {
         if let Some(list) = &self.codec {
             return Some(list.0.clone());
         }
-        let flagged: Vec<VideoCodec> = [
-            (VideoCodec::Av1, self.av1),
-            (VideoCodec::Vp9, self.vp9),
-            (VideoCodec::H264, self.h264),
-        ]
-        .into_iter()
-        .filter_map(|(c, on)| on.then_some(c))
-        .collect();
+        let flagged: Vec<VideoCodec> =
+            [(VideoCodec::Av1, self.av1), (VideoCodec::Vp9, self.vp9), (VideoCodec::H264, self.h264)]
+                .into_iter()
+                .filter_map(|(c, on)| on.then_some(c))
+                .collect();
         (!flagged.is_empty()).then(|| complete_codec_order(&flagged))
     }
 
@@ -43,9 +37,7 @@ impl Cli {
             ));
         }
         if self.start_delay.is_some() && self.live_from.is_some() {
-            return Err(Error::InvalidArg(
-                "you cannot use both --start-delay and --live-from at the same time".into(),
-            ));
+            return Err(Error::InvalidArg("you cannot use both --start-delay and --live-from at the same time".into()));
         }
         if self.no_video && self.no_audio {
             return Err(Error::InvalidArg("--no-video and --no-audio cannot be combined".into()));
@@ -65,9 +57,7 @@ impl Cli {
 
         if self.ytdlp_info && !direct_download {
             if self.monitor_channel {
-                return Err(Error::InvalidArg(
-                    "--ytdlp-info is not compatible with --monitor-channel".into(),
-                ));
+                return Err(Error::InvalidArg("--ytdlp-info is not compatible with --monitor-channel".into()));
             }
             if self.members_only {
                 return Err(Error::InvalidArg(
@@ -78,9 +68,9 @@ impl Cli {
 
         let mut metadata_overrides = Vec::with_capacity(self.metadata.len());
         for kv in &self.metadata {
-            let (k, v) = kv.split_once('=').ok_or_else(|| {
-                Error::InvalidArg(format!("--metadata expects KEY=VALUE, got '{kv}'"))
-            })?;
+            let (k, v) = kv
+                .split_once('=')
+                .ok_or_else(|| Error::InvalidArg(format!("--metadata expects KEY=VALUE, got '{kv}'")))?;
             let k = k.trim();
             if k.is_empty() {
                 return Err(Error::InvalidArg(format!("--metadata key is empty in '{kv}'")));
@@ -93,16 +83,10 @@ impl Cli {
             retry_stream = Some(DEFAULT_MONITOR_SECS);
         }
 
-        let start_delay = self
-            .start_delay
-            .as_deref()
-            .map(|s| parse_duration_or_time("--start-delay", s))
-            .transpose()?;
-        let capture_duration = self
-            .capture_duration
-            .as_deref()
-            .map(|s| parse_duration_or_time("--capture-duration", s))
-            .transpose()?;
+        let start_delay =
+            self.start_delay.as_deref().map(|s| parse_duration_or_time("--start-delay", s)).transpose()?;
+        let capture_duration =
+            self.capture_duration.as_deref().map(|s| parse_duration_or_time("--capture-duration", s)).transpose()?;
 
         let log_level = if self.trace {
             LogLevel::Trace
@@ -132,10 +116,7 @@ impl Cli {
             cookies_file: self.cookies,
             ytdlp_cookies_file: None,
             ytdlp_path: self.ytdlp_path,
-            ytdlp_opts: self
-                .ytdlp_opts
-                .map(|s| s.split_whitespace().map(String::from).collect())
-                .unwrap_or_default(),
+            ytdlp_opts: self.ytdlp_opts.map(|s| s.split_whitespace().map(String::from).collect()).unwrap_or_default(),
             ytdlp_info: self.ytdlp_info,
             codecs,
             mkv: self.mkv,
@@ -145,8 +126,7 @@ impl Cli {
             temp_dir: self.temporary_dir,
             lookalike_chars: self.lookalike_chars,
             // Explicit flag wins; otherwise on for Windows builds only.
-            windows_filenames: self.windows_filenames
-                || (!self.no_windows_filenames && cfg!(windows)),
+            windows_filenames: self.windows_filenames || (!self.no_windows_filenames && cfg!(windows)),
             no_path_limit: self.no_path_limit,
             add_metadata: self.add_metadata,
             metadata_overrides,

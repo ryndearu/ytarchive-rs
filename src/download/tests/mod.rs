@@ -59,7 +59,9 @@ async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64, on_forbidden: Op
     let fail = Arc::new(fail);
     tokio::spawn(async move {
         loop {
-            let Ok((mut sock, _)) = listener.accept().await else { return };
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
             let fail = fail.clone();
             let on_forbidden = on_forbidden.clone();
             tokio::spawn(async move {
@@ -137,13 +139,7 @@ fn params(
 }
 
 fn opts(threads: usize, frag_files: bool) -> Options {
-    Options {
-        threads,
-        frag_max_tries: 2,
-        frag_files,
-        file_mode: 0o644,
-        ..Default::default()
-    }
+    Options { threads, frag_max_tries: 2, frag_files, file_mode: 0o644, ..Default::default() }
 }
 
 #[tokio::test]
@@ -189,12 +185,7 @@ async fn resumes_from_saved_state() {
     let mut on_disk = first.clone();
     on_disk.extend_from_slice(b"partial-garbage");
     std::fs::write(dir.join("out.f140.ts"), &on_disk).unwrap();
-    let state = DownloadState {
-        start_frag: 0,
-        fragments: 4,
-        size: first.len() as u64,
-        ..Default::default()
-    };
+    let state = DownloadState { start_frag: 0, fragments: 4, size: first.len() as u64, ..Default::default() };
 
     let s = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
     let (p, _rx) = params(&dir, 10, state);
@@ -227,10 +218,7 @@ async fn skips_permanently_failing_fragment() {
     let (p, _rx) = params(&dir, 15, DownloadState::default());
     let out = download_stream(s, p).await.unwrap();
     assert_eq!(out.skipped, [3]);
-    let want: Vec<u8> = (0..15)
-        .filter(|i| *i != 3)
-        .flat_map(|i| expected(i, i == 0))
-        .collect();
+    let want: Vec<u8> = (0..15).filter(|i| *i != 3).flat_map(|i| expected(i, i == 0)).collect();
     assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -254,11 +242,7 @@ async fn unopenable_storage_is_reported_as_such() {
 async fn live_fragments() {
     let mut o = opts(2, true);
     o.ytdlp_path = "yt-dlp".into();
-    o.ytdlp_opts = std::env::var("YTDLP_TEST_OPTS")
-        .unwrap_or_default()
-        .split_whitespace()
-        .map(String::from)
-        .collect();
+    o.ytdlp_opts = std::env::var("YTDLP_TEST_OPTS").unwrap_or_default().split_whitespace().map(String::from).collect();
     let http = crate::http::Http::new(&o, Default::default()).unwrap();
     let info = crate::ytdlp::extract(
         &http,

@@ -63,11 +63,7 @@ fn sanitize_value(name: &str, value: &[u8]) -> String {
         log_warn!("Cookie {name}: invalid byte {bad:#04x} in its value; dropping invalid bytes");
     }
     let v: String = value.iter().filter(|&&b| valid(b)).map(|&b| b as char).collect();
-    if v.contains([' ', ',']) {
-        format!("\"{v}\"")
-    } else {
-        v
-    }
+    if v.contains([' ', ',']) { format!("\"{v}\"") } else { v }
 }
 
 /// URL the cookie belongs to, for inserting into a cookie jar.

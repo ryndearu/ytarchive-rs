@@ -1,7 +1,7 @@
 //! Classifies the URL given on the command line.
 
 use crate::error::{Error, Result};
-use crate::types::{DataType, FragmentUrl, AUDIO_ITAG};
+use crate::types::{AUDIO_ITAG, DataType, FragmentUrl};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputUrl {
@@ -11,11 +11,7 @@ pub enum InputUrl {
     /// whatever the channel is currently streaming or has scheduled.
     Channel { live_url: String },
     /// A direct googlevideo fragment URL.
-    GoogleVideo {
-        id: String,
-        itag: u32,
-        url: FragmentUrl,
-    },
+    GoogleVideo { id: String, itag: u32, url: FragmentUrl },
 }
 
 impl InputUrl {
@@ -33,13 +29,9 @@ const CHANNEL_PREFIXES: &[&str] = &["/channel/", "/c/", "/user/", "/@"];
 
 pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
     let raw = raw.trim();
-    let parsed = url::Url::parse(raw)
-        .map_err(|e| Error::InvalidArg(format!("invalid URL '{raw}': {e}")))?;
+    let parsed = url::Url::parse(raw).map_err(|e| Error::InvalidArg(format!("invalid URL '{raw}': {e}")))?;
     let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
-    let host = host
-        .strip_prefix("www.")
-        .or_else(|| host.strip_prefix("m."))
-        .unwrap_or(&host);
+    let host = host.strip_prefix("www.").or_else(|| host.strip_prefix("m.")).unwrap_or(&host);
     let path = parsed.path();
     let lower_path = path.to_ascii_lowercase();
 
@@ -61,9 +53,7 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
                 format!("/{first}/{}", segs.next().unwrap_or(""))
             };
             let origin = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
-            return Ok(InputUrl::Channel {
-                live_url: format!("{origin}{channel_path}/live"),
-            });
+            return Ok(InputUrl::Channel { live_url: format!("{origin}{channel_path}/live") });
         }
         for prefix in ["/live/", "/shorts/"] {
             if lower_path.starts_with(prefix) {
@@ -81,11 +71,7 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
         }
     } else if host.ends_with(".googlevideo.com") {
         let itag = parse_itag(&parsed)?;
-        let data_type = if itag == AUDIO_ITAG {
-            DataType::Audio
-        } else {
-            DataType::Video
-        };
+        let data_type = if itag == AUDIO_ITAG { DataType::Audio } else { DataType::Video };
         let (url, itag) = parse_gvideo_url(raw, data_type)?;
         let id = query_param(&parsed, "id").unwrap_or_default();
         // The id parameter looks like `VIDEOID.N`.
@@ -93,25 +79,21 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
         return Ok(InputUrl::GoogleVideo { id, itag, url });
     }
 
-    Err(Error::InvalidArg(
-        "the provided URL is not a known valid YouTube URL".into(),
-    ))
+    Err(Error::InvalidArg("the provided URL is not a known valid YouTube URL".into()))
 }
 
 /// Validates a googlevideo fragment URL for `data_type` and returns it as a
 /// fragment template plus its itag.
 pub fn parse_gvideo_url(raw: &str, data_type: DataType) -> Result<(FragmentUrl, u32)> {
-    let parsed = url::Url::parse(raw.trim())
-        .map_err(|e| Error::InvalidArg(format!("error parsing Google Video URL: {e}")))?;
+    let parsed =
+        url::Url::parse(raw.trim()).map_err(|e| Error::InvalidArg(format!("error parsing Google Video URL: {e}")))?;
     let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
     if !host.ends_with(".googlevideo.com") {
         return Err(Error::InvalidArg("not a Google Video URL".into()));
     }
     let itag = parse_itag(&parsed)?;
     if query_param(&parsed, "noclen").is_none() {
-        return Err(Error::InvalidArg(
-            "given Google Video URL is not for a fragmented stream".into(),
-        ));
+        return Err(Error::InvalidArg("given Google Video URL is not for a fragmented stream".into()));
     }
     match data_type {
         DataType::Audio if itag != AUDIO_ITAG => Err(Error::InvalidArg(
@@ -132,9 +114,7 @@ fn parse_itag(u: &url::Url) -> Result<u32> {
 }
 
 fn query_param(u: &url::Url, key: &str) -> Option<String> {
-    u.query_pairs()
-        .find(|(k, _)| k == key)
-        .map(|(_, v)| v.into_owned())
+    u.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.into_owned())
 }
 
 #[cfg(test)]
@@ -175,10 +155,7 @@ mod tests {
             parse_input_url("https://www.youtube.com/channel/UC123/videos?x=1").unwrap(),
             channel("https://www.youtube.com/channel/UC123/live")
         );
-        assert_eq!(
-            parse_input_url("https://youtube.com/c/Name/").unwrap(),
-            channel("https://youtube.com/c/Name/live")
-        );
+        assert_eq!(parse_input_url("https://youtube.com/c/Name/").unwrap(), channel("https://youtube.com/c/Name/live"));
     }
 
     #[test]

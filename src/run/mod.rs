@@ -87,4 +87,3 @@ pub async fn run(
     let code = download(opts, http, cancel, prepared, live_from_sq, interrupt).await;
     RunResult { code, video_id, downloaded: true }
 }
-

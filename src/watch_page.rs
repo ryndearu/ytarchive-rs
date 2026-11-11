@@ -24,9 +24,8 @@ pub fn extract_json<'a>(html: &'a str, decl: &str) -> Option<&'a str> {
 }
 
 pub fn parse_player_response(html: &str) -> Result<PlayerResponse> {
-    let json = extract_json(html, PLAYER_RESPONSE_DECL).ok_or_else(|| {
-        Error::InvalidFormat("unable to find the player response in the watch page".into())
-    })?;
+    let json = extract_json(html, PLAYER_RESPONSE_DECL)
+        .ok_or_else(|| Error::InvalidFormat("unable to find the player response in the watch page".into()))?;
     Ok(serde_json::from_str(json)?)
 }
 
@@ -48,14 +47,7 @@ pub fn newest_live_stream(data: &YtInitialData, members_only: bool) -> Option<St
         .tabs
         .iter()
         .rev()
-        .find(|t| {
-            t.tab_renderer
-                .endpoint
-                .command_metadata
-                .web_command_metadata
-                .url
-                .ends_with("/streams")
-        })
+        .find(|t| t.tab_renderer.endpoint.command_metadata.web_command_metadata.url.ends_with("/streams"))
         .map(|t| &t.tab_renderer.content.rich_grid_renderer.contents)?;
 
     contents
@@ -63,16 +55,9 @@ pub fn newest_live_stream(data: &YtInitialData, members_only: bool) -> Option<St
         .take(MAX_STREAM_ITEM_CHECK)
         .map(|c| &c.rich_item_renderer.content.video_renderer)
         .filter(|v| {
-            !members_only
-                || v.badges
-                    .iter()
-                    .any(|b| b.metadata_badge_renderer.style == "BADGE_STYLE_TYPE_MEMBERS_ONLY")
+            !members_only || v.badges.iter().any(|b| b.metadata_badge_renderer.style == "BADGE_STYLE_TYPE_MEMBERS_ONLY")
         })
-        .find(|v| {
-            v.thumbnail_overlays
-                .iter()
-                .any(|o| o.thumbnail_overlay_time_status_renderer.style == "LIVE")
-        })
+        .find(|v| v.thumbnail_overlays.iter().any(|o| o.thumbnail_overlay_time_status_renderer.style == "LIVE"))
         .map(|v| format!("https://www.youtube.com/watch?v={}", v.video_id))
 }
 
@@ -82,20 +67,14 @@ pub async fn fetch_newest_live_stream(http: &Http, live_url: &str, members_only:
     let html = http.get_bytes(&streams_url).await.ok()?;
     let html = String::from_utf8_lossy(&html);
     let json = extract_json(&html, INITIAL_DATA_DECL)?;
-    let data: YtInitialData = serde_json::from_str(json)
-        .inspect_err(|e| log_debug!("Failed to parse ytInitialData: {e}"))
-        .ok()?;
+    let data: YtInitialData =
+        serde_json::from_str(json).inspect_err(|e| log_debug!("Failed to parse ytInitialData: {e}")).ok()?;
     newest_live_stream(&data, members_only)
 }
 
 /// HTML for the stream's watch page. For channel URLs, a live item on the
 /// /streams tab is preferred; members-only mode never falls back to /live.
-pub async fn get_video_html(
-    http: &Http,
-    page_url: &str,
-    is_channel: bool,
-    members_only: bool,
-) -> Option<String> {
+pub async fn get_video_html(http: &Http, page_url: &str, is_channel: bool, members_only: bool) -> Option<String> {
     if is_channel
         && let Some(stream_url) = fetch_newest_live_stream(http, page_url, members_only).await
         && let Ok(b) = http.get_bytes(&stream_url).await
@@ -185,9 +164,7 @@ mod tests {
     #[ignore]
     async fn live_watch_page() {
         let http = Http::new(&Default::default(), Default::default()).unwrap();
-        let html = get_video_html(&http, "https://www.youtube.com/@LofiGirl/live", true, false)
-            .await
-            .unwrap();
+        let html = get_video_html(&http, "https://www.youtube.com/@LofiGirl/live", true, false).await.unwrap();
         let pr = parse_player_response(&html).unwrap();
         assert_eq!(pr.playability_status.status, "OK", "{:?}", pr.playability_status);
         assert!(!pr.video_details.video_id.is_empty());

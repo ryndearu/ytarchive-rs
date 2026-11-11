@@ -14,10 +14,7 @@ impl FragmentUrl {
     pub fn with_sq_param(url: &str) -> Self {
         let base = strip_sq_param(url);
         let sep = if base.contains('?') { '&' } else { '?' };
-        Self {
-            prefix: format!("{base}{sep}sq="),
-            suffix: String::new(),
-        }
+        Self { prefix: format!("{base}{sep}sq="), suffix: String::new() }
     }
 
     /// The text around the sequence number, for storing the URL.
@@ -37,15 +34,11 @@ impl FragmentUrl {
     /// The URL without any sequence number (useful for HEAD probes).
     pub fn base(&self) -> &str {
         let p = &self.prefix;
-        p.strip_suffix("&sq=")
-            .or_else(|| p.strip_suffix("?sq="))
-            .unwrap_or(p)
+        p.strip_suffix("&sq=").or_else(|| p.strip_suffix("?sq=")).unwrap_or(p)
     }
 
     pub fn host(&self) -> Option<String> {
-        url::Url::parse(self.base())
-            .ok()
-            .and_then(|u| u.host_str().map(str::to_string))
+        url::Url::parse(self.base()).ok().and_then(|u| u.host_str().map(str::to_string))
     }
 
     /// googlevideo URLs meant for fragmented download carry `noclen`
@@ -77,15 +70,8 @@ fn strip_sq_param(url: &str) -> String {
     let Some((base, query)) = url.split_once('?') else {
         return url.to_string();
     };
-    let kept: Vec<&str> = query
-        .split('&')
-        .filter(|p| !p.is_empty() && !p.starts_with("sq="))
-        .collect();
-    if kept.is_empty() {
-        base.to_string()
-    } else {
-        format!("{base}?{}", kept.join("&"))
-    }
+    let kept: Vec<&str> = query.split('&').filter(|p| !p.is_empty() && !p.starts_with("sq=")).collect();
+    if kept.is_empty() { base.to_string() } else { format!("{base}?{}", kept.join("&")) }
 }
 
 #[cfg(test)]
@@ -95,14 +81,8 @@ mod tests {
     #[test]
     fn sq_param() {
         let u = FragmentUrl::with_sq_param("https://x.googlevideo.com/videoplayback?itag=140&noclen=1&sq=55&a=%2F");
-        assert_eq!(
-            u.for_seq(7),
-            "https://x.googlevideo.com/videoplayback?itag=140&noclen=1&a=%2F&sq=7"
-        );
-        assert_eq!(
-            u.base(),
-            "https://x.googlevideo.com/videoplayback?itag=140&noclen=1&a=%2F"
-        );
+        assert_eq!(u.for_seq(7), "https://x.googlevideo.com/videoplayback?itag=140&noclen=1&a=%2F&sq=7");
+        assert_eq!(u.base(), "https://x.googlevideo.com/videoplayback?itag=140&noclen=1&a=%2F");
         assert_eq!(u.host().as_deref(), Some("x.googlevideo.com"));
         assert!(u.is_fragmented());
     }

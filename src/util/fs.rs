@@ -78,9 +78,7 @@ pub fn try_delete(path: &Path) {
 
 /// Creates a new uniquely named directory `{parent}/{prefix}{random}`.
 pub fn create_temp_dir(parent: &Path, prefix: &str, mode: u32) -> std::io::Result<std::path::PathBuf> {
-    let seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos())
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos())
         ^ u128::from(std::process::id());
     for i in 0..100u128 {
         let dir = parent.join(format!("{prefix}{:x}", (seed.wrapping_add(i)) & 0xffff_ffff));

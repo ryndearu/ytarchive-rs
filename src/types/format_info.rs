@@ -12,8 +12,5 @@ pub type MetaInfo = BTreeMap<String, String>;
 /// All template keys present with empty values, so templates can be
 /// validated before extraction fills them in.
 pub fn new_format_info() -> FormatInfo {
-    super::consts::FORMAT_INFO_KEYS
-        .iter()
-        .map(|k| (k.to_string(), String::new()))
-        .collect()
+    super::consts::FORMAT_INFO_KEYS.iter().map(|k| (k.to_string(), String::new())).collect()
 }

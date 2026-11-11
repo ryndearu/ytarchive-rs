@@ -25,8 +25,7 @@ static ACTIVE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Python's universal newlines: `\r\n`, `\r`, and `\n` all end a line.
 fn lines(text: &str) -> impl Iterator<Item = &str> {
-    text.split('\n')
-        .flat_map(|l| l.strip_suffix('\r').unwrap_or(l).split('\r'))
+    text.split('\n').flat_map(|l| l.strip_suffix('\r').unwrap_or(l).split('\r'))
 }
 
 /// Python's `NETSCAPE_MAGIC_RGX.match`: `#( Netscape)? HTTP Cookie File` at the start.
@@ -125,8 +124,11 @@ pub fn repair(data: &[u8]) -> String {
     for line in all.into_iter().filter(|l| !json_like(l)) {
         let line: Cow<str> = match fixed_flag(line) {
             Some(flag) => {
-                let fields: Vec<&str> =
-                    line.split('\t').enumerate().map(|(column, field)| if column == 1 { flag } else { field }).collect();
+                let fields: Vec<&str> = line
+                    .split('\t')
+                    .enumerate()
+                    .map(|(column, field)| if column == 1 { flag } else { field })
+                    .collect();
                 fields.join("\t").into()
             }
             None => line.into(),

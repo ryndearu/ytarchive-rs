@@ -7,11 +7,11 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::download::{load_state, read_kept, KeptStream};
+use crate::download::{KeptStream, load_state, read_kept};
 use crate::log_general;
 use crate::output::state_file;
 use crate::prepare::Prepared;
-use crate::types::{FormatSelection, Options, AUDIO_ITAG};
+use crate::types::{AUDIO_ITAG, FormatSelection, Options};
 
 /// Itags with a `{video_id}.f{itag}.state` file in `dir`.
 fn state_itags(dir: &Path, video_id: &str) -> Vec<u32> {
@@ -40,7 +40,9 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
     let mut kept: Vec<(u32, KeptStream)> = Vec::new();
     let mut temp_dir = PathBuf::new();
     for itag in state_itags(&dir, video_id) {
-        let Some(st) = load_state(&state_file(opts, video_id, itag)) else { continue };
+        let Some(st) = load_state(&state_file(opts, video_id, itag)) else {
+            continue;
+        };
         if st.fragments == 0 || !st.temp_dir.is_dir() {
             continue;
         }

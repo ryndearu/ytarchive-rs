@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use super::wait::sleep_or_cancel;
-use super::{Extractor, ENDED_MESSAGE, MAX_RETRIES};
+use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES};
 use crate::error::Error;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_ytdlp, local_unix_timestamp};
 use crate::types::{FormatSelection, LiveStatus, YtdlpExtraction};
@@ -110,10 +110,7 @@ impl Extractor {
                         polling_announced = true;
                     }
                 } else {
-                    log_general!(
-                        "Waiting {} before retrying yt-dlp...",
-                        seconds_to_duration_and_time_str(secs)
-                    );
+                    log_general!("Waiting {} before retrying yt-dlp...", seconds_to_duration_and_time_str(secs));
                 }
                 if !sleep_or_cancel(&self.cancel, interval).await {
                     return None;

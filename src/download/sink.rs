@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::db_sink::{db_path, DbSink};
+use super::db_sink::{DbSink, db_path};
 use super::ts_sink::TsSink;
 use crate::error::Result;
 use crate::types::{DownloadState, Fragment};

@@ -66,10 +66,7 @@ mod tests {
     #[test]
     fn removes_boxes() {
         let d = sample();
-        assert_eq!(
-            strip_for_concat(&d, "video/mp4", false).unwrap(),
-            [bx("moof", b"m"), bx("mdat", b"data")].concat()
-        );
+        assert_eq!(strip_for_concat(&d, "video/mp4", false).unwrap(), [bx("moof", b"m"), bx("mdat", b"data")].concat());
         assert_eq!(
             strip_for_concat(&d, "", true).unwrap(),
             [bx("ftyp", b"iso6"), bx("moof", b"m"), bx("mdat", b"data")].concat()

@@ -31,14 +31,9 @@ fn main() {
     let commit = env("YTARCHIVE_COMMIT")
         .or_else(|| git(&["rev-parse", "--short=7", "HEAD"]))
         .unwrap_or_else(|| "unknown".into());
-    let date = env("YTARCHIVE_DATE")
-        .or_else(|| git(&["log", "-1", "--format=%cs"]))
-        .unwrap_or_else(|| "unknown date".into());
+    let date =
+        env("YTARCHIVE_DATE").or_else(|| git(&["log", "-1", "--format=%cs"])).unwrap_or_else(|| "unknown date".into());
 
-    let full = if release {
-        format!("{version} ({date})")
-    } else {
-        format!("{version}-{commit} ({date})")
-    };
+    let full = if release { format!("{version} ({date})") } else { format!("{version}-{commit} ({date})") };
     println!("cargo:rustc-env=YTARCHIVE_VERSION_STRING={full}");
 }

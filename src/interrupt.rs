@@ -2,8 +2,8 @@
 //! current download gracefully (merge/save prompts follow); a second one
 //! exits immediately, like Go's `signal.Reset` after the first.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio_util::sync::CancellationToken;
 
@@ -61,10 +61,7 @@ pub struct Interrupt {
 
 impl Interrupt {
     pub fn install() -> Arc<Self> {
-        let me = Arc::new(Self {
-            flag: AtomicBool::new(false),
-            token: CancellationToken::new(),
-        });
+        let me = Arc::new(Self { flag: AtomicBool::new(false), token: CancellationToken::new() });
         let m = me.clone();
         tokio::spawn(async move {
             let Ok(mut signals) = Signals::new() else { return };

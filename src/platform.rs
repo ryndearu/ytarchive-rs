@@ -65,9 +65,7 @@ pub fn setup() -> ConsoleGuard {
 fn disable_quick_edit() -> Option<()> {
     use winapi_util::console;
     let stdin = std::io::stdin();
-    let mode = console::mode(&stdin)
-        .inspect_err(|e| crate::log_debug!("Could not read the console mode: {e}"))
-        .ok()?;
+    let mode = console::mode(&stdin).inspect_err(|e| crate::log_debug!("Could not read the console mode: {e}")).ok()?;
     console::set_mode(&stdin, (mode | ENABLE_EXTENDED_FLAGS) & !ENABLE_QUICK_EDIT_MODE)
         .inspect_err(|e| crate::log_debug!("Could not disable QuickEdit mode: {e}"))
         .ok()?;

@@ -43,18 +43,10 @@ pub fn seconds_to_time_str(seconds: u64) -> String {
     let hours = seconds / 3600;
     let minutes = seconds % 3600 / 60;
     let secs = seconds % 60;
-    if hours > 0 {
-        format!("{hours}:{minutes:02}:{secs:02}")
-    } else {
-        format!("{minutes:02}:{secs:02}")
-    }
+    if hours > 0 { format!("{hours}:{minutes:02}:{secs:02}") } else { format!("{minutes:02}:{secs:02}") }
 }
 
 /// `1h1m1s (1:01:01)`
 pub fn seconds_to_duration_and_time_str(seconds: u64) -> String {
-    format!(
-        "{} ({})",
-        seconds_to_duration_str(seconds),
-        seconds_to_time_str(seconds)
-    )
+    format!("{} ({})", seconds_to_duration_str(seconds), seconds_to_time_str(seconds))
 }

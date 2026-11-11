@@ -12,5 +12,5 @@ mod tests;
 mod ts_sink;
 mod worker;
 
-pub use kept_db::{read_kept, KeptStream};
-pub use stream::{download_stream, load_state, StreamParams};
+pub use kept_db::{KeptStream, read_kept};
+pub use stream::{StreamParams, download_stream, load_state};

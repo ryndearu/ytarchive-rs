@@ -1,6 +1,6 @@
 //! Asking the user for a quality.
 
-use super::{parse_quality_selection, quality_list_string, try_select, UrlMap, DEFAULT_QUALITY};
+use super::{DEFAULT_QUALITY, UrlMap, parse_quality_selection, quality_list_string, try_select};
 use crate::error::{Error, Result};
 use crate::log_general;
 use crate::prompt::get_user_input;

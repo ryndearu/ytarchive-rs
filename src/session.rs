@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::http::Http;
-use crate::types::{DataType, FormatSelection, FragmentUrl, Options, PerType, AUDIO_ITAG, URL_REFRESH_INTERVAL_SECS};
+use crate::types::{AUDIO_ITAG, DataType, FormatSelection, FragmentUrl, Options, PerType, URL_REFRESH_INTERVAL_SECS};
 use crate::util::lock;
 use crate::video_info::Extractor;
 use crate::{log_debug, log_warn, ytdlp};

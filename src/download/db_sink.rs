@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use super::sink::Event;
 use super::ts_sink::fragment_bytes;
@@ -85,8 +85,7 @@ impl DbSink {
     }
 
     pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
-        self.conn
-            .execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value])?;
+        self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value])?;
         Ok(())
     }
 
@@ -101,11 +100,9 @@ impl DbSink {
 
     /// (fragment count, total bytes) stored.
     pub fn totals(&self) -> Result<(u64, u64)> {
-        Ok(self.conn.query_row(
-            "SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments",
-            [],
-            |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64)),
-        )?)
+        Ok(self.conn.query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |r| {
+            Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64))
+        })?)
     }
 
     pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> Result<Vec<Event>> {

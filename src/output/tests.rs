@@ -84,7 +84,8 @@ fn title_is_cut_to_fit_windows_max_path() {
     let o = Options { temp_dir: Some(temp_dir.clone()), ..o };
     let (_, short) = final_location(&o, &fi(&"t".repeat(200))).unwrap();
     assert!(short.len() < name.len());
-    let temp = std::path::absolute(&temp_dir).unwrap().join("vid__ffffffff").join(format!("{short}.f399.frag12345678.ts"));
+    let temp =
+        std::path::absolute(&temp_dir).unwrap().join("vid__ffffffff").join(format!("{short}.f399.frag12345678.ts"));
     assert!(units(&temp) < WINDOWS_MAX_PATH, "{}", units(&temp));
 
     // Without --windows-filenames, only the 255-byte name limit applies.

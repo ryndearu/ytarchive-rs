@@ -37,6 +37,7 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 Run these as separate commands before pushing (CI runs clippy and tests on all three platforms; a change isn't done until they pass). Clippy is also the typecheck; there's no separate `cargo check` step:
 
 ```sh
+cargo fmt
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo build --release --locked   # when dependencies or build config change

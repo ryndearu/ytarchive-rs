@@ -29,10 +29,7 @@ fn frags_for(secs: u64, target_duration: u32) -> u64 {
 }
 
 fn parse_unsigned(value: &str) -> Option<Duration> {
-    parse_duration_units(value)
-        .filter(|d| !d.negative)
-        .map(|d| d.duration)
-        .or_else(|| parse_time_string(value))
+    parse_duration_units(value).filter(|d| !d.negative).map(|d| d.duration).or_else(|| parse_time_string(value))
 }
 
 /// Resolves `--live-from` (`now`, `-DURATION`, or `DURATION`/time string)
@@ -40,10 +37,7 @@ fn parse_unsigned(value: &str) -> Option<Duration> {
 pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Result<LiveFrom> {
     let td = u64::from(target_duration.max(1));
     if value.trim().eq_ignore_ascii_case("now") {
-        return Ok(LiveFrom {
-            start_sq: last_sq,
-            message: "Starting download from current time".into(),
-        });
+        return Ok(LiveFrom { start_sq: last_sq, message: "Starting download from current time".into() });
     }
 
     let (negative, body) = match value.trim().strip_prefix('-') {
@@ -51,9 +45,7 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
         None => (false, value.trim()),
     };
     let dur = parse_unsigned(body).ok_or_else(|| {
-        Error::InvalidArg(format!(
-            "--live-from: unable to parse '{value}' as either a duration or a time string"
-        ))
+        Error::InvalidArg(format!("--live-from: unable to parse '{value}' as either a duration or a time string"))
     })?;
     let frags = frags_for(dur.as_secs(), target_duration);
     let rounded_secs = frags * td;
@@ -74,9 +66,7 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
         }
         return Ok(LiveFrom {
             start_sq: last_sq - frags,
-            message: format!(
-                "Jumping back {rounded_secs} seconds from now, and starting to download from that time."
-            ),
+            message: format!("Jumping back {rounded_secs} seconds from now, and starting to download from that time."),
         });
     }
 
@@ -110,10 +100,7 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
 /// both rounded up to whole fragments.
 pub fn start_delay(delay: Duration, last_sq: u64, target_duration: u32) -> (u64, Duration) {
     let frags = frags_for(delay.as_secs(), target_duration);
-    (
-        last_sq + frags,
-        Duration::from_secs(frags * u64::from(target_duration.max(1))),
-    )
+    (last_sq + frags, Duration::from_secs(frags * u64::from(target_duration.max(1))))
 }
 
 #[cfg(test)]

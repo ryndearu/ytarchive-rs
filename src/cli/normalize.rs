@@ -8,11 +8,8 @@ use clap::CommandFactory;
 use super::Cli;
 
 /// Go flag aliases that are multi-character but single-dash.
-const GO_SHORT_ALIASES: &[(&str, &str)] = &[
-    ("td", "temporary-dir"),
-    ("dp", "directory-permissions"),
-    ("fp", "file-permissions"),
-];
+const GO_SHORT_ALIASES: &[(&str, &str)] =
+    &[("td", "temporary-dir"), ("dp", "directory-permissions"), ("fp", "file-permissions")];
 
 /// Rewrites Go-style `-flag` long options to `--flag` so clap accepts them.
 /// Values following a value-taking flag are left untouched.

@@ -5,10 +5,7 @@ use std::sync::OnceLock;
 use super::*;
 
 fn sqlite_opts(threads: usize) -> Options {
-    Options {
-        storage: crate::types::StorageMode::Sqlite,
-        ..opts(threads, true)
-    }
+    Options { storage: crate::types::StorageMode::Sqlite, ..opts(threads, true) }
 }
 
 /// `--recover-private` (which turns on SQLite).
@@ -28,9 +25,7 @@ async fn sqlite_downloads_and_exports_in_order() {
     assert_eq!(out.state.fragments, 20);
     assert!(dir.join("out.f140.sqlite").exists());
     // No temp fragment files are used in SQLite mode.
-    assert!(!std::fs::read_dir(&dir)
-        .unwrap()
-        .any(|e| e.unwrap().file_name().to_string_lossy().contains(".frag")));
+    assert!(!std::fs::read_dir(&dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".frag")));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

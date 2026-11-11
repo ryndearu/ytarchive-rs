@@ -5,12 +5,7 @@ use VideoCodec::*;
 fn urls(itags: &[u32]) -> UrlMap {
     itags
         .iter()
-        .map(|i| {
-            (
-                *i,
-                FragmentUrl::with_sq_param(&format!("https://r.googlevideo.com/v?itag={i}&noclen=1")),
-            )
-        })
+        .map(|i| (*i, FragmentUrl::with_sq_param(&format!("https://r.googlevideo.com/v?itag={i}&noclen=1"))))
         .collect()
 }
 

@@ -40,15 +40,14 @@ pub async fn remove_frag_file(data: &FragData) {
 impl TsSink {
     /// Continues the file from `state` if it is consistent, else returns
     /// `None` so the caller starts fresh.
-    pub async fn resume(
-        path: &Path,
-        state: &DownloadState,
-        name: &str,
-    ) -> std::io::Result<Option<(Self, u64)>> {
+    pub async fn resume(path: &Path, state: &DownloadState, name: &str) -> std::io::Result<Option<(Self, u64)>> {
         match tokio::fs::OpenOptions::new().read(true).write(true).open(path).await {
             Ok(mut f) => {
                 if f.metadata().await?.len() < state.size {
-                    log_warn!("{name}: {} is smaller than the saved state; starting from the beginning", path.display());
+                    log_warn!(
+                        "{name}: {} is smaller than the saved state; starting from the beginning",
+                        path.display()
+                    );
                     return Ok(None);
                 }
                 // Drop anything written after the last saved state.

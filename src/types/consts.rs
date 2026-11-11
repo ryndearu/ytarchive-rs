@@ -65,10 +65,7 @@ pub const VIDEO_QUALITIES: &[(&str, VideoItag)] = &[
 ];
 
 pub fn itags_for_label(label: &str) -> Option<VideoItag> {
-    VIDEO_QUALITIES
-        .iter()
-        .find(|(l, _)| *l == label)
-        .map(|(_, v)| *v)
+    VIDEO_QUALITIES.iter().find(|(l, _)| *l == label).map(|(_, v)| *v)
 }
 
 /// `--print` template used with yt-dlp to get only the fields we need.

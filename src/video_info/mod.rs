@@ -14,12 +14,9 @@ use tokio_util::sync::CancellationToken;
 use crate::formats::{self, UrlMap};
 use crate::http::Http;
 use crate::input_url::InputUrl;
-use crate::stream_meta::{
-    apply_metadata, default_metadata, format_info_from_player_response, local_timestamp,
-};
+use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_player_response, local_timestamp};
 use crate::types::{
-    new_format_info, Action, FormatInfo, FormatSelection, MetaInfo, Options, VideoCodec,
-    DEFAULT_POLL_SECS,
+    Action, DEFAULT_POLL_SECS, FormatInfo, FormatSelection, MetaInfo, Options, VideoCodec, new_format_info,
 };
 use crate::{log_debug, log_error, log_general, ytdlp};
 
@@ -75,11 +72,7 @@ impl Extractor {
             InputUrl::Channel { .. } => (true, String::new()),
             InputUrl::Video { id } | InputUrl::GoogleVideo { id, .. } => (false, id.clone()),
         };
-        let selected = opts
-            .quality
-            .as_deref()
-            .map(formats::parse_quality_selection)
-            .unwrap_or_default();
+        let selected = opts.quality.as_deref().map(formats::parse_quality_selection).unwrap_or_default();
         Self {
             page_url: input.page_url(),
             is_channel,

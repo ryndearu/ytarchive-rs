@@ -57,9 +57,7 @@ async fn main() -> ExitCode {
     }
 
     // Validate the output template early, as Go does, before any network work.
-    if let Err(e) =
-        util::format_python_map(&options.output_format, &types::new_format_info())
-    {
+    if let Err(e) = util::format_python_map(&options.output_format, &types::new_format_info()) {
         log_error!("{e}");
         return ExitCode::FAILURE;
     }

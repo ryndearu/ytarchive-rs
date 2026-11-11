@@ -10,8 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::error::{Error, Result};
 use crate::http::Http;
 use crate::types::{
-    FragmentUrl, LiveStatus, Options, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo,
-    YTDLP_INFO_PRINT_TEMPLATE,
+    FragmentUrl, LiveStatus, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo,
 };
 use crate::{log_debug, log_trace, log_warn};
 
@@ -117,8 +116,7 @@ pub fn parse_output(stdout: &str) -> Result<YtdlpRawInfo> {
         .find(|(_, l)| l.trim_start().starts_with('{'))
         .map(|(at, _)| at)
         .ok_or_else(|| Error::Ytdlp("no JSON in yt-dlp output".into()))?;
-    let mut stream =
-        serde_json::Deserializer::from_str(&stdout[start..]).into_iter::<YtdlpRawInfo>();
+    let mut stream = serde_json::Deserializer::from_str(&stdout[start..]).into_iter::<YtdlpRawInfo>();
     match stream.next() {
         Some(r) => Ok(r?),
         None => Err(Error::Ytdlp("no JSON in yt-dlp output".into())),
@@ -133,20 +131,14 @@ pub fn is_adaptive_format(f: &YtdlpFormat) -> bool {
     };
     crate::types::is_fragmented(url)
         && f.manifest_url.as_deref().is_none_or(str::is_empty)
-        && matches!(
-            f.protocol.as_deref(),
-            Some("http_dash_segments" | "http_dash_segments_generator")
-        )
+        && matches!(f.protocol.as_deref(), Some("http_dash_segments" | "http_dash_segments_generator"))
 }
 
 /// Converts raw yt-dlp output into an extraction, without network access.
 /// Returns the raw URL of the first adaptive format for the sequence probe.
 pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
     let live_status = LiveStatus::parse(raw.live_status.as_deref().unwrap_or(""));
-    let start_unix = raw
-        .release_timestamp
-        .filter(|t| *t > 0)
-        .or(raw.timestamp.filter(|t| *t > 0));
+    let start_unix = raw.release_timestamp.filter(|t| *t > 0).or(raw.timestamp.filter(|t| *t > 0));
 
     let mut info = YtdlpExtraction {
         id: raw.id.unwrap_or_default(),
@@ -182,31 +174,15 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
 
 /// Reads the `X-Head-Seqnum` header (latest available fragment) via HEAD.
 pub async fn probe_x_head_seqnum(http: &Http, url: &str) -> Option<u64> {
-    let resp = http
-        .client
-        .head(url)
-        .header(ORIGIN, "https://www.youtube.com")
-        .timeout(PROBE_TIMEOUT)
-        .send()
-        .await
-        .ok()?;
-    resp.headers()
-        .get("x-head-seqnum")?
-        .to_str()
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    let resp =
+        http.client.head(url).header(ORIGIN, "https://www.youtube.com").timeout(PROBE_TIMEOUT).send().await.ok()?;
+    resp.headers().get("x-head-seqnum")?.to_str().ok()?.trim().parse().ok()
 }
 
 /// Sequence boundary for downloading. Post-live, the last couple of fragments
 /// tend to return 503, so stop one short of the head.
 pub fn seq_boundary(head: u64, post_live: bool) -> Option<u64> {
-    if post_live {
-        (head > 1).then(|| head - 1)
-    } else {
-        Some(head)
-    }
+    if post_live { (head > 1).then(|| head - 1) } else { Some(head) }
 }
 
 /// Full extraction: run yt-dlp (with retries), parse, and probe the last sequence.
@@ -221,9 +197,7 @@ pub async fn extract(
     let (mut info, probe_url) = to_extraction(parse_output(&out)?);
     if let Some(p) = probe_url {
         let post_live = info.live_status == LiveStatus::PostLive;
-        info.last_sq = probe_x_head_seqnum(http, &p)
-            .await
-            .and_then(|h| seq_boundary(h, post_live));
+        info.last_sq = probe_x_head_seqnum(http, &p).await.and_then(|h| seq_boundary(h, post_live));
     }
     if !info.urls.is_empty() {
         log_debug!("Loaded {} adaptive format URLs from yt-dlp", info.urls.len());
@@ -270,10 +244,7 @@ mod tests {
         );
         assert_eq!(&a[a.len() - 2..], ["--", "https://youtu.be/x"]);
         assert!(!build_args(&Options::default(), "u", false).contains(&"--ignore-no-formats-error".to_string()));
-        let repaired = Options {
-            ytdlp_cookies_file: Some("fixed.txt".into()),
-            ..opts
-        };
+        let repaired = Options { ytdlp_cookies_file: Some("fixed.txt".into()), ..opts };
         assert_eq!(&build_args(&repaired, "u", false)[3..5], ["--cookies", "fixed.txt"]);
     }
 
@@ -290,14 +261,8 @@ mod tests {
         let mut itags: Vec<_> = info.urls.keys().copied().collect();
         itags.sort();
         assert_eq!(itags, [140, 299]);
-        assert_eq!(
-            info.urls[&140].for_seq(3),
-            "https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=3"
-        );
-        assert_eq!(
-            probe.as_deref(),
-            Some("https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=9")
-        );
+        assert_eq!(info.urls[&140].for_seq(3), "https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=3");
+        assert_eq!(probe.as_deref(), Some("https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=9"));
     }
 
     #[test]

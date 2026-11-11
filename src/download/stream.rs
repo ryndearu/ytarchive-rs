@@ -8,11 +8,11 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::dispatch::Dispatch;
-use super::kept_db::{save_end, save_info, save_progress, Saved};
-use super::recovery::{recover, usable_until, Span};
+use super::kept_db::{Saved, save_end, save_info, save_progress};
+use super::recovery::{Span, recover, usable_until};
 use super::sink::{self, Event, Sink};
 use super::ts_sink::remove_frag_file;
-use super::worker::{worker, Msg};
+use super::worker::{Msg, worker};
 use crate::error::{Error, Result};
 use crate::live_from::seekable_start_sq;
 use crate::session::Session;
@@ -75,12 +75,7 @@ fn record(p: &mut StreamParams, max_seq: Option<u64>, n: u64, mode: u32) {
     p.state.fragments += 1;
     p.state.size += n;
     save_state(p, mode);
-    let info = ProgressInfo {
-        data_type: p.data_type,
-        byte_count: n,
-        max_seq,
-        start_frag: p.state.start_frag,
-    };
+    let info = ProgressInfo { data_type: p.data_type, byte_count: n, max_seq, start_frag: p.state.start_frag };
     // The progress line is optional; the download goes on without it.
     if p.progress.send(info).is_err() {
         log_trace!("{}: the progress reporter has stopped", p.data_type.as_str());
@@ -134,13 +129,8 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
     }
 
     let end_seq = p.capture_duration.map(|d| cur + d.as_secs().div_ceil(u64::from(td)));
-    let dispatch = Arc::new(Mutex::new(Dispatch {
-        next: cur,
-        max_seq: p.last_sq,
-        end_seq,
-        in_flight: 0,
-        skip: opened.skip,
-    }));
+    let dispatch =
+        Arc::new(Mutex::new(Dispatch { next: cur, max_seq: p.last_sq, end_seq, in_flight: 0, skip: opened.skip }));
 
     // A kept download whose stream can't be looked up anymore goes straight
     // to recovery (with SQLite); the workers would only use up their tries.

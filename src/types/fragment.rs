@@ -64,16 +64,7 @@ pub struct FragThreadState {
 
 impl FragThreadState {
     pub fn new(name: impl Into<String>, data_type: DataType, sleep: Duration) -> Self {
-        Self {
-            name: name.into(),
-            data_type,
-            seq: 0,
-            max_seq: None,
-            tries: 0,
-            full_retries: 3,
-            is_403: false,
-            sleep,
-        }
+        Self { name: name.into(), data_type, seq: 0, max_seq: None, tries: 0, full_retries: 3, is_403: false, sleep }
     }
 
     pub fn reset_for(&mut self, seq: u64, max_seq: Option<u64>) {

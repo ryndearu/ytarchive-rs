@@ -32,12 +32,7 @@ pub async fn sleep_until_unix(cancel: &CancellationToken, unix: i64) -> bool {
 
 /// Parses the poll-interval answer; anything invalid or too small becomes the default.
 pub fn parse_poll_secs(answer: &str) -> u64 {
-    answer
-        .trim()
-        .parse::<u64>()
-        .ok()
-        .filter(|s| *s >= DEFAULT_POLL_SECS)
-        .unwrap_or(DEFAULT_POLL_SECS)
+    answer.trim().parse::<u64>().ok().filter(|s| *s >= DEFAULT_POLL_SECS).unwrap_or(DEFAULT_POLL_SECS)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -75,10 +70,8 @@ impl Extractor {
                 true
             }
             WaitChoice::Poll => {
-                let secs = get_user_input(&format!(
-                    "Input poll interval in seconds (minimum {DEFAULT_POLL_SECS}): "
-                ))
-                .await;
+                let secs =
+                    get_user_input(&format!("Input poll interval in seconds (minimum {DEFAULT_POLL_SECS}): ")).await;
                 self.retry_secs = Some(parse_poll_secs(&secs));
                 true
             }
@@ -115,16 +108,9 @@ mod tests {
     #[test]
     fn wait_choice() {
         use WaitChoice::*;
-        for (answer, want) in [
-            ("1", Wait),
-            ("Wait", Wait),
-            ("2", Poll),
-            ("poll", Poll),
-            ("", No),
-            ("3", No),
-            ("no", No),
-            ("x", No),
-        ] {
+        for (answer, want) in
+            [("1", Wait), ("Wait", Wait), ("2", Poll), ("poll", Poll), ("", No), ("3", No), ("no", No), ("x", No)]
+        {
             assert_eq!(parse_wait_choice(answer), want, "{answer:?}");
         }
     }

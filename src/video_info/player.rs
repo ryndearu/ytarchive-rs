@@ -4,12 +4,10 @@
 use std::time::Duration;
 
 use super::wait::{sleep_or_cancel, sleep_until_unix};
-use super::{Extractor, ENDED_MESSAGE, MAX_RETRIES, RETRY_DELAY};
+use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY};
 use crate::stream_meta::local_timestamp;
-use crate::types::player_response::{
-    PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE,
-};
-use crate::types::{Action, PlayerResponse, DEFAULT_POLL_SECS};
+use crate::types::player_response::{PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE};
+use crate::types::{Action, DEFAULT_POLL_SECS, PlayerResponse};
 use crate::watch_page::{get_video_html, parse_player_response, video_id_from_watch_page};
 use crate::{log, log_debug, log_error, log_general, log_info, log_warn};
 
@@ -113,11 +111,7 @@ impl Extractor {
             let (author, title) = (vd.author.clone(), vd.title.clone());
             self.print_info(&author, &title);
 
-            let streamability_id = &pr
-                .playability_status
-                .live_streamability
-                .live_streamability_renderer
-                .video_id;
+            let streamability_id = &pr.playability_status.live_streamability.live_streamability_renderer.video_id;
             if streamability_id.is_empty() && !vd.is_live_content {
                 if self.live {
                     self.live = false;
@@ -140,7 +134,8 @@ impl Extractor {
                 PLAYABLE_UNPLAYABLE => {
                     // An ended stream is unplayable while YouTube processes
                     // it, and its live download is gone by then.
-                    let ended = !pr.microformat.player_microformat_renderer.live_broadcast_details.end_timestamp.is_empty();
+                    let ended =
+                        !pr.microformat.player_microformat_renderer.live_broadcast_details.end_timestamp.is_empty();
                     if ended && !self.in_progress {
                         log_general!("{ENDED_MESSAGE}");
                         log_general!("Reason: {}", pr.playability_status.reason);
@@ -221,10 +216,7 @@ impl Extractor {
                         log_general!(
                             "Stream starts at {} in {until} seconds. Waiting for this time to elapse...",
                             local_timestamp(
-                                &pr.microformat
-                                    .player_microformat_renderer
-                                    .live_broadcast_details
-                                    .start_timestamp
+                                &pr.microformat.player_microformat_renderer.live_broadcast_details.start_timestamp
                             )
                         );
                         if !sleep_until_unix(&self.cancel, scheduled).await {

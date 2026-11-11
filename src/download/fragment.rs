@@ -2,8 +2,8 @@
 
 use std::path::PathBuf;
 
-use reqwest::header::{CONTENT_TYPE, ORIGIN, REFERER};
 use reqwest::StatusCode;
+use reqwest::header::{CONTENT_TYPE, ORIGIN, REFERER};
 
 use crate::session::Session;
 use crate::types::{FragData, FragThreadState, Fragment, FragmentUrl};
@@ -82,10 +82,7 @@ fn handle_http_error(s: &Session, st: &mut FragThreadState, status: StatusCode) 
     log_debug!("{}: HTTP Error for fragment {}: {status}", st.name, st.seq);
     if status == StatusCode::FORBIDDEN {
         st.is_403 = true;
-    } else if status == StatusCode::NOT_FOUND
-        && !s.is_live()
-        && st.max_seq.is_some_and(|m| st.seq + 2 > m)
-    {
+    } else if status == StatusCode::NOT_FOUND && !s.is_live() && st.max_seq.is_some_and(|m| st.seq + 2 > m) {
         log_debug!(
             "{}: Stream has ended and fragment within the last two not found, probably not actually created",
             st.name
@@ -132,11 +129,7 @@ async fn sleep_or_stop(s: &Session, st: &FragThreadState) -> bool {
 /// Downloads `st.seq`. With `frag_file`, the data goes to that file instead
 /// of memory. Returns `None` if the fragment was given up on or the
 /// download is stopping.
-pub async fn download_fragment(
-    s: &Session,
-    st: &mut FragThreadState,
-    frag_file: Option<PathBuf>,
-) -> Option<Fragment> {
+pub async fn download_fragment(s: &Session, st: &mut FragThreadState, frag_file: Option<PathBuf>) -> Option<Fragment> {
     let max = s.opts.frag_max_tries;
     while max == 0 || st.tries < max {
         if s.is_stopping() {
@@ -171,12 +164,7 @@ pub async fn download_fragment(
                                 }
                             },
                         };
-                        return Some(Fragment {
-                            seq: st.seq,
-                            x_head_seqnum: head,
-                            data,
-                            mime_type: mime,
-                        });
+                        return Some(Fragment { seq: st.seq, x_head_seqnum: head, data, mime_type: mime });
                     }
                 }
             }

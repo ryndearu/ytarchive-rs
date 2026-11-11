@@ -6,9 +6,7 @@ use crate::download::load_state;
 use crate::error::{Error, Result};
 use crate::types::{DownloadState, FormatInfo, Options};
 use crate::util::filename::MAX_FILENAME_LEN;
-use crate::util::{
-    create_temp_dir, format_filename, portable_file_name, sterilize_filename, NameStyle,
-};
+use crate::util::{NameStyle, create_temp_dir, format_filename, portable_file_name, sterilize_filename};
 use crate::{log_error, log_warn};
 
 #[derive(Debug, Clone)]
@@ -33,10 +31,7 @@ impl OutputPlan {
     /// state file.
     pub fn owns_temp_dir(&self, video_id: &str) -> bool {
         self.temp_dir != self.final_dir
-            && self
-                .temp_dir
-                .file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with(&format!("{video_id}__")))
+            && self.temp_dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&format!("{video_id}__")))
     }
 
     pub fn remove_temp_dir(&self, video_id: &str) {
@@ -89,7 +84,9 @@ pub fn final_location(opts: &Options, fi: &FormatInfo) -> Result<(PathBuf, Strin
         return Err(Error::InvalidFormat(format!("output file name is too long ({} bytes)", name.len())));
     }
     if room.is_some_and(|r| name.encode_utf16().count() > r) {
-        log_warn!("The output paths are longer than the Windows limit of {WINDOWS_MAX_PATH} characters even after shortening the title; writing files may fail.");
+        log_warn!(
+            "The output paths are longer than the Windows limit of {WINDOWS_MAX_PATH} characters even after shortening the title; writing files may fail."
+        );
     }
     Ok((dir, name))
 }
@@ -153,10 +150,7 @@ pub fn ensure_dir(dir: PathBuf, mode: u32, what: &str) -> PathBuf {
 
 /// `{temp-dir option or cwd}/{video_id}.f{itag}.state`
 pub fn state_file(opts: &Options, video_id: &str, itag: u32) -> PathBuf {
-    opts.temp_dir
-        .clone()
-        .unwrap_or_default()
-        .join(format!("{video_id}.f{itag}.state"))
+    opts.temp_dir.clone().unwrap_or_default().join(format!("{video_id}.f{itag}.state"))
 }
 
 /// Loads saved state for each itag (unless disabled). Returns states and the

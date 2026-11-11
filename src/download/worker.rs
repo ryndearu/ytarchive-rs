@@ -54,9 +54,7 @@ pub(super) async fn worker(
             Take::Seq(seq, max) => (seq, max),
         };
         st.reset_for(seq, max);
-        let frag_file = frag_prefix
-            .as_ref()
-            .map(|p| PathBuf::from(format!("{}.frag{seq}.ts", p.display())));
+        let frag_file = frag_prefix.as_ref().map(|p| PathBuf::from(format!("{}.frag{seq}.ts", p.display())));
         let frag = download_fragment(&s, &mut st, frag_file).await;
         lock(&dispatch).complete(frag.as_ref().and_then(|f| f.x_head_seqnum));
         let msg = match frag {

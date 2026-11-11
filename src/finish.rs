@@ -79,7 +79,10 @@ impl Finish<'_> {
         let until = if until == u64::MAX {
             String::new()
         } else {
-            format!(" (before about {}, when the download URLs expire)", local_unix_timestamp(i64::try_from(until).unwrap_or(i64::MAX)))
+            format!(
+                " (before about {}, when the download URLs expire)",
+                local_unix_timestamp(i64::try_from(until).unwrap_or(i64::MAX))
+            )
         };
         log_warn!(
             "Some fragments are still missing. The downloaded data was kept in {} so they can be retried: run the same command again{until}.",
@@ -118,7 +121,12 @@ impl Finish<'_> {
     /// if the user chose to merge what was downloaded.
     pub async fn on_cancel(&self) -> Option<i32> {
         let o = self.opts;
-        if decide(o.merge_on_cancel, "\nDownload stopped prematurely. Would you like to merge the currently downloaded data?").await {
+        if decide(
+            o.merge_on_cancel,
+            "\nDownload stopped prematurely. Would you like to merge the currently downloaded data?",
+        )
+        .await
+        {
             return None;
         }
         let save_files = decide(o.save_files_on_cancel, "\nWould you like to save any created files?").await;
@@ -152,8 +160,7 @@ impl Finish<'_> {
         }
 
         let mux_file = Some(self.mux_file.clone());
-        let moves_ok =
-            self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]);
+        let moves_ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]);
 
         let mut to_delete = vec![self.mux_file.dest.clone()];
         if !o.keep_ts_files {
@@ -169,10 +176,7 @@ impl Finish<'_> {
         }
 
         if !mux::program_exists(&o.ffmpeg_path) {
-            log_error!(
-                "{} not found. Please install ffmpeg or provide a location using --ffmpeg-path",
-                o.ffmpeg_path
-            );
+            log_error!("{} not found. Please install ffmpeg or provide a location using --ffmpeg-path", o.ffmpeg_path);
             self.cleanup_or_keep(moves_ok);
             return 1;
         }

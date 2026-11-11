@@ -3,16 +3,12 @@
 
 use crate::input_url::parse_gvideo_url;
 use crate::prompt::get_user_input;
-use crate::types::{DataType, FormatSelection, FragmentUrl, Options, AUDIO_ITAG};
+use crate::types::{AUDIO_ITAG, DataType, FormatSelection, FragmentUrl, Options};
 use crate::{log_error, log_general};
 
 async fn prompt_url(dt: DataType) -> Option<(FragmentUrl, u32)> {
     loop {
-        let raw = get_user_input(&format!(
-            "Please enter the {} url, or nothing to skip: ",
-            dt.as_str()
-        ))
-        .await;
+        let raw = get_user_input(&format!("Please enter the {} url, or nothing to skip: ", dt.as_str())).await;
         if raw.is_empty() {
             return None;
         }
@@ -25,9 +21,7 @@ async fn prompt_url(dt: DataType) -> Option<(FragmentUrl, u32)> {
 
 fn from_flag(raw: Option<&str>, dt: DataType) -> Option<(FragmentUrl, u32)> {
     let raw = raw?;
-    parse_gvideo_url(raw, dt)
-        .inspect_err(|e| log_error!("--{}-url: {e}", dt.as_str()))
-        .ok()
+    parse_gvideo_url(raw, dt).inspect_err(|e| log_error!("--{}-url: {e}", dt.as_str())).ok()
 }
 
 /// Builds the selection from the input URL plus `--audio-url`/`--video-url`.
