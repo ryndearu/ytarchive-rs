@@ -1,6 +1,11 @@
 // Unsafe code is only allowed where it's truly necessary; there is none now.
 #![forbid(unsafe_code)]
 
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 mod cli;
 mod cookies;
 mod download;

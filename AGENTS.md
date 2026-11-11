@@ -21,6 +21,7 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - Don't assume Unix in code or tests: no hard-coded `/tmp`, `sh`, or unescaped paths in JSON; gate platform code with `#[cfg(windows)]` / `#[cfg(unix)]` (see `src/platform.rs`, `util::set_mode`).
 - The Rust version is pinned in `rust-toolchain.toml` (development, CI, and releases all use it); raise it in its own commit. `rust-version` in `Cargo.toml` is the oldest Rust that builds the crate; check it with that toolchain when dependencies change.
 - TLS is rustls with the `ring` provider and the OS certificate store; don't add OpenSSL.
+- The global allocator is mimalloc, and the release profile uses fat LTO with `codegen-units = 1`. Keep panic unwinding (no `panic = "abort"`): the download code catches a panicked worker so the other stream is still finished and muxed, and `ConsoleGuard` restores the Windows console.
 
 ## Code layout and style
 
