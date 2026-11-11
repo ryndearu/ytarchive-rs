@@ -24,6 +24,14 @@ on:
       - "clippy.toml"
       - ".github/workflows/ci.yml"
 
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request replaces the running check.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   # Run JavaScript actions on Node 24.

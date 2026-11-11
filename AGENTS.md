@@ -66,8 +66,9 @@ cargo build --release --locked   # when dependencies or build config change
 
 ## Releases
 
-- **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release.
+- **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release, with a `SHA256SUMS` file and a build provenance attestation for the zips.
 - **Nightly** (`nightly.yml`) runs weekly, Fridays at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a docs commit (`docs:` or `docs(...):`), otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release as links to their commit pages.
 - Both use `build.yml`, which publishes one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only `ytarchive`/`ytarchive.exe` (Linux builds are static musl). Releases build x64 and arm64 for every OS; nightly (`all_targets: false`) builds only Windows x64, Linux x64, and macOS arm64. It sets `YTARCHIVE_CHANNEL`/`YTARCHIVE_VERSION`/`YTARCHIVE_COMMIT`/`YTARCHIVE_DATE` for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
 - **CI** runs only for pushes that touch the code or what builds and checks it: `src/`, `build.rs`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, or `ci.yml` itself. Besides the three-platform tests, it checks that the crate builds with the `rust-version` in `Cargo.toml`.
+- **Dependabot** (`.github/dependabot.yml`) opens one grouped pull request a week for Cargo dependencies and one for GitHub Actions.
 - **Audit** (`audit.yml`) runs `cargo audit` every Monday and whenever `Cargo.toml` or `Cargo.lock` changes. It fails on a vulnerable dependency; "unmaintained" notices are only warnings. `cargo-audit` is installed as a prebuilt binary.

@@ -67,9 +67,12 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
+      # A prebuilt binary; building cross from source takes minutes.
       - name: Install cross
         if: env.CROSS == 'true'
-        run: cargo install cross --locked
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
       - name: Version stamp
         shell: bash
