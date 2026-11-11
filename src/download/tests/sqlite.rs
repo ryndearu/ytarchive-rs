@@ -14,24 +14,6 @@ fn recovery_opts(threads: usize) -> Options {
 }
 
 #[tokio::test]
-async fn sqlite_downloads_and_exports_in_order() {
-    let url = serve(20, vec![]).await;
-    let dir = temp_dir("sqlite");
-    let session = Session::for_test(sqlite_opts(4), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (stream_params, _rx) = params(&dir, 20, DownloadState::default());
-    let out = download_stream(session, stream_params).await.unwrap();
-    let want: Vec<u8> = (0..20).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    assert_eq!(out.state.fragments, 20);
-    assert!(dir.join("out.f140.sqlite").exists());
-    // No temp fragment files are used in SQLite mode.
-    assert!(
-        !std::fs::read_dir(&dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".frag"))
-    );
-    std::fs::remove_dir_all(&dir).unwrap();
-}
-
-#[tokio::test]
 async fn sqlite_resume_fills_gap() {
     let dir = temp_dir("sqlite-resume");
 
@@ -42,6 +24,11 @@ async fn sqlite_resume_fills_gap() {
     let first = download_stream(session, stream_params).await.unwrap();
     assert_eq!(first.skipped, [3]);
     assert_eq!(first.state.fragments, 9);
+    assert!(dir.join("out.f140.sqlite").exists());
+    // No temp fragment files are used in SQLite mode.
+    assert!(
+        !std::fs::read_dir(&dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".frag"))
+    );
 
     // Second run against a healthy server resumes from the saved state and
     // only needs the missing fragment.
