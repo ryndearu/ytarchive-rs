@@ -17,4 +17,5 @@ Keep this file current: when something listed here gets verified, delete its lin
 - **Backing off and skipping a stuck live fragment** against YouTube: the longer waits after connection errors, 5xx, and 429 (with `Retry-After`), and giving up on one fragment that keeps failing while the rest of a live stream downloads (only unit tests).
 - **Falling back to `best` on a scheduled stream** when the quality chosen while waiting isn't offered once it starts (only tried on a live stream).
 - **AV1** (none of the test streams offered it), so the AV1-first default order is only covered by unit tests.
+- **Proxy environment variables** (`HTTPS_PROXY` and the others) without `--proxy`.
 - **`-6`** (the test machines had no IPv6).
