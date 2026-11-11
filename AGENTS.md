@@ -28,6 +28,7 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - A file over 400 lines must be split, but only when you are already editing it; say so in the commit.
 - No crate-wide `allow(dead_code)`. Remove unused code, tests, and dependencies. Tests for minor or unimportant features go only in `src/minor_tests.rs` (`#[cfg(test)] mod minor_tests;`), so they can be deleted all at once.
 - No `unsafe` unless it's truly necessary; prefer a maintained safe wrapper crate. `main.rs` has `#![forbid(unsafe_code)]`; lifting it needs a good reason.
+- Outside tests: no `unwrap()`/`expect()`, no unchecked indexing or slicing, and no `let _ =` on a `Result` (handle it, or log it if it can be ignored). Clippy enforces this (`[lints.clippy]` in `Cargo.toml`; tests are exempt through `clippy.toml`). Use `util::lock` for mutexes and `util::apply_mode` for permissions that may fail.
 - Comments explain *why*, especially where behavior differs from Go.
 - Cookies are read twice, on purpose: `cookies.rs` follows Go for ytarchive's own requests, and `ytdlp_cookies.rs` mirrors yt-dlp's loader only to decide whether yt-dlp needs a repaired copy. Keep them separate; each must match its own target.
 

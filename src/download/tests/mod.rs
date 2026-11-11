@@ -94,8 +94,9 @@ async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64, on_forbidden: Op
                     "HTTP/1.1 {status}\r\ncontent-type: video/mp4\r\nx-head-seqnum: {head}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                     body.len()
                 );
-                let _ = sock.write_all(hdr.as_bytes()).await;
-                let _ = sock.write_all(&body).await;
+                // The client may hang up first (a cancelled request).
+                sock.write_all(hdr.as_bytes()).await.ok();
+                sock.write_all(&body).await.ok();
             });
         }
     });
@@ -104,7 +105,9 @@ async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64, on_forbidden: Op
 
 fn temp_dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("ytarchive-rs-dl-{tag}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
+    if d.exists() {
+        std::fs::remove_dir_all(&d).unwrap();
+    }
     std::fs::create_dir_all(&d).unwrap();
     d
 }

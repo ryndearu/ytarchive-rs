@@ -10,8 +10,8 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use super::sink::Event;
 use crate::mp4_atoms::strip_for_concat;
 use crate::types::{DownloadState, FragData, Fragment};
-use crate::util::set_mode;
-use crate::{log_info, log_warn};
+use crate::util::apply_mode;
+use crate::{log_debug, log_info, log_warn};
 
 pub struct TsSink {
     file: tokio::fs::File,
@@ -29,8 +29,11 @@ pub async fn fragment_bytes(data: &FragData) -> std::io::Result<Vec<u8>> {
 }
 
 pub async fn remove_frag_file(data: &FragData) {
-    if let FragData::File(p) = data {
-        let _ = tokio::fs::remove_file(p).await;
+    if let FragData::File(path) = data
+        && let Err(error) = tokio::fs::remove_file(path).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        log_debug!("Could not delete the fragment file {}: {error}", path.display());
     }
 }
 
@@ -65,7 +68,7 @@ impl TsSink {
 
     pub async fn create(path: &Path, start: u64, mode: u32) -> std::io::Result<Self> {
         let f = tokio::fs::File::create(path).await?;
-        let _ = set_mode(path, mode);
+        apply_mode(path, mode);
         Ok(Self::new(f, path, start, start))
     }
 

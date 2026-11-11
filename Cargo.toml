@@ -11,7 +11,6 @@ license = "MIT"
 bytes = "1.12.1"
 chrono = "0.4.45"
 clap = { version = "4.6.7", features = ["derive"] }
-regex = "1.13.1"
 # rustls with the `ring` provider: no OpenSSL/cmake/nasm needed on Linux,
 # Windows, or macOS; certificates come from the OS store.
 reqwest = { version = "0.13.5", default-features = false, features = [
@@ -38,6 +37,14 @@ url = "2.5.8"
 enable-ansi-support = "0.3.1"
 keepawake = "0.6.1"
 winapi-util = "0.1.11"
+
+# Code outside tests must not panic or drop errors; tests are exempt through
+# clippy.toml.
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+let_underscore_must_use = "deny"
 
 [profile.release]
 lto = "thin"

@@ -22,8 +22,10 @@ static INPUT_MODE: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 /// Undoes console changes; call before `std::process::exit`.
 pub fn restore() {
     #[cfg(windows)]
-    if let Some(&mode) = INPUT_MODE.get() {
-        let _ = winapi_util::console::set_mode(std::io::stdin(), mode);
+    if let Some(&mode) = INPUT_MODE.get()
+        && let Err(error) = winapi_util::console::set_mode(std::io::stdin(), mode)
+    {
+        crate::log_debug!("Could not restore the console mode: {error}");
     }
 }
 

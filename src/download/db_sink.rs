@@ -14,7 +14,7 @@ use super::ts_sink::fragment_bytes;
 use crate::error::Result;
 use crate::mp4_atoms::strip_for_concat;
 use crate::types::{Fragment, FragmentUrl};
-use crate::util::set_mode;
+use crate::util::apply_mode;
 
 pub struct DbSink {
     conn: Connection,
@@ -31,7 +31,7 @@ impl DbSink {
     // on the writer task rather than through a blocking pool.
     pub fn open(path: &Path, mode: u32) -> Result<Self> {
         let conn = Connection::open(path)?;
-        let _ = set_mode(path, mode);
+        apply_mode(path, mode);
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
@@ -126,7 +126,7 @@ impl DbSink {
     /// first fragment keeps its `ftyp` box. Returns (fragments, bytes).
     pub fn export(&self, out: &Path, mode: u32) -> Result<(u64, u64)> {
         let mut file = std::io::BufWriter::new(std::fs::File::create(out)?);
-        let _ = set_mode(out, mode);
+        apply_mode(out, mode);
         let mut stmt = self.conn.prepare("SELECT mime, data FROM segments ORDER BY seq")?;
         let mut rows = stmt.query([])?;
         let (mut count, mut bytes) = (0u64, 0u64);

@@ -88,7 +88,9 @@ mod tests {
     #[test]
     fn finds_state_files_of_the_video() {
         let dir = std::env::temp_dir().join(format!("ytarchive-rs-kept-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
         std::fs::create_dir_all(&dir).unwrap();
         for name in ["abc.f299.state", "abc.f140.state", "abcd.f1.state", "abc.f140.state.bak", "abc.fx.state"] {
             std::fs::write(dir.join(name), b"{}").unwrap();

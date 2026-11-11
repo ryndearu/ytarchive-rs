@@ -12,6 +12,7 @@ use super::fragment::download_fragment;
 use crate::log_debug;
 use crate::session::Session;
 use crate::types::{DataType, FragThreadState, Fragment};
+use crate::util::lock;
 
 /// How long a worker waits when it's ahead of the newest fragment.
 const AHEAD_WAIT: Duration = Duration::from_millis(500);
@@ -36,7 +37,7 @@ pub(super) async fn worker(
         if s.is_stopping() || s.is_finished(dt) {
             break;
         }
-        let take = dispatch.lock().unwrap().take(s.is_live());
+        let take = lock(&dispatch).take(s.is_live());
         let (seq, max) = match take {
             // Only this worker stops. Go marked the whole stream finished here,
             // which made other workers abandon fragments they were retrying.
@@ -57,7 +58,7 @@ pub(super) async fn worker(
             .as_ref()
             .map(|p| PathBuf::from(format!("{}.frag{seq}.ts", p.display())));
         let frag = download_fragment(&s, &mut st, frag_file).await;
-        dispatch.lock().unwrap().complete(frag.as_ref().and_then(|f| f.x_head_seqnum));
+        lock(&dispatch).complete(frag.as_ref().and_then(|f| f.x_head_seqnum));
         let msg = match frag {
             Some(f) => Msg::Done(f),
             None => Msg::Missing(seq),

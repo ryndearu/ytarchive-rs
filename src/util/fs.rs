@@ -18,6 +18,14 @@ pub fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
     }
 }
 
+/// `set_mode` for a file or folder that is usable either way: a failure
+/// (e.g. a filesystem without permissions) is only logged.
+pub fn apply_mode(path: &Path, mode: u32) {
+    if let Err(error) = set_mode(path, mode) {
+        crate::log_debug!("Could not set the permissions of {}: {error}", path.display());
+    }
+}
+
 /// Writes `data` to `path` and sets its mode. Removes the file on failure so
 /// no partial file is left behind.
 pub async fn write_file_with_mode(path: &Path, data: &[u8], mode: u32) -> Result<()> {
@@ -27,8 +35,11 @@ pub async fn write_file_with_mode(path: &Path, data: &[u8], mode: u32) -> Result
         Ok(())
     }
     .await;
-    if res.is_err() {
-        let _ = tokio::fs::remove_file(path).await;
+    if res.is_err()
+        && let Err(error) = tokio::fs::remove_file(path).await
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        crate::log_debug!("Could not delete the partial file {}: {error}", path.display());
     }
     res
 }
@@ -75,7 +86,7 @@ pub fn create_temp_dir(parent: &Path, prefix: &str, mode: u32) -> std::io::Resul
         let dir = parent.join(format!("{prefix}{:x}", (seed.wrapping_add(i)) & 0xffff_ffff));
         match std::fs::create_dir(&dir) {
             Ok(()) => {
-                let _ = set_mode(&dir, mode);
+                apply_mode(&dir, mode);
                 return Ok(dir);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,

@@ -80,11 +80,11 @@ pub fn local_time(unix: u64) -> String {
 
 /// Tries `seq` once with each URL, starting at a different one each round.
 async fn fetch(s: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, offset: usize) -> (u64, Option<Fragment>) {
-    for i in 0..urls.len() {
+    let start = offset % urls.len().max(1);
+    for url in urls.iter().cycle().skip(start).take(urls.len()) {
         if s.is_stopping() {
             break;
         }
-        let url = &urls[(offset + i) % urls.len()];
         let resp = match fragment_request(&s, url, seq).send().await {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {

@@ -17,8 +17,8 @@ use crate::error::{Error, Result};
 use crate::live_from::seekable_start_sq;
 use crate::session::Session;
 use crate::types::{DataType, DownloadState, ProgressInfo, SavedDownload, StorageMode};
-use crate::util::set_mode;
-use crate::{log_debug, log_error, log_warn};
+use crate::util::{lock, set_mode};
+use crate::{log_debug, log_error, log_trace, log_warn};
 
 pub struct StreamParams {
     pub data_type: DataType,
@@ -75,12 +75,16 @@ fn record(p: &mut StreamParams, max_seq: Option<u64>, n: u64, mode: u32) {
     p.state.fragments += 1;
     p.state.size += n;
     save_state(p, mode);
-    let _ = p.progress.send(ProgressInfo {
+    let info = ProgressInfo {
         data_type: p.data_type,
         byte_count: n,
         max_seq,
         start_frag: p.state.start_frag,
-    });
+    };
+    // The progress line is optional; the download goes on without it.
+    if p.progress.send(info).is_err() {
+        log_trace!("{}: the progress reporter has stopped", p.data_type.as_str());
+    }
 }
 
 fn save_state(p: &StreamParams, mode: u32) {
@@ -178,7 +182,7 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
         for ev in events {
             match ev {
                 Event::Wrote(n) => {
-                    let max_seq = dispatch.lock().unwrap().max_seq;
+                    let max_seq = lock(&dispatch).max_seq;
                     record(&mut p, max_seq, n, mode);
                     if recovering {
                         save_progress(&s, dt, &sink, max_seq, &mut saved);
@@ -187,7 +191,7 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
                 Event::Gap(gap) => {
                     // Fragments near the head of an ended stream often never
                     // existed; only report real gaps.
-                    let max = dispatch.lock().unwrap().max_seq;
+                    let max = lock(&dispatch).max_seq;
                     if !s.is_stopping() && max.is_none_or(|m| gap + 2 < m) {
                         log_warn!("{name}: Fragment {gap} could not be downloaded and was skipped");
                         skipped.push(gap);
@@ -204,14 +208,16 @@ pub async fn download_stream(s: Arc<Session>, mut p: StreamParams) -> Result<Str
             remove_frag_file(&f.data).await;
         }
     }
-    for w in workers {
-        let _ = w.await;
+    for worker in workers {
+        if let Err(error) = worker.await {
+            log_warn!("{name}: A download worker stopped unexpectedly: {error}");
+        }
     }
 
     // --recover-private: recover what's missing if the stream went private,
     // then take the missing list from the database (it also covers
     // fragments after the point where the workers stopped).
-    let mut head = dispatch.lock().unwrap().max_seq;
+    let mut head = lock(&dispatch).max_seq;
     let mut retry_until = None;
     if recovering && let Sink::Db(db, _) = &mut sink {
         if store_err.is_none()

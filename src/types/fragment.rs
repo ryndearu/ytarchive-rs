@@ -18,14 +18,6 @@ impl DataType {
             DataType::Video => "video",
         }
     }
-
-    /// Index for per-type arrays.
-    pub fn idx(self) -> usize {
-        match self {
-            DataType::Audio => 0,
-            DataType::Video => 1,
-        }
-    }
 }
 
 /// Where a downloaded fragment's bytes are held until written in order.

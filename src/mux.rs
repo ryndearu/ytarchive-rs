@@ -194,7 +194,7 @@ pub async fn execute(program: &str, args: &[String]) -> i32 {
             if n == 0 {
                 break;
             }
-            eprint!("{}", String::from_utf8_lossy(&buf[..n]));
+            eprint!("{}", String::from_utf8_lossy(buf.get(..n).unwrap_or(&buf)));
         }
     }
     match child.wait().await {

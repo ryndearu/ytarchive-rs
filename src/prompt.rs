@@ -13,7 +13,9 @@ pub async fn get_user_input(prompt: &str) -> String {
 /// run from a plain Enter.
 pub async fn get_line_or_eof(prompt: &str) -> Option<String> {
     print!("{prompt}");
-    let _ = std::io::stdout().flush();
+    if let Err(error) = std::io::stdout().flush() {
+        crate::log_debug!("Could not show the prompt: {error}");
+    }
 
     let read = tokio::task::spawn_blocking(|| read_line_or_eof(&mut std::io::stdin().lock()));
     tokio::select! {

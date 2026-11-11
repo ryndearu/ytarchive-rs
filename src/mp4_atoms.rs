@@ -6,14 +6,14 @@
 pub fn atoms(data: &[u8]) -> Vec<(&str, usize, usize)> {
     let mut out = Vec::new();
     let mut ofs = 0usize;
-    while ofs + 8 <= data.len() {
-        let len = u32::from_be_bytes([data[ofs], data[ofs + 1], data[ofs + 2], data[ofs + 3]]) as usize;
+    while let Some((size, name)) = data.get(ofs..ofs + 8).and_then(|header| header.split_first_chunk::<4>()) {
+        let len = u32::from_be_bytes(*size) as usize;
         // len 0 ("to end of file") and len 1 (64-bit size) aren't used in
         // these fragments; stop rather than loop forever as Go could.
         if len < 8 || ofs + len > data.len() {
             break;
         }
-        let Ok(name) = std::str::from_utf8(&data[ofs + 4..ofs + 8]) else {
+        let Ok(name) = std::str::from_utf8(name) else {
             break;
         };
         out.push((name, ofs, len));
@@ -29,11 +29,11 @@ pub fn remove_atoms(data: &[u8], names: &[&str]) -> Vec<u8> {
     let mut pos = 0;
     for (name, ofs, len) in found {
         if names.contains(&name) {
-            out.extend_from_slice(&data[pos..ofs]);
+            out.extend_from_slice(data.get(pos..ofs).unwrap_or_default());
             pos = ofs + len;
         }
     }
-    out.extend_from_slice(&data[pos..]);
+    out.extend_from_slice(data.get(pos..).unwrap_or_default());
     out
 }
 

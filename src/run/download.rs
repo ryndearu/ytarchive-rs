@@ -17,7 +17,7 @@ use crate::output::{ensure_dir, final_location, load_states, temp_dir, OutputPla
 use crate::prepare::Prepared;
 use crate::progress::{self, Totals};
 use crate::session::Session;
-use crate::types::{DataType, Options, SavedDownload, AUDIO_ITAG, DEFAULT_POLL_SECS};
+use crate::types::{DataType, Options, PerType, SavedDownload, AUDIO_ITAG, DEFAULT_POLL_SECS};
 use crate::util::{seconds_to_duration_and_time_str, write_file_with_mode};
 use crate::{log_debug, log_error, log_general, log_info, log_warn};
 
@@ -208,7 +208,7 @@ pub(super) async fn download(
     }
     drop(tx);
 
-    let mut frags = [None, None];
+    let mut frags: PerType<Option<u64>> = PerType::default();
     let mut storage_failed = false;
     let mut retry_until: Option<u64> = None;
     let mut state_files = Vec::new();
@@ -224,7 +224,7 @@ pub(super) async fn download(
                         out.skipped
                     );
                 }
-                frags[dt.idx()] = Some(out.state.fragments);
+                *frags.get_mut(*dt) = Some(out.state.fragments);
                 if let Some(t) = out.retry_until {
                     retry_until = Some(retry_until.map_or(t, |r| r.max(t)));
                 }
@@ -236,7 +236,9 @@ pub(super) async fn download(
             Err(e) => log_error!("{} download task panicked: {e}", dt.as_str()),
         }
     }
-    let _ = reporter.await;
+    if let Err(error) = reporter.await {
+        log_debug!("The progress reporter stopped unexpectedly: {error}");
+    }
     if let Some(r) = refresher {
         r.abort();
     }
@@ -254,12 +256,12 @@ pub(super) async fn download(
         mux,
         audio_mux,
         state_files,
-        audio_frags: frags[DataType::Audio.idx()],
-        video_frags: frags[DataType::Video.idx()],
+        audio_frags: frags.audio,
+        video_frags: frags.video,
         keep_for_retry: retry_until,
     };
     if storage_failed {
-        let had_data = resumed || frags.iter().flatten().any(|n| *n > 0);
+        let had_data = resumed || [frags.audio, frags.video].iter().flatten().any(|n| *n > 0);
         return fin.on_storage_error(had_data);
     }
     if interrupt.is_set()

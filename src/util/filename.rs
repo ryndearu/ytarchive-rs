@@ -2,9 +2,6 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::LazyLock;
-
-use regex::Regex;
 
 use crate::error::{Error, Result};
 use crate::log_warn;
@@ -12,8 +9,6 @@ use crate::types::FILENAME_FORMAT_BLACKLIST;
 
 /// Max bytes for the final path component: 255 minus room for `.description`.
 pub const MAX_FILENAME_LEN: usize = 243;
-
-static MAP_KEY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"%\((\w+)\)s").unwrap());
 
 const FORBIDDEN: [(char, char); 9] = [
     ('<', '＜'),
@@ -89,20 +84,51 @@ pub fn portable_file_name(name: &str) -> String {
 /// are an error. Substituted values are never re-scanned, so titles containing
 /// `%(...)s` are inserted literally.
 pub fn format_python_map(format: &str, vals: &BTreeMap<String, String>) -> Result<String> {
-    if let Some(unknown) = MAP_KEY
-        .captures_iter(format)
-        .map(|c| c[1].to_lowercase())
-        .find(|k| !vals.contains_key(k))
-    {
-        return Err(Error::InvalidFormat(format!(
-            "unknown output format key: '{unknown}'"
-        )));
+    let mut out = String::with_capacity(format.len());
+    for piece in pieces(format) {
+        match piece {
+            Piece::Text(text) => out.push_str(text),
+            Piece::Key(key) => {
+                let key = key.to_lowercase();
+                let value = vals
+                    .get(&key)
+                    .ok_or_else(|| Error::InvalidFormat(format!("unknown output format key: '{key}'")))?;
+                out.push_str(value);
+            }
+        }
     }
-    Ok(MAP_KEY
-        .replace_all(format, |c: &regex::Captures<'_>| {
-            vals[&c[1].to_lowercase()].clone()
-        })
-        .into_owned())
+    Ok(out)
+}
+
+enum Piece<'a> {
+    Text(&'a str),
+    /// The `key` of a `%(key)s` field.
+    Key(&'a str),
+}
+
+/// Splits a template into plain text and `%(key)s` fields (key: letters,
+/// digits, and `_`).
+fn pieces(format: &str) -> Vec<Piece<'_>> {
+    let mut out = Vec::new();
+    let mut rest = format;
+    while let Some((before, after)) = rest.split_once("%(") {
+        out.push(Piece::Text(before));
+        let key_len = after.find(|c: char| !c.is_alphanumeric() && c != '_').unwrap_or(after.len());
+        let (key, tail) = after.split_at(key_len);
+        match tail.strip_prefix(")s") {
+            Some(tail) if !key.is_empty() => {
+                out.push(Piece::Key(key));
+                rest = tail;
+            }
+            // Not a field: keep the text and look again right after it.
+            _ => {
+                out.push(Piece::Text("%("));
+                rest = after;
+            }
+        }
+    }
+    out.push(Piece::Text(rest));
+    out
 }
 
 /// Fills the output template with sanitized values. Blacklisted keys expand to
@@ -142,9 +168,9 @@ pub fn format_filename(
     log_warn!("Formatted filename is too long. Truncating the title to try and fix.");
     if let Some(title) = fname_vals.get_mut("title") {
         // The title may appear several times in the base name.
-        let occurrences = MAP_KEY
-            .captures_iter(Path::new(format).file_name().map_or("", |n| n.to_str().unwrap_or("")))
-            .filter(|c| c[1].eq_ignore_ascii_case("title"))
+        let occurrences = pieces(Path::new(format).file_name().map_or("", |n| n.to_str().unwrap_or("")))
+            .iter()
+            .filter(|piece| matches!(piece, Piece::Key(key) if key.eq_ignore_ascii_case("title")))
             .count()
             .max(1);
         over_bytes = over_bytes.div_ceil(occurrences);

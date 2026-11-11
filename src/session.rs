@@ -2,14 +2,15 @@
 //! live/unavailable/finished flags, and URL refreshing.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::http::Http;
-use crate::types::{DataType, FormatSelection, FragmentUrl, Options, AUDIO_ITAG, URL_REFRESH_INTERVAL_SECS};
+use crate::types::{DataType, FormatSelection, FragmentUrl, Options, PerType, AUDIO_ITAG, URL_REFRESH_INTERVAL_SECS};
+use crate::util::lock;
 use crate::video_info::Extractor;
 use crate::{log_debug, log_warn, ytdlp};
 
@@ -26,11 +27,11 @@ pub struct Session {
     live: AtomicBool,
     unavailable: AtomicBool,
     target_duration: AtomicU32,
-    urls: [RwLock<Option<FragmentUrl>>; 2],
+    urls: PerType<Mutex<Option<FragmentUrl>>>,
     /// Every URL used so far, oldest first. Recovery tries them all, since
     /// a URL from an earlier refresh may still work when a newer one doesn't.
-    known: [Mutex<Vec<FragmentUrl>>; 2],
-    finished: [AtomicBool; 2],
+    known: PerType<Mutex<Vec<FragmentUrl>>>,
+    finished: PerType<AtomicBool>,
     last_url_refresh: Mutex<Instant>,
 }
 
@@ -55,9 +56,9 @@ impl Session {
             live: AtomicBool::new(live),
             unavailable: AtomicBool::new(false),
             target_duration: AtomicU32::new(target_duration.max(1)),
-            urls: [RwLock::new(None), RwLock::new(None)],
-            known: [Mutex::new(Vec::new()), Mutex::new(Vec::new())],
-            finished: [AtomicBool::new(false), AtomicBool::new(false)],
+            urls: PerType::default(),
+            known: PerType::default(),
+            finished: PerType::default(),
             last_url_refresh: Mutex::new(Instant::now()),
         };
         s.apply_selection(sel);
@@ -73,24 +74,24 @@ impl Session {
         if let Some(u) = &url {
             self.remember(dt, u);
         }
-        *self.urls[dt.idx()].write().unwrap() = url;
+        *lock(self.urls.get(dt)) = url;
     }
 
     /// Adds `url` to the URLs recovery can use.
     pub fn remember(&self, dt: DataType, url: &FragmentUrl) {
-        let mut known = self.known[dt.idx()].lock().unwrap();
+        let mut known = lock(self.known.get(dt));
         if !known.contains(url) {
             known.push(url.clone());
         }
     }
 
     pub fn url(&self, dt: DataType) -> Option<FragmentUrl> {
-        self.urls[dt.idx()].read().unwrap().clone()
+        lock(self.urls.get(dt)).clone()
     }
 
     /// Every URL used for `dt`, newest first.
     pub fn known_urls(&self, dt: DataType) -> Vec<FragmentUrl> {
-        self.known[dt.idx()].lock().unwrap().iter().rev().cloned().collect()
+        lock(self.known.get(dt)).iter().rev().cloned().collect()
     }
 
     pub fn is_live(&self) -> bool {
@@ -110,11 +111,11 @@ impl Session {
     }
 
     pub fn is_finished(&self, dt: DataType) -> bool {
-        self.finished[dt.idx()].load(Ordering::Relaxed)
+        self.finished.get(dt).load(Ordering::Relaxed)
     }
 
     pub fn set_finished(&self, dt: DataType) {
-        self.finished[dt.idx()].store(true, Ordering::Relaxed);
+        self.finished.get(dt).store(true, Ordering::Relaxed);
     }
 
     pub fn is_stopping(&self) -> bool {
@@ -146,7 +147,7 @@ impl Session {
         match sel {
             Some(sel) => {
                 self.apply_selection(&sel);
-                *self.last_url_refresh.lock().unwrap() = Instant::now();
+                *lock(&self.last_url_refresh) = Instant::now();
                 true
             }
             None => false,
@@ -173,7 +174,7 @@ impl Session {
                     _ = s.cancel.cancelled() => return,
                     _ = tokio::time::sleep(REFRESH_CHECK_INTERVAL) => {}
                 }
-                if s.last_url_refresh.lock().unwrap().elapsed() < interval {
+                if lock(&s.last_url_refresh).elapsed() < interval {
                     continue;
                 }
                 s.periodic_refresh_once().await;
@@ -187,7 +188,7 @@ impl Session {
         let Ok(_guard) = m.try_lock() else { return };
         log_debug!("Refreshing download URLs in background (5-hour interval)");
         let info = ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await;
-        *self.last_url_refresh.lock().unwrap() = Instant::now();
+        *lock(&self.last_url_refresh) = Instant::now();
         if self.is_stopping() || self.is_unavailable() {
             return;
         }

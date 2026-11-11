@@ -5,6 +5,7 @@ pub mod format_info;
 pub mod fragment;
 pub mod fragment_url;
 pub mod options;
+pub mod per_type;
 pub mod player_response;
 pub mod saved_download;
 pub mod selection;
@@ -20,6 +21,7 @@ pub use options::{
     complete_codec_order, parse_codec_list, Action, IpVersion, LogLevel, Options, StorageMode,
     VideoCodec, BEST_CODEC_ORDER,
 };
+pub use per_type::PerType;
 pub use player_response::{PlayerResponse, YtInitialData};
 pub use saved_download::SavedDownload;
 pub use selection::FormatSelection;

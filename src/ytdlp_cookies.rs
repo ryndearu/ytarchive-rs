@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use crate::log_warn;
+use crate::util::lock;
 
 const HEADER: &str = "# Netscape HTTP Cookie File";
 const HTTPONLY_PREFIX: &str = "#HttpOnly_";
@@ -46,8 +47,11 @@ fn kept(line: &str) -> Option<&str> {
     if line.starts_with('#') || line.trim().is_empty() {
         return Some(line);
     }
-    let f: Vec<&str> = line.split('\t').collect();
-    (f.len() == 7 && (f[4].is_empty() || valid_expiry(f[4]))).then_some(line)
+    let fields: Vec<&str> = line.split('\t').collect();
+    match fields.as_slice() {
+        [_, _, _, _, expiry, _, _] if expiry.is_empty() || valid_expiry(expiry) => Some(line),
+        _ => None,
+    }
 }
 
 /// For a cookie line Python would reject (`assert domain_specified ==
@@ -58,9 +62,9 @@ fn fixed_flag(line: &str) -> Option<&'static str> {
     if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('$') {
         return None;
     }
-    let f: Vec<&str> = line.split('\t').collect();
-    let dot = f[0].starts_with('.');
-    ((f[1] == "TRUE") != dot).then_some(if dot { "TRUE" } else { "FALSE" })
+    let mut fields = line.split('\t');
+    let dot = fields.next()?.starts_with('.');
+    ((fields.next()? == "TRUE") != dot).then_some(if dot { "TRUE" } else { "FALSE" })
 }
 
 /// A line yt-dlp would skip that starts like JSON: yt-dlp then stops with
@@ -121,9 +125,9 @@ pub fn repair(data: &[u8]) -> String {
     for line in all.into_iter().filter(|l| !json_like(l)) {
         let line: Cow<str> = match fixed_flag(line) {
             Some(flag) => {
-                let mut f: Vec<&str> = line.split('\t').collect();
-                f[1] = flag;
-                f.join("\t").into()
+                let fields: Vec<&str> =
+                    line.split('\t').enumerate().map(|(column, field)| if column == 1 { flag } else { field }).collect();
+                fields.join("\t").into()
             }
             None => line.into(),
         };
@@ -140,13 +144,15 @@ pub fn prepare(original: &Path, data: &[u8]) -> std::io::Result<Option<PathBuf>>
         return Ok(None);
     };
     let path = std::env::temp_dir().join(format!("ytarchive-cookies-{}.txt", std::process::id()));
-    let _ = std::fs::remove_file(&path);
+    // A copy left by an earlier process with the same id; `create_new` below
+    // reports the problem if it can't be replaced.
+    delete(&path);
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
     opts.open(&path)?.write_all(repair(data).as_bytes())?;
-    *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = Some(path.clone());
+    *lock(&ACTIVE) = Some(path.clone());
     log_warn!(
         "yt-dlp can't read the cookies file {} ({why}); passing it a repaired copy. Cookies yt-dlp refreshes won't be saved back to the file for this run.",
         original.display()
@@ -156,8 +162,16 @@ pub fn prepare(original: &Path, data: &[u8]) -> std::io::Result<Option<PathBuf>>
 
 /// Deletes the repaired copy, if any.
 pub fn remove() {
-    if let Some(p) = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).take() {
-        let _ = std::fs::remove_file(p);
+    if let Some(path) = lock(&ACTIVE).take() {
+        delete(&path);
+    }
+}
+
+fn delete(path: &Path) {
+    if let Err(error) = std::fs::remove_file(path)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        log_warn!("Could not delete the repaired cookies copy {}: {error}", path.display());
     }
 }
 

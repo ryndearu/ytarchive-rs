@@ -140,7 +140,7 @@ pub fn ensure_dir(dir: PathBuf, mode: u32, what: &str) -> PathBuf {
     }
     match std::fs::create_dir_all(&dir) {
         Ok(()) => {
-            let _ = crate::util::set_mode(&dir, mode);
+            crate::util::apply_mode(&dir, mode);
             dir
         }
         Err(e) => {

@@ -11,7 +11,7 @@ use reqwest::{Client, Proxy};
 
 use crate::cookies;
 use crate::error::{Error, Result};
-use crate::log_debug;
+use crate::{log_debug, log_trace};
 use crate::types::{CookieSet, IpVersion, Options};
 use crate::util::write_file_with_mode;
 
@@ -35,7 +35,9 @@ pub struct Http {
 impl Http {
     pub fn new(opts: &Options, cookies: CookieSet) -> Result<Self> {
         // Errors only if a provider is already installed, which is fine.
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        if rustls::crypto::ring::default_provider().install_default().is_err() {
+            log_trace!("A TLS crypto provider is already installed");
+        }
 
         let jar = Arc::new(Jar::default());
         for c in &cookies.cookies {
