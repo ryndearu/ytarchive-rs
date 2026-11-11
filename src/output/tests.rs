@@ -110,6 +110,24 @@ fn temp_paths() {
 }
 
 #[test]
+fn cleanup_keeps_data_set_aside_from_an_earlier_run() {
+    let base = std::env::temp_dir().join(format!("ytarchive-rs-cleanup-{}", std::process::id()));
+    let temp_dir = base.join("vid__ab12");
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let plan = OutputPlan { final_dir: base.clone(), file_name: "n".into(), temp_dir: temp_dir.clone() };
+    std::fs::write(plan.temp(".f140.ts"), b"new").unwrap();
+    std::fs::write(plan.temp(".f140.ts.old"), b"earlier").unwrap();
+    plan.remove_temp_dir("vid");
+    assert!(!plan.temp(".f140.ts").exists());
+    assert_eq!(std::fs::read(plan.temp(".f140.ts.old")).unwrap(), b"earlier");
+
+    std::fs::remove_file(plan.temp(".f140.ts.old")).unwrap();
+    plan.remove_temp_dir("vid");
+    assert!(!temp_dir.exists());
+    std::fs::remove_dir_all(&base).unwrap();
+}
+
+#[test]
 fn state_paths_and_loading() {
     let dir = std::env::temp_dir().join(format!("ytarchive-rs-out-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

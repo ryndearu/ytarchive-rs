@@ -16,10 +16,6 @@ For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) inste
 - Optional recovery after a stream goes private mid-recording (`--recover-private`; see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
 - Muxes to mp4/mkv/m4a with ffmpeg, with optional thumbnail, metadata, and description files.
 
-## Platforms
-
-Windows, Linux, and macOS, each as x64 and arm64.
-
 ## Requirements
 
 - [ffmpeg](https://ffmpeg.org/) to mux the final file.
@@ -30,7 +26,7 @@ ytarchive looks for `ffmpeg` and `yt-dlp` on your `PATH`. On Windows you can als
 
 ## Installing
 
-Download the zip for your platform from the [releases page](../../releases), extract it, and run `ytarchive` (`ytarchive.exe` on Windows) from a terminal. Each zip holds just the executable:
+Download the zip for your platform (Windows, Linux, or macOS; x64 or arm64) from the [releases page](../../releases), extract it, and run `ytarchive` (`ytarchive.exe` on Windows) from a terminal. Each zip holds just the executable:
 
 | Platform | x64 | arm64 |
 | --- | --- | --- |
@@ -38,7 +34,7 @@ Download the zip for your platform from the [releases page](../../releases), ext
 | Linux | [`ytarchive_linux_x64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_linux_x64.zip) | [`ytarchive_linux_arm64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_linux_arm64.zip) |
 | macOS | [`ytarchive_macos_x64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_macos_x64.zip) (Intel) | [`ytarchive_macos_arm64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_macos_arm64.zip) (Apple Silicon) |
 
-The links download the latest release directly. Nightly downloads, with the newest changes: [Windows x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_windows_x64.zip), [Linux x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_linux_x64.zip), [macOS arm64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_macos_arm64.zip).
+Nightly builds, with the newest changes: [Windows x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_windows_x64.zip), [Linux x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_linux_x64.zip), [macOS arm64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_macos_arm64.zip).
 
 ### Linux
 
@@ -174,7 +170,7 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
 
 Durations accept units (`1d8h10m`, `90s`) or time strings (`01:30:00`). `--live-from` also accepts negative durations (`-30m`) and `now`.
 
-Without `--proxy`, the proxy environment variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`) are used, as in Go. The proxy configured in the Windows or macOS system settings is not.
+Without `--proxy`, the proxy environment variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`) are used. The proxy configured in the Windows or macOS system settings is not.
 
 With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-second fragments (like Go). On streams with shorter fragments, `--capture-duration` then records less than asked: `10s` gives 4 seconds with 2-second fragments.
 
@@ -182,14 +178,13 @@ With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-
 
 `QUALITY` values, from most to least wanted, separated by `/`: `audio_only`, `144p`, `240p`, `360p`, `480p`, `720p`, `720p60`, `1080p`, `1080p60`, `1440p`, `1440p60`, `2160p`, `2160p60`, `best`. The first one the stream offers is used; if it offers none of them, `best` is used without asking (for example when the quality was chosen while waiting for a scheduled stream).
 
-`--codec` takes a slash-delimited list too: `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs you don't list are used as a fallback when none of the listed ones are offered. Without a codec option, AV1 > VP9 > H.264 is used, as in Go; the codec is never asked for. Go's `--av1`, `--vp9`, and `--h264` still work and mean the same as `--codec` with that one codec.
+`--codec` takes a slash-delimited list too: `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs you don't list are used as a fallback when none of the listed ones are offered. Without a codec option, `best` is used; the codec is never asked for.
 
-`best` and a codec option combine: `best` picks the highest quality the stream offers, and the codec option picks the codec at that quality, falling back to the other codecs if it isn't offered there (as in Go). For example, `--codec h264 URL best` gets the best quality in H.264 when it has H.264.
+`best` quality and a codec option combine: the highest quality the stream offers is picked first, then the codec at that quality, falling back to the other codecs if it isn't offered there.
 
 ### Examples
 
 ```sh
-# (Windows: same commands with ytarchive.exe and double quotes)
 # Record a stream from the beginning in the best quality (and best codec)
 ytarchive https://www.youtube.com/watch?v=VIDEO_ID best
 
@@ -201,9 +196,6 @@ ytarchive --codec vp9/h264 URL 1080p
 
 # Best quality, but in H.264 (plays everywhere)
 ytarchive --codec h264 URL best
-
-# Go-style flag, same as --codec vp9
-ytarchive --vp9 URL 1080p
 
 # Only the last 30 minutes, then 10 more minutes of the stream
 ytarchive --live-from -30m --capture-duration 40m URL best
@@ -217,9 +209,10 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 ### File names
 
 - `--windows-filenames` (default on Windows) makes file and folder names Windows-compatible: characters like `<>:"/\|?*` and control characters are replaced, and names Windows reserves (`CON`, `NUL`, …) or that end in a dot or space are adjusted. This includes folders created from the template, such as `%(channel)s/`. The title is also shortened so every file ytarchive writes (final and temporary, including fragment files) stays within Windows' 260-character path limit (MAX_PATH). Use it on Linux/macOS if the files will end up on Windows or a Windows-formatted drive.
-- `--no-path-limit` keeps full titles with `--windows-filenames` instead of shortening them to fit MAX_PATH. ytarchive itself can write longer paths, but ffmpeg and other programs may not open them unless long paths are enabled in Windows (the `LongPathsEnabled` setting).
+- `--no-path-limit` keeps full titles instead. ytarchive itself can write longer paths, but ffmpeg and other programs may not open them unless long paths are enabled in Windows (the `LongPathsEnabled` setting).
 - `--no-windows-filenames` (default on Linux and macOS) only replaces path separators, so titles keep characters like `?` and `:`. On Windows a title with such a character can't be saved; ytarchive then stops without merging and cleans up.
-- Resume state (`{id}.f{itag}.state`) is written to `--temporary-dir`, or the current folder without it, not next to the `-o` file (as in Go). Resume from the same folder; a different `-o` still finds the state by video ID.
+- Resume state (`{id}.f{itag}.state`) is written to `--temporary-dir`, or the current folder without it, not next to the `-o` file. Resume from the same folder; a different `-o` still finds the state by video ID.
+- If a stream's earlier data can't be continued (its state file is damaged while the other stream's is fine, or the data file is shorter than the state says), that stream starts over and the earlier data is kept as `{name}.f{itag}.ts.old`. The temporary folder holding it is not deleted after the merge; delete it yourself once you don't need the file.
 - File names are always at most 255 bytes.
 
 ### Output template keys
@@ -228,7 +221,7 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 
 ### Private streams and missing fragments
 
-By default a stream that goes private during the recording ends the download, as in Go ytarchive. With `--recover-private`, ytarchive tries to get the rest:
+By default a stream that goes private during the recording ends the download. With `--recover-private`, ytarchive tries to get the rest:
 
 - When a stream goes private (or otherwise unavailable), the download URLs ytarchive already has usually keep working for a while: until their `expire` time, about 6 hours after they were issued. ytarchive retries every missing fragment with every URL it has used, in rounds 5 minutes apart, until all are recovered, the URLs expire, or an hour passes without recovering anything. Ctrl-C stops it as usual. It's a best effort: YouTube often refuses the URLs right away once a stream is private.
 - `--recover-private` turns on `--sqlite`, since recovered fragments arrive out of order. Fragments go into a database (`{name}.f{itag}.sqlite` in the temporary folder) and are exported in order to the `.ts` file at the end, so the download needs about as much extra space as the stream itself while it runs.
@@ -242,13 +235,10 @@ yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, 
 
 yt-dlp gets the cookies file itself, so it can save refreshed cookies back to it. If yt-dlp couldn't read the file (it isn't valid UTF-8, the `# Netscape HTTP Cookie File` header is missing, a cookie's second column doesn't match whether its domain starts with `.`, or a stray line starts like JSON), ytarchive warns and passes yt-dlp a repaired copy in the temp folder instead, deleted when ytarchive exits. Cookies yt-dlp refreshes during that run aren't saved back to your file. A JSON cookie export isn't repaired; yt-dlp reports that it must be Netscape formatted.
 
-## Differences from the Go version
+## Differences from Go and testing status
 
-See [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md) for the full list: behavior changes, new options, Go bugs fixed during the port, and Go code that was not ported because it was unreachable.
-
-## Testing status
-
-See [docs/NOT_TESTED.md](docs/NOT_TESTED.md) for what has not been tested yet.
+- [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md): behavior changes, new options, Go bugs fixed during the port, and Go code that was not ported.
+- [docs/NOT_TESTED.md](docs/NOT_TESTED.md): what has not been tested yet.
 
 ## Credits
 

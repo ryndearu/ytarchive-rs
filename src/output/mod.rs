@@ -37,12 +37,35 @@ impl OutputPlan {
                 .is_some_and(|name| name.to_string_lossy().starts_with(&format!("{video_id}__")))
     }
 
+    /// Removes our temp dir. Data an earlier run left there that couldn't be
+    /// resumed (`*.old`, see `download::sink`) is never deleted: then only
+    /// the other files are removed and the folder stays.
     pub fn remove_temp_dir(&self, video_id: &str) {
-        if self.owns_temp_dir(video_id)
-            && let Err(error) = std::fs::remove_dir_all(&self.temp_dir)
-        {
-            log_warn!("Error removing temporary directory {}: {error}", self.temp_dir.display());
+        if !self.owns_temp_dir(video_id) {
+            return;
         }
+        let entries: Vec<PathBuf> = std::fs::read_dir(&self.temp_dir)
+            .map(|entries| entries.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
+            .unwrap_or_default();
+        let (kept, others): (Vec<PathBuf>, Vec<PathBuf>) =
+            entries.into_iter().partition(|path| path.extension().is_some_and(|extension| extension == "old"));
+        if kept.is_empty() {
+            if let Err(error) = std::fs::remove_dir_all(&self.temp_dir) {
+                log_warn!("Error removing temporary directory {}: {error}", self.temp_dir.display());
+            }
+            return;
+        }
+        for path in others {
+            let removed = if path.is_dir() { std::fs::remove_dir_all(&path) } else { std::fs::remove_file(&path) };
+            if let Err(error) = removed {
+                log_warn!("Error removing {}: {error}", path.display());
+            }
+        }
+        log_warn!(
+            "{} still holds data from an earlier download that couldn't be resumed ({} file(s) ending in .old). Delete the folder once you don't need it.",
+            self.temp_dir.display(),
+            kept.len()
+        );
     }
 }
 

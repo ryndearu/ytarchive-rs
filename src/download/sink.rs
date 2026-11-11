@@ -202,7 +202,10 @@ pub async fn open(
 
 /// Data that can't be resumed (its state file is missing, unreadable, or
 /// doesn't match) is set aside as `{file}.old` rather than overwritten by
-/// the new download.
+/// the new download. That only happens in a folder that is reused: the
+/// other stream's state was still good, or the file is shorter than its
+/// state says. With no usable state at all the run gets a new folder, and
+/// the old one is left as it is.
 async fn keep_existing_data(data_file: &Path, name: &str) {
     let has_data = tokio::fs::metadata(data_file).await.is_ok_and(|metadata| metadata.len() > 0);
     if !has_data {
