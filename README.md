@@ -174,6 +174,8 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
 
 Durations accept units (`1d8h10m`, `90s`) or time strings (`01:30:00`). `--live-from` also accepts negative durations (`-30m`) and `now`.
 
+Without `--proxy`, the proxy environment variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`) are used, as in Go. The proxy configured in the Windows or macOS system settings is not.
+
 With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-second fragments (like Go). On streams with shorter fragments, `--capture-duration` then records less than asked: `10s` gives 4 seconds with 2-second fragments.
 
 ### Quality and codec
