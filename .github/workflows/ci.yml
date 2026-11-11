@@ -1,12 +1,28 @@
 name: CI
 
-# Only changes under src/ run CI.
+# Only changes to the code or to what builds and checks it run CI.
 on:
   push:
     branches: [main]
-    paths: ["src/**"]
+    paths:
+      - "src/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "rustfmt.toml"
+      - "clippy.toml"
+      - ".github/workflows/ci.yml"
   pull_request:
-    paths: ["src/**"]
+    paths:
+      - "src/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "rustfmt.toml"
+      - "clippy.toml"
+      - ".github/workflows/ci.yml"
 
 env:
   CARGO_TERM_COLOR: always
