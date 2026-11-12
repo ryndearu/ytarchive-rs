@@ -172,18 +172,20 @@ impl Session {
     /// without pausing downloads. A failed refresh keeps the current URLs.
     pub fn spawn_periodic_refresh(self: &Arc<Self>) -> Option<JoinHandle<()>> {
         self.extractor.as_ref()?;
-        let session = Arc::clone(self);
-        Some(tokio::spawn(async move {
-            let interval = Duration::from_secs(URL_REFRESH_INTERVAL_SECS);
-            loop {
-                tokio::select! {
-                    _ = session.cancel.cancelled() => return,
-                    _ = tokio::time::sleep(REFRESH_CHECK_INTERVAL) => {}
+        Some(tokio::spawn({
+            let session = Arc::clone(self);
+            async move {
+                let interval = Duration::from_secs(URL_REFRESH_INTERVAL_SECS);
+                loop {
+                    tokio::select! {
+                        _ = session.cancel.cancelled() => return,
+                        _ = tokio::time::sleep(REFRESH_CHECK_INTERVAL) => {}
+                    }
+                    if lock(&session.last_url_refresh).elapsed() < interval {
+                        continue;
+                    }
+                    session.periodic_refresh_once().await;
                 }
-                if lock(&session.last_url_refresh).elapsed() < interval {
-                    continue;
-                }
-                session.periodic_refresh_once().await;
             }
         }))
     }

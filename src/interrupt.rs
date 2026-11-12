@@ -62,21 +62,23 @@ pub struct Interrupt {
 impl Interrupt {
     pub fn install() -> Arc<Self> {
         let installed = Arc::new(Self { flag: AtomicBool::new(false), token: CancellationToken::new() });
-        let interrupt = installed.clone();
-        tokio::spawn(async move {
-            let Ok(mut signals) = Signals::new() else { return };
-            if !signals.recv().await {
-                return;
-            }
-            interrupt.flag.store(true, Ordering::SeqCst);
-            eprintln!();
-            log_warn!("User Interrupt, Stopping download...");
-            interrupt.token.cancel();
-            if signals.recv().await {
-                eprintln!("\nExiting...");
-                crate::platform::restore();
-                crate::ytdlp_cookies::remove();
-                std::process::exit(130);
+        tokio::spawn({
+            let interrupt = installed.clone();
+            async move {
+                let Ok(mut signals) = Signals::new() else { return };
+                if !signals.recv().await {
+                    return;
+                }
+                interrupt.flag.store(true, Ordering::SeqCst);
+                eprintln!();
+                log_warn!("User Interrupt, Stopping download...");
+                interrupt.token.cancel();
+                if signals.recv().await {
+                    eprintln!("\nExiting...");
+                    crate::platform::restore();
+                    crate::ytdlp_cookies::remove();
+                    std::process::exit(130);
+                }
             }
         });
         installed

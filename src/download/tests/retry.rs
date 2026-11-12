@@ -14,10 +14,12 @@ async fn a_stream_that_ends_mid_download_is_finished() {
     let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), true);
     let (stream_params, _rx) = params(&dir, 10, DownloadState::default());
     // While live the workers keep asking for fragment 11, which never comes.
-    let ending = session.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        ending.set_live(false);
+    tokio::spawn({
+        let session = session.clone();
+        async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            session.set_live(false);
+        }
     });
     let out = download_stream(session, stream_params).await.unwrap();
 

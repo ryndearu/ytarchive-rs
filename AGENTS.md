@@ -31,7 +31,8 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - No `unsafe` unless it's truly necessary; prefer a maintained safe wrapper crate. `main.rs` has `#![forbid(unsafe_code)]`; lifting it needs a good reason.
 - Outside tests: no `unwrap()`/`expect()`, no unchecked indexing or slicing, and no `let _ =` on a `Result` (handle it, or log it if it can be ignored). Clippy enforces this (`[lints.clippy]` in `Cargo.toml`; tests are exempt through `clippy.toml`). Use `util::lock` for mutexes and `util::apply_mode` for permissions that may fail.
 - Names are full words (`sequence`, not `sq` or `s`), including closure parameters.
-- Comments explain *why*, especially where behavior differs from Go.
+- A clone made for an async block goes inside the block passed to the spawn, under the same name: `tokio::spawn({ let session = session.clone(); async move { … } })`.
+- Comments explain a non-obvious *why*, especially where behavior differs from Go. No comments that summarize the code or divide it into sections.
 - Cookies are read twice, on purpose: `cookies.rs` follows Go for ytarchive's own requests, and `ytdlp_cookies.rs` mirrors yt-dlp's loader only to decide whether yt-dlp needs a repaired copy. Keep them separate; each must match its own target.
 
 ## Testing

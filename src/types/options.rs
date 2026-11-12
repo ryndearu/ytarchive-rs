@@ -111,7 +111,6 @@ pub enum StorageMode {
 
 #[derive(Debug, Clone, Default)]
 pub struct Options {
-    // Input
     /// Stream, channel, or googlevideo URL. `None` = prompt the user.
     pub url: Option<String>,
     /// Slash-delimited quality list, e.g. `1080p60/best`. `None` = prompt.
@@ -129,7 +128,6 @@ pub struct Options {
     pub ytdlp_opts: Vec<String>,
     pub ytdlp_info: bool,
 
-    // Format
     /// Video codec preference order from the CLI; `None` = not given
     /// (`BEST_CODEC_ORDER`).
     pub codecs: Option<Vec<VideoCodec>>,
@@ -137,7 +135,6 @@ pub struct Options {
     pub audio_only: bool,
     pub video_only: bool,
 
-    // Output
     pub output_format: String,
     pub temp_dir: Option<PathBuf>,
     pub lookalike_chars: bool,
@@ -158,7 +155,6 @@ pub struct Options {
     pub file_mode: u32,
     pub dir_mode: u32,
 
-    // Download behaviour
     pub threads: usize,
     /// 0 = retry indefinitely.
     pub frag_max_tries: u32,
@@ -181,11 +177,9 @@ pub struct Options {
     pub start_delay: Option<Duration>,
     pub capture_duration: Option<Duration>,
 
-    // Monitoring
     pub monitor_channel: bool,
     pub members_only: bool,
 
-    // Network
     pub ip_version: IpVersion,
     pub proxy: Option<url::Url>,
 

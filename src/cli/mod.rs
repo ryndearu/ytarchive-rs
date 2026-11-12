@@ -58,7 +58,6 @@ pub struct Cli {
     /// Slash-delimited quality list. Prompted for if omitted.
     pub quality: Option<String>,
 
-    // ---- general ----
     /// Print this help text and exit.
     #[arg(short = 'h', long, action = ArgAction::Help, help_heading = GENERAL)]
     pub help: Option<bool>,
@@ -72,7 +71,6 @@ pub struct Cli {
     #[arg(long, help_heading = GENERAL)]
     pub members_only: bool,
 
-    // ---- waiting ----
     /// Wait for a scheduled stream to start [default: ask].
     #[arg(short = 'w', long, help_heading = WAITING)]
     pub wait: bool,
@@ -86,7 +84,6 @@ pub struct Cli {
     #[arg(long, value_name = "DURATION", help_heading = WAITING)]
     pub start_delay: Option<String>,
 
-    // ---- download ----
     /// Start from a point in the stream: duration (-30m), time string, or 'now' [default: the start of the stream].
     #[arg(long, value_name = "WHEN", allow_hyphen_values = true, help_heading = DOWNLOAD)]
     pub live_from: Option<String>,
@@ -109,7 +106,6 @@ pub struct Cli {
     #[arg(long, help_heading = DOWNLOAD)]
     pub recover_private: bool,
 
-    // ---- format selection ----
     /// Video codec preference, e.g. vp9/h264 [default: best = av1/vp9/h264].
     #[arg(long, value_name = "CODECS", value_parser = parse_codecs, conflicts_with_all = ["av1", "vp9", "h264"], help_heading = FORMAT)]
     pub codec: Option<CodecList>,
@@ -129,7 +125,6 @@ pub struct Cli {
     #[arg(long, help_heading = FORMAT)]
     pub no_audio: bool,
 
-    // ---- filesystem ----
     /// Output filename template, e.g. '%(channel)s/%(upload_date)s %(title)s'.
     #[arg(short = 'o', long, value_name = "FORMAT", default_value = DEFAULT_FILENAME_FORMAT, help_heading = FILESYSTEM)]
     pub output: String,
@@ -167,7 +162,6 @@ pub struct Cli {
     #[arg(long = "directory-permissions", value_name = "MODE", default_value = "0755", value_parser = parse_octal, help_heading = FILESYSTEM)]
     pub directory_permissions: u32,
 
-    // ---- post-processing ----
     /// Embed the thumbnail into the final file.
     #[arg(short = 't', long, help_heading = POST)]
     pub thumbnail: bool,
@@ -190,7 +184,6 @@ pub struct Cli {
     #[arg(long, value_name = "PATH", default_value = "ffmpeg", help_heading = POST)]
     pub ffmpeg_path: String,
 
-    // ---- interrupt ----
     /// Automatically merge files when the download is cancelled [default: ask].
     #[arg(long, help_heading = INTERRUPT)]
     pub merge: bool,
@@ -210,7 +203,6 @@ pub struct Cli {
     #[arg(long, help_heading = INTERRUPT)]
     pub no_save_state: bool,
 
-    // ---- extraction ----
     /// Netscape-format cookies file (needed for members-only streams).
     #[arg(short = 'c', long, value_name = "FILE", help_heading = EXTRACTION)]
     pub cookies: Option<PathBuf>,
@@ -230,7 +222,6 @@ pub struct Cli {
     #[arg(long, value_name = "URL", help_heading = EXTRACTION)]
     pub audio_url: Option<String>,
 
-    // ---- network ----
     /// Force IPv4.
     #[arg(short = '4', long, conflicts_with = "ipv6", help_heading = NETWORK)]
     pub ipv4: bool,
@@ -241,7 +232,6 @@ pub struct Cli {
     #[arg(long, value_name = "URL", value_parser = parse_proxy, help_heading = NETWORK)]
     pub proxy: Option<url::Url>,
 
-    // ---- verbosity ----
     /// Print nothing except prompts.
     #[arg(short = 'q', long, help_heading = VERBOSITY)]
     pub quiet: bool,

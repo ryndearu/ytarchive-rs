@@ -125,8 +125,6 @@ pub struct LiveBroadcastDetails {
     pub end_timestamp: String,
 }
 
-// ---- ytInitialData (channel /streams tab) ----
-
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct YtInitialData {
