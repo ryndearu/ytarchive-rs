@@ -35,6 +35,11 @@ impl DbSink {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
+             -- SQLite's default of 1000 pages (4 MiB) is about two video
+             -- fragments, so nearly every insert also copied the log into
+             -- the database and synced it. 16 MiB does that a quarter as
+             -- often; larger made single inserts stall for too long.
+             PRAGMA wal_autocheckpoint = 4000;
              CREATE TABLE IF NOT EXISTS segments (
                  seq  INTEGER PRIMARY KEY,
                  mime TEXT NOT NULL,
