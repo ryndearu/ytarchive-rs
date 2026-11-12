@@ -89,7 +89,7 @@ jobs:
           # Latest manual release tag reachable from this commit, if any.
           last=$(git describe --tags --abbrev=0 --match 'v*' "$SHA" 2>/dev/null || true)
           # Same string build.rs stamps for nightly builds.
-          version="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)-${SHA:0:7} ($(git log -1 --format=%cs "$SHA"))"
+          version="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)+${SHA:0:7} ($(git log -1 --format=%cs "$SHA"))"
           # Commit hashes as links; GitHub doesn't link them in release notes.
           commits="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit"
           {
