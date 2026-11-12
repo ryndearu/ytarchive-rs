@@ -4,6 +4,15 @@ Archive a YouTube livestream from the start, or wait for a scheduled stream and 
 
 For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) instead.
 
+## What's different from Go ytarchive
+
+- `--sqlite` stores fragments in a database, so a resumed download fetches only the fragments that are missing.
+- `--recover-private` keeps retrying missing fragments after a stream goes private mid-recording, in the same run or a later one.
+- The channel monitor doesn't record the same stream twice, and keeps checking `/live` so it doesn't miss a stream that starts before the scheduled one.
+- Builds for Windows, Linux, and macOS, each as x64 and arm64. The Linux builds are static.
+
+The full list is in [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md).
+
 ## Features
 
 - Downloads live streams from the beginning (up to YouTube's 7-day seek window), or from a chosen point with `--live-from`.
