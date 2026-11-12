@@ -38,7 +38,14 @@ pub struct StreamParams {
     pub progress: mpsc::UnboundedSender<ProgressInfo>,
     /// Stored in the SQLite database for retrying in a later run.
     pub saved: Option<Arc<SavedDownload>>,
+    /// See `MEMORY_LIMIT`.
+    pub memory_limit: u64,
 }
+
+/// With `--no-frag-files`, fragments downloaded past a missing one wait in
+/// memory. Once this many bytes wait, no more are started until the missing
+/// one arrives or is given up on. Go had no limit.
+pub const MEMORY_LIMIT: u64 = 256 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct StreamOutcome {
@@ -135,6 +142,8 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         in_flight: 0,
         downloaded: 0,
         skip: opened.skip,
+        waiting_bytes: 0,
+        memory_limit: params.memory_limit,
     }));
 
     // A kept download whose stream can't be looked up anymore goes straight
@@ -166,7 +175,10 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
             Msg::Missing(seq) => (seq, None),
         };
         let events = match sink.push(seq, frag).await {
-            Ok(events) => events,
+            Ok(events) => {
+                lock(&dispatch).waiting_bytes = sink.waiting_bytes();
+                events
+            }
             Err(error) => {
                 log_error!("{name}: Error storing fragment {seq} for {}: {error}", params.data_file.display());
                 store_err = Some(error);

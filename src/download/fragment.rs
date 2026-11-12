@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use reqwest::header::{CONTENT_TYPE, ORIGIN, REFERER};
 
 use crate::session::Session;
-use crate::types::{FragData, FragThreadState, Fragment, FragmentUrl};
+use crate::types::{FragData, FragThreadState, Fragment, FragmentUrl, StreamProgress};
 use crate::util::write_file_with_mode;
 use crate::{log_debug, log_trace, log_warn};
 
@@ -31,23 +31,26 @@ pub fn without_query(mut error: reqwest::Error) -> reqwest::Error {
 }
 
 /// Whether a live fragment whose tries just ran out is stuck: it keeps
-/// failing while the rest of the stream downloads. `downloaded` is the
-/// stream's fragment count now. A connection or server outage stops every
-/// fragment, so it never counts.
-fn stuck_while_live(state: &mut FragThreadState, downloaded: u64) -> bool {
-    if downloaded > state.downloaded_at_round {
+/// failing while the rest of the stream downloads. A connection or server
+/// outage stops every fragment, so it never counts.
+fn stuck_while_live(state: &mut FragThreadState, progress: StreamProgress) -> bool {
+    // A held stream downloads nothing new, so the fragment would be retried
+    // forever with everything waiting on it. Something must still have
+    // downloaded since it was first tried: in an outage nothing has.
+    if progress.held || progress.downloaded > state.downloaded_at_round {
         state.stuck_rounds += 1;
     }
-    state.downloaded_at_round = downloaded;
-    state.stuck_rounds >= STUCK_ROUNDS && downloaded.saturating_sub(state.downloaded_at_start) >= STUCK_BEHIND
+    state.downloaded_at_round = progress.downloaded;
+    let behind = progress.downloaded.saturating_sub(state.downloaded_at_start);
+    let enough = if progress.held { 1 } else { STUCK_BEHIND };
+    state.stuck_rounds >= STUCK_ROUNDS && behind >= enough
 }
 
 /// Whether to keep retrying after a failed attempt. When the per-fragment
 /// try limit is hit: while live, start over (unless only this fragment is
 /// failing); once the stream has ended, give up (or allow a few extra rounds
-/// for fragments well behind the head). `downloaded` is how many fragments
-/// the stream has downloaded so far.
-pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState, downloaded: u64) -> bool {
+/// for fragments well behind the head).
+pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState, progress: StreamProgress) -> bool {
     if session.is_finished(state.data_type) {
         return false;
     }
@@ -63,7 +66,7 @@ pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState
         // Go retried forever here, so one fragment YouTube never serves
         // kept everything after it waiting (in memory or fragment files)
         // until the stream ended.
-        if stuck_while_live(state, downloaded) {
+        if stuck_while_live(state, progress) {
             log_debug!("{}: Fragment {}: giving up, the rest of the stream is downloading", state.name, state.seq);
             return false;
         }
@@ -190,13 +193,13 @@ async fn sleep_or_stop(session: &Session, state: &FragThreadState) -> bool {
 }
 
 /// Downloads `st.seq`. With `frag_file`, the data goes to that file instead
-/// of memory. `downloaded` gives the stream's fragment count so far. Returns
-/// `None` if the fragment was given up on or the download is stopping.
+/// of memory. Returns `None` if the fragment was given up on or the download
+/// is stopping.
 pub async fn download_fragment(
     session: &Session,
     state: &mut FragThreadState,
     frag_file: Option<PathBuf>,
-    downloaded: &(dyn Fn() -> u64 + Sync),
+    progress: &(dyn Fn() -> StreamProgress + Sync),
 ) -> Option<Fragment> {
     let max = session.opts.frag_max_tries;
     while max == 0 || state.tries < max {
@@ -230,7 +233,7 @@ pub async fn download_fragment(
                                         state.seq
                                     );
                                     state.tries += 1;
-                                    if !continue_fragment_download(session, state, downloaded())
+                                    if !continue_fragment_download(session, state, progress())
                                         || !sleep_or_stop(session, state).await
                                     {
                                         return None;
@@ -247,7 +250,7 @@ pub async fn download_fragment(
 
         state.tries += 1;
         retry_fragment_url(session, state, &url).await;
-        if !continue_fragment_download(session, state, downloaded()) || !sleep_or_stop(session, state).await {
+        if !continue_fragment_download(session, state, progress()) || !sleep_or_stop(session, state).await {
             return None;
         }
     }

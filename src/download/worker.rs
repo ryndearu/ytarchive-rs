@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 use super::fragment::download_fragment;
 use crate::log_debug;
 use crate::session::Session;
-use crate::types::{DataType, FragThreadState, Fragment};
+use crate::types::{DataType, FragThreadState, Fragment, StreamProgress};
 use crate::util::lock;
 
 /// How long a worker waits when it's ahead of the newest fragment.
@@ -30,6 +30,10 @@ pub(super) struct Dispatch {
     pub downloaded: u64,
     /// Already stored (SQLite resume).
     pub skip: HashSet<u64>,
+    /// Bytes of downloaded fragments the writer holds in memory behind a
+    /// missing one, and how many are allowed before no more are started.
+    pub waiting_bytes: u64,
+    pub memory_limit: u64,
 }
 
 enum Take {
@@ -55,10 +59,23 @@ impl Dispatch {
                 return Take::Wait;
             }
         }
+        // The missing fragment was handed out before these, so it is in
+        // flight or already on its way to the writer; waiting can't deadlock.
+        if self.held() && self.in_flight > 0 {
+            return Take::Wait;
+        }
         let seq = self.next;
         self.next += 1;
         self.in_flight += 1;
         Take::Seq(seq, self.max_seq)
+    }
+
+    fn held(&self) -> bool {
+        self.waiting_bytes >= self.memory_limit
+    }
+
+    fn progress(&self) -> StreamProgress {
+        StreamProgress { downloaded: self.downloaded, held: self.held() }
     }
 
     fn complete(&mut self, downloaded: bool, head: Option<u64>) {
@@ -111,7 +128,7 @@ pub(super) async fn worker(
         };
         state.reset_for(seq, max, downloaded);
         let frag_file = frag_prefix.as_ref().map(|path| PathBuf::from(format!("{}.frag{seq}.ts", path.display())));
-        let frag = download_fragment(&session, &mut state, frag_file, &|| lock(&dispatch).downloaded).await;
+        let frag = download_fragment(&session, &mut state, frag_file, &|| lock(&dispatch).progress()).await;
         lock(&dispatch).complete(frag.is_some(), frag.as_ref().and_then(|fragment| fragment.x_head_seqnum));
         let msg = match frag {
             Some(fragment) => Msg::Done(fragment),

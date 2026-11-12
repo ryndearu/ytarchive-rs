@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::download::{StreamParams, download_stream};
+use crate::download::{MEMORY_LIMIT, StreamParams, download_stream};
 use crate::finish::{Finish, Moved};
 use crate::http::Http;
 use crate::input_url::InputUrl;
@@ -272,6 +272,7 @@ async fn download(
                 retry_sleep: Duration::from_secs(u64::from(prepared.target_duration.max(1))),
                 progress: sender.clone(),
                 saved: Some(saved.clone()),
+                memory_limit: MEMORY_LIMIT,
             },
         )));
     }
