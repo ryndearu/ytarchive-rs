@@ -8,7 +8,7 @@ use crate::mux::{self, MuxCommand};
 use crate::output::OutputPlan;
 use crate::prompt::get_yes_no;
 use crate::types::{Action, Options};
-use crate::util::{apply_mode, try_delete, try_move};
+use crate::util::{apply_mode, try_delete, try_move, write_file_with_mode};
 use crate::{log_error, log_general, log_warn};
 
 /// A file produced in the temp dir and where it ends up.
@@ -160,6 +160,16 @@ impl Finish<'_> {
         let mux_file = Some(self.mux_file.clone());
         let moves_ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]);
 
+        // Go kept the output name it chose before the download started.
+        let mux = self.mux.with_unused_output();
+        let audio_mux = self.audio_mux.as_ref().map(MuxCommand::with_unused_output);
+        if mux.output != self.mux.output {
+            let command = mux::command_line(&options.ffmpeg_path, &mux.args);
+            if let Err(error) = write_file_with_mode(&self.mux_file.dest, command.as_bytes(), options.file_mode).await {
+                log_warn!("Failed to update the mux file: {error}");
+            }
+        }
+
         let mut to_delete = vec![self.mux_file.dest.clone()];
         if !options.keep_ts_files {
             to_delete.extend(self.audio_ts.iter().chain(&self.video_ts).map(|moved| moved.dest.clone()));
@@ -183,13 +193,13 @@ impl Finish<'_> {
         }
 
         log_general!("Muxing final file...");
-        let mut code = mux::execute(&options.ffmpeg_path, &self.mux.args).await;
+        let mut code = mux::execute(&options.ffmpeg_path, &mux.args).await;
         if code != 0 {
             log_error!("ffmpeg returned code {code}. Something must have gone wrong with ffmpeg.");
             log_error!("The .ts files will not be deleted in case the final file is broken.");
             log_error!("The ffmpeg command was written to {}", self.mux_file.dest.display());
         }
-        if let Some(audio_mux) = &self.audio_mux {
+        if let Some(audio_mux) = &audio_mux {
             log_general!("Creating separate audio file...");
             let audio_code = mux::execute(&options.ffmpeg_path, &audio_mux.args).await;
             if audio_code != 0 {
@@ -208,12 +218,12 @@ impl Finish<'_> {
         }
         // ffmpeg creates the final files with the default mode, so apply
         // --file-permissions afterwards. Go never did.
-        let outputs = std::iter::once(&self.mux).chain(&self.audio_mux);
+        let outputs = std::iter::once(&mux).chain(&audio_mux);
         for out in outputs.map(|command| &command.output) {
             apply_mode(out, options.file_mode);
         }
-        log_general!("Final file: {}", self.mux.output.display());
-        if let Some(audio_mux) = &self.audio_mux {
+        log_general!("Final file: {}", mux.output.display());
+        if let Some(audio_mux) = &audio_mux {
             log_general!("Final audio file: {}", audio_mux.output.display());
         }
         0
