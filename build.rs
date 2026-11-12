@@ -2,7 +2,9 @@
 //!
 //! - Release builds (`YTARCHIVE_CHANNEL=release`, set by release.yml):
 //!   `v0.1.0 (2026-11-07)`, using the tag from `YTARCHIVE_VERSION`.
-//! - Everything else (nightly, CI, local): `v0.1.0-abc1234 (2026-11-07)`.
+//! - Everything else (nightly, CI, local): `v0.1.0+abc1234 (2026-11-07)`.
+//!   The commit is SemVer build metadata (`+`), not a pre-release (`-`), so the
+//!   build still compares equal to its version (`v0.1.0` sorts above `v0.1.0-x`).
 //!
 //! The date is the commit date, so rebuilding the same commit gives the same
 //! string. CI passes `YTARCHIVE_COMMIT` and `YTARCHIVE_DATE` too, since git
@@ -34,6 +36,6 @@ fn main() {
     let date =
         env("YTARCHIVE_DATE").or_else(|| git(&["log", "-1", "--format=%cs"])).unwrap_or_else(|| "unknown date".into());
 
-    let full = if release { format!("{version} ({date})") } else { format!("{version}-{commit} ({date})") };
+    let full = if release { format!("{version} ({date})") } else { format!("{version}+{commit} ({date})") };
     println!("cargo:rustc-env=YTARCHIVE_VERSION_STRING={full}");
 }

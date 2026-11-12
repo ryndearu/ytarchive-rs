@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       channel:
-        description: "release (version from the tag) or nightly (version-commit)"
+        description: "release (version from the tag) or nightly (version+commit)"
         required: true
         type: string
       version:
