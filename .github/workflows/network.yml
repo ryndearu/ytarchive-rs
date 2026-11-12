@@ -1,0 +1,44 @@
+name: Network tests
+
+# Runs the #[ignore]d tests against a real 24/7 stream, weekly: YouTube and
+# yt-dlp change without any change here. Separate from CI so a failure (also
+# when YouTube refuses the runner's address) never blocks a push.
+on:
+  schedule:
+    - cron: "0 6 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Run JavaScript actions on Node 24.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust (version and components from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # The nightly channel, as the README recommends.
+      - name: Install yt-dlp nightly
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl --fail --location --silent --show-error --output "$HOME/.local/bin/yt-dlp" \
+            https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_linux
+          chmod +x "$HOME/.local/bin/yt-dlp"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Versions
+        run: |
+          yt-dlp --version
+          node --version
+      - name: Network tests
+        env:
+          # The runner has node, not deno.
+          YTDLP_TEST_OPTS: --js-runtimes node
+        run: cargo test --locked -- --ignored

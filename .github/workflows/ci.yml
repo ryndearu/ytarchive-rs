@@ -60,6 +60,49 @@ jobs:
         # Network tests are #[ignore]d and don't run here.
         run: cargo test --locked
 
+  # The test job runs on Windows x64, Linux x64, and macOS arm64. This checks
+  # that the other three release targets still compile, set up as in build.yml.
+  check:
+    name: check (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      # aarch64 Linux needs a C cross compiler (ring, SQLite): cross has one.
+      CROSS: ${{ matrix.target == 'aarch64-unknown-linux-musl' }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust (version from rust-toolchain.toml)
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: check-${{ matrix.target }}
+      # A prebuilt binary; building cross from source takes minutes.
+      - name: Install cross
+        if: env.CROSS == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+      - name: Check
+        shell: bash
+        run: |
+          if [ "$CROSS" = "true" ]; then
+            cross check --all-targets --locked --target ${{ matrix.target }}
+          else
+            cargo check --all-targets --locked --target ${{ matrix.target }}
+          fi
+
   # Keeps `rust-version` in Cargo.toml true: the crate must build with it.
   minimum-rust:
     name: minimum Rust version

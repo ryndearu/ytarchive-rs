@@ -8,9 +8,9 @@ on:
     - cron: "0 0 * * 1"
   push:
     branches: [main]
-    paths: ["Cargo.toml", "Cargo.lock", ".github/workflows/audit.yml"]
+    paths: ["Cargo.toml", "Cargo.lock", "deny.toml", ".github/workflows/audit.yml"]
   pull_request:
-    paths: ["Cargo.toml", "Cargo.lock"]
+    paths: ["Cargo.toml", "Cargo.lock", "deny.toml"]
   workflow_dispatch:
 
 env:
@@ -24,9 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # A prebuilt binary; building cargo-audit from source took three minutes.
-      - name: Install cargo-audit
+      - name: Install cargo-audit and cargo-deny
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-audit
+          tool: cargo-audit,cargo-deny
       - name: Audit
         run: cargo audit
+      # Licenses, duplicate versions, and sources (deny.toml).
+      - name: Deny
+        if: always()
+        run: cargo deny --locked check licenses bans sources
