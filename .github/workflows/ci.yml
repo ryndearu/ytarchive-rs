@@ -51,14 +51,14 @@ jobs:
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - name: Version
-        run: cargo run --quiet -- --version
+        run: cargo run --quiet --locked -- --version
       - name: Format
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
       - name: Test
         # Network tests are #[ignore]d and don't run here.
-        run: cargo test
+        run: cargo test --locked
 
   # Keeps `rust-version` in Cargo.toml true: the crate must build with it.
   minimum-rust:
