@@ -280,6 +280,7 @@ async fn download(
 
     let mut frags: PerType<Option<u64>> = PerType::default();
     let mut storage_failed = false;
+    let mut stored_before_failing = false;
     let mut retry_until: Option<u64> = None;
     let mut state_files = Vec::new();
     for (task, (data_type, itag)) in tasks.into_iter().zip(&streams) {
@@ -300,7 +301,10 @@ async fn download(
                 }
             }
             Ok(Err(error)) => {
-                storage_failed |= matches!(error, crate::error::Error::OpenStorage(_));
+                // Every error a download returns is about its storage. One
+                // that isn't from opening it came after data was stored.
+                storage_failed = true;
+                stored_before_failing |= !matches!(error, crate::error::Error::OpenStorage(_));
                 log_error!("{} download failed: {error}", data_type.as_str());
             }
             Err(error) => log_error!("{} download task panicked: {error}", data_type.as_str()),
@@ -331,7 +335,9 @@ async fn download(
         keep_for_retry: retry_until,
     };
     if storage_failed {
-        let had_data = resumed || [frags.audio, frags.video].iter().flatten().any(|fragments| *fragments > 0);
+        let had_data = resumed
+            || stored_before_failing
+            || [frags.audio, frags.video].iter().flatten().any(|fragments| *fragments > 0);
         return fin.on_storage_error(had_data);
     }
     if interrupt.is_set()
