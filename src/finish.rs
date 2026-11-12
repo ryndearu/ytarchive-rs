@@ -192,6 +192,19 @@ impl Finish<'_> {
             return 1;
         }
 
+        // Go ran ffmpeg anyway; it refuses to overwrite and only reports
+        // an exit code.
+        let outputs = std::iter::once(&mux).chain(&audio_mux);
+        if let Some(taken) = outputs.map(|command| &command.output).find(|output| output.exists()) {
+            log_error!(
+                "Not muxing: {} and every numbered name before it already exist. Move or delete one of them.",
+                taken.display()
+            );
+            log_error!("The .ts files were kept. The ffmpeg command was written to {}", self.mux_file.dest.display());
+            self.cleanup_or_keep(moves_ok);
+            return 1;
+        }
+
         log_general!("Muxing final file...");
         let mut code = mux::execute(&options.ffmpeg_path, &mux.args).await;
         if code != 0 {
