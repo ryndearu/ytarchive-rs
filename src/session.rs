@@ -15,6 +15,9 @@ use crate::video_info::Extractor;
 use crate::{log_debug, log_warn, ytdlp};
 
 const REFRESH_CHECK_INTERVAL: Duration = Duration::from_secs(60);
+/// A failed scheduled refresh is tried again this soon rather than after
+/// another full interval, by which time the URLs would have expired.
+const FAILED_REFRESH_RETRY: Duration = Duration::from_secs(5 * 60);
 
 pub struct Session {
     pub opts: Arc<Options>,
@@ -176,29 +179,41 @@ impl Session {
             let session = Arc::clone(self);
             async move {
                 let interval = Duration::from_secs(URL_REFRESH_INTERVAL_SECS);
+                let mut retry_at: Option<Instant> = None;
                 loop {
                     tokio::select! {
                         _ = session.cancel.cancelled() => return,
                         _ = tokio::time::sleep(REFRESH_CHECK_INTERVAL) => {}
                     }
                     if lock(&session.last_url_refresh).elapsed() < interval {
+                        retry_at = None;
                         continue;
                     }
-                    session.periodic_refresh_once().await;
+                    if retry_at.is_some_and(|at| Instant::now() < at) {
+                        continue;
+                    }
+                    retry_at = if session.periodic_refresh_once().await {
+                        None
+                    } else {
+                        Some(Instant::now() + FAILED_REFRESH_RETRY)
+                    };
                 }
             }
         }))
     }
 
-    async fn periodic_refresh_once(&self) {
-        let Some(mutex) = &self.extractor else { return };
+    /// Returns `false` if the refresh failed and should be tried again soon.
+    async fn periodic_refresh_once(&self) -> bool {
+        let Some(mutex) = &self.extractor else { return true };
         // Don't overlap with a retry-triggered refresh.
-        let Ok(_guard) = mutex.try_lock() else { return };
+        let Ok(_guard) = mutex.try_lock() else { return true };
+        if self.is_stopping() || self.is_unavailable() {
+            return true;
+        }
         log_debug!("Refreshing download URLs in background (5-hour interval)");
         let info = ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await;
-        *lock(&self.last_url_refresh) = Instant::now();
         if self.is_stopping() || self.is_unavailable() {
-            return;
+            return true;
         }
 
         let fresh = |itag: u32| {
@@ -212,8 +227,11 @@ impl Session {
         let audio = (!self.opts.video_only).then(|| fresh(AUDIO_ITAG));
         let video = self.video_itag.map(fresh);
         if audio.as_ref().is_some_and(Option::is_none) || video.as_ref().is_some_and(Option::is_none) {
-            log_warn!("Scheduled URL refresh failed; continuing with existing URLs");
-            return;
+            log_warn!(
+                "Scheduled URL refresh failed; continuing with existing URLs and trying again in {} minutes",
+                FAILED_REFRESH_RETRY.as_secs() / 60
+            );
+            return false;
         }
         if let Some(Some(url)) = audio {
             self.set_url(DataType::Audio, Some(url));
@@ -221,6 +239,8 @@ impl Session {
         if let Some(Some(url)) = video {
             self.set_url(DataType::Video, Some(url));
         }
+        *lock(&self.last_url_refresh) = Instant::now();
+        true
     }
 
     /// Session for tests: fixed URLs, no extractor.
