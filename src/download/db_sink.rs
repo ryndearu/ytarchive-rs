@@ -64,7 +64,7 @@ impl DbSink {
     pub fn stored(&self) -> Result<HashSet<u64>> {
         let mut stmt = self.conn.prepare("SELECT seq FROM segments")?;
         let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
-        Ok(rows.filter_map(|result| result.ok()).map(|sequence| sequence as u64).collect())
+        Ok(rows.map(|row| row.map(|sequence| sequence as u64)).collect::<rusqlite::Result<_>>()?)
     }
 
     /// Adds download URLs (already stored ones are ignored).
@@ -112,10 +112,9 @@ impl DbSink {
         let data = fragment_bytes(&frag.data).await;
         super::sink::remove_frag_file(&frag.data).await;
         let data = data?;
-        self.conn.execute(
-            "INSERT OR REPLACE INTO segments (seq, mime, data) VALUES (?1, ?2, ?3)",
-            params![seq as i64, frag.mime_type, &data[..]],
-        )?;
+        self.conn
+            .prepare_cached("INSERT OR REPLACE INTO segments (seq, mime, data) VALUES (?1, ?2, ?3)")?
+            .execute(params![seq as i64, frag.mime_type, &data[..]])?;
         Ok(vec![Event::Wrote(data.len() as u64)])
     }
 
