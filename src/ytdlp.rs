@@ -14,7 +14,10 @@ use crate::types::{
 };
 use crate::{log_debug, log_trace, log_warn};
 
-const RUN_TIMEOUT: Duration = Duration::from_secs(30);
+// Go allowed 30 seconds. A run that also solves the JavaScript challenge on a
+// slow machine or connection can need more, and every retry would time out
+// the same way.
+const RUN_TIMEOUT: Duration = Duration::from_secs(60);
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const DEFAULT_ATTEMPTS: u32 = 3;
