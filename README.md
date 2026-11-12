@@ -222,6 +222,7 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 - `--no-windows-filenames` (default on Linux and macOS) only replaces path separators, so titles keep characters like `?` and `:`. On Windows a title with such a character can't be saved; ytarchive then stops without merging and cleans up.
 - Resume state (`{id}.f{itag}.state`) is written to `--temporary-dir`, or the current folder without it, not next to the `-o` file. Resume from the same folder; a different `-o` still finds the state by video ID.
 - If a stream's earlier data can't be continued (its state file is damaged while the other stream's is fine, or the data file is shorter than the state says), that stream starts over and the earlier data is kept as `{name}.f{itag}.ts.old`. The temporary folder holding it is not deleted after the merge; delete it yourself once you don't need the file.
+- If the final file already exists, the new one is named `{name}-1`, `{name}-2`, … up to `{name}-10`. The name is chosen right before muxing, so a file that appears during the download isn't a problem.
 - File names are always at most 255 bytes.
 
 ### Output template keys

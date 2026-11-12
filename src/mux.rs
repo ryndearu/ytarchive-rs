@@ -22,8 +22,32 @@ pub struct MuxInput<'a> {
 }
 
 pub struct MuxCommand {
+    /// The output path is the last argument.
     pub args: Vec<String>,
     pub output: PathBuf,
+    out_dir: PathBuf,
+    file_name: String,
+    extension: &'static str,
+}
+
+impl MuxCommand {
+    /// The same command with the output name picked again. The command is
+    /// built before the download, which can take hours; a file created under
+    /// that name in the meantime would make ffmpeg refuse to write.
+    pub fn with_unused_output(&self) -> Self {
+        let output = unused_output(&self.out_dir, &self.file_name, self.extension);
+        let mut args = self.args.clone();
+        if let Some(last) = args.last_mut() {
+            *last = path_text(&output);
+        }
+        Self {
+            args,
+            output,
+            out_dir: self.out_dir.clone(),
+            file_name: self.file_name.clone(),
+            extension: self.extension,
+        }
+    }
 }
 
 fn path_text(path: &Path) -> String {
@@ -97,7 +121,13 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
         }
     }
     args.push(path_text(&output));
-    MuxCommand { args, output }
+    MuxCommand {
+        args,
+        output,
+        out_dir: mux_input.out_dir.to_path_buf(),
+        file_name: mux_input.file_name.to_string(),
+        extension: ext,
+    }
 }
 
 /// POSIX shell quoting, for the human-readable `.ffmpeg.txt` command on
@@ -257,6 +287,29 @@ mod tests {
         std::fs::create_dir_all(&out_dir).unwrap();
         std::fs::write(out_dir.join("out.mp4"), b"").unwrap();
         assert_eq!(unused_output(&out_dir, "out", "mp4"), out_dir.join("out-1.mp4"));
+        std::fs::remove_dir_all(&out_dir).unwrap();
+    }
+
+    #[test]
+    fn output_name_is_picked_again_before_muxing() {
+        let out_dir = dir().join("taken-later");
+        std::fs::create_dir_all(&out_dir).unwrap();
+        let cmd = ffmpeg_args(&MuxInput {
+            audio: Some(Path::new("a.ts")),
+            video: Some(Path::new("v.ts")),
+            thumbnail: None,
+            mkv: false,
+            metadata: None,
+            out_dir: &out_dir,
+            file_name: "out",
+        });
+        assert_eq!(cmd.with_unused_output().args, cmd.args);
+
+        std::fs::write(&cmd.output, b"").unwrap();
+        let later = cmd.with_unused_output();
+        assert_eq!(later.output, out_dir.join("out-1.mp4"));
+        assert_eq!(later.args.last(), Some(&path_text(&later.output)));
+        assert_eq!(later.args[..later.args.len() - 1], cmd.args[..cmd.args.len() - 1]);
         std::fs::remove_dir_all(&out_dir).unwrap();
     }
 
