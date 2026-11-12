@@ -6,6 +6,7 @@
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use rusqlite::{Connection, params};
 
@@ -14,10 +15,11 @@ use crate::error::Result;
 use crate::mp4_atoms::strip_for_concat;
 use crate::session::Session;
 use crate::types::{DataType, Fragment, FragmentUrl, SavedDownload};
-use crate::util::apply_mode;
+use crate::util::{apply_mode, lock};
 
 pub struct DbSink {
-    conn: Connection,
+    /// Shared so an insert can run on a blocking thread (see `push`).
+    conn: Arc<Mutex<Connection>>,
     path: PathBuf,
 }
 
@@ -27,8 +29,6 @@ pub fn db_path(data_file: &Path) -> PathBuf {
 }
 
 impl DbSink {
-    // rusqlite is synchronous; inserts are small and fast, so they run inline
-    // on the writer task rather than through a blocking pool.
     pub fn open(path: &Path, mode: u32) -> Result<Self> {
         let conn = Connection::open(path)?;
         apply_mode(path, mode);
@@ -58,7 +58,7 @@ impl DbSink {
                  value TEXT NOT NULL
              );",
         )?;
-        Ok(Self { conn, path: path.to_path_buf() })
+        Ok(Self { conn: Arc::new(Mutex::new(conn)), path: path.to_path_buf() })
     }
 
     pub fn path(&self) -> &Path {
@@ -67,14 +67,16 @@ impl DbSink {
 
     /// Sequence numbers already stored.
     pub fn stored(&self) -> Result<HashSet<u64>> {
-        let mut stmt = self.conn.prepare("SELECT seq FROM segments")?;
+        let conn = lock(&self.conn);
+        let mut stmt = conn.prepare("SELECT seq FROM segments")?;
         let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
         Ok(rows.map(|row| row.map(|sequence| sequence as u64)).collect::<rusqlite::Result<_>>()?)
     }
 
     /// Adds download URLs (already stored ones are ignored).
     pub fn save_urls(&self, urls: &[FragmentUrl]) -> Result<()> {
-        let mut stmt = self.conn.prepare_cached("INSERT OR IGNORE INTO urls (prefix, suffix) VALUES (?1, ?2)")?;
+        let conn = lock(&self.conn);
+        let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO urls (prefix, suffix) VALUES (?1, ?2)")?;
         for url in urls {
             let (prefix, suffix) = url.parts();
             stmt.execute(params![prefix, suffix])?;
@@ -84,18 +86,20 @@ impl DbSink {
 
     /// Stored download URLs, oldest first.
     pub fn urls(&self) -> Result<Vec<FragmentUrl>> {
-        let mut stmt = self.conn.prepare("SELECT prefix, suffix FROM urls ORDER BY rowid")?;
+        let conn = lock(&self.conn);
+        let mut stmt = conn.prepare("SELECT prefix, suffix FROM urls ORDER BY rowid")?;
         let rows = stmt.query_map([], |row| Ok(FragmentUrl::from_parts(row.get(0)?, row.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
-        self.conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value])?;
+        lock(&self.conn).execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value])?;
         Ok(())
     }
 
     pub fn meta(&self, key: &str) -> Result<Option<String>> {
-        let mut stmt = self.conn.prepare("SELECT value FROM meta WHERE key = ?1")?;
+        let conn = lock(&self.conn);
+        let mut stmt = conn.prepare("SELECT value FROM meta WHERE key = ?1")?;
         let mut rows = stmt.query(params![key])?;
         Ok(match rows.next()? {
             Some(row) => Some(row.get(0)?),
@@ -105,7 +109,7 @@ impl DbSink {
 
     /// (fragment count, total bytes) stored.
     pub fn totals(&self) -> Result<(u64, u64)> {
-        Ok(self.conn.query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |row| {
+        Ok(lock(&self.conn).query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |row| {
             Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
         })?)
     }
@@ -117,10 +121,23 @@ impl DbSink {
         let data = fragment_bytes(&frag.data).await;
         super::sink::remove_frag_file(&frag.data).await;
         let data = data?;
-        self.conn
-            .prepare_cached("INSERT OR REPLACE INTO segments (seq, mime, data) VALUES (?1, ?2, ?3)")?
-            .execute(params![seq as i64, frag.mime_type, &data[..]])?;
-        Ok(vec![Event::Wrote(data.len() as u64)])
+        let stored = data.len() as u64;
+        let mime_type = frag.mime_type;
+        // An insert that also checkpoints the log can take seconds on a slow
+        // disk; on a runtime thread it would hold up the other stream's
+        // download.
+        tokio::task::spawn_blocking({
+            let conn = self.conn.clone();
+            move || {
+                let conn = lock(&conn);
+                let mut insert =
+                    conn.prepare_cached("INSERT OR REPLACE INTO segments (seq, mime, data) VALUES (?1, ?2, ?3)")?;
+                insert.execute(params![seq as i64, mime_type, &data[..]])
+            }
+        })
+        .await
+        .map_err(std::io::Error::other)??;
+        Ok(vec![Event::Wrote(stored)])
     }
 
     /// Writes all stored fragments in order to `out` (replacing it). The
@@ -128,7 +145,8 @@ impl DbSink {
     pub fn export(&self, out: &Path, mode: u32) -> Result<(u64, u64)> {
         let mut file = std::io::BufWriter::new(std::fs::File::create(out)?);
         apply_mode(out, mode);
-        let mut stmt = self.conn.prepare("SELECT mime, data FROM segments ORDER BY seq")?;
+        let conn = lock(&self.conn);
+        let mut stmt = conn.prepare("SELECT mime, data FROM segments ORDER BY seq")?;
         let mut rows = stmt.query([])?;
         let (mut count, mut bytes) = (0u64, 0u64);
         while let Some(row) = rows.next()? {
@@ -273,6 +291,38 @@ mod tests {
         sink.set_meta("head", "10").unwrap();
         assert_eq!(sink.meta("head").unwrap().as_deref(), Some("10"));
         // Windows can't delete the database while the connection is open.
+        drop(sink);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Another thread holds the database, as a slow insert would. On the
+    /// test's single runtime thread the release can only be sent while the
+    /// insert waits elsewhere.
+    #[tokio::test]
+    async fn insert_leaves_the_runtime_thread_free() {
+        let dir = std::env::temp_dir().join(format!("ytarchive-rs-db-free-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut sink = DbSink::open(&dir.join("x.f140.sqlite"), 0o644).unwrap();
+
+        let (held_sender, held_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn({
+            let conn = sink.conn.clone();
+            move || {
+                let guard = lock(&conn);
+                held_sender.send(()).unwrap();
+                let released = release_receiver.recv_timeout(std::time::Duration::from_secs(5)).is_ok();
+                drop(guard);
+                released
+            }
+        });
+        held_receiver.recv().unwrap();
+
+        let (events, ()) =
+            tokio::join!(sink.push(1, Some(frag(1, b"<1>"))), async { release_sender.send(()).unwrap() });
+        assert!(matches!(events.unwrap()[..], [Event::Wrote(3)]));
+        assert!(holder.join().unwrap(), "the insert held the runtime thread until the database was free");
+        assert_eq!(sink.stored().unwrap(), HashSet::from([1]));
         drop(sink);
         std::fs::remove_dir_all(&dir).unwrap();
     }
