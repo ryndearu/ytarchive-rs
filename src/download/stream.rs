@@ -11,12 +11,13 @@ use super::db_sink::{Saved, save_end, save_info, save_progress};
 use super::recovery::{Span, recover, usable_until};
 use super::sink::remove_frag_file;
 use super::sink::{self, Event, Sink};
+use super::state_saver::StateSaver;
 use super::worker::{Dispatch, Msg, worker};
 use crate::error::{Error, Result};
 use crate::live_from::seekable_start_sq;
 use crate::session::Session;
 use crate::types::{DataType, DownloadState, ProgressInfo, SavedDownload, StorageMode};
-use crate::util::{lock, write_atomic};
+use crate::util::lock;
 use crate::{log_debug, log_error, log_trace, log_warn};
 
 pub struct StreamParams {
@@ -76,26 +77,18 @@ fn fresh_start(params: &StreamParams, target_duration: u32) -> u64 {
     cur
 }
 
-/// Accounts for a stored fragment of `n` bytes.
-fn record(params: &mut StreamParams, max_seq: Option<u64>, bytes: u64, mode: u32) {
+/// Accounts for a stored fragment of `bytes` bytes.
+fn record(params: &mut StreamParams, saver: Option<&StateSaver>, max_seq: Option<u64>, bytes: u64) {
     params.state.fragments += 1;
     params.state.size += bytes;
-    save_state(params, mode);
+    if let Some(saver) = saver {
+        saver.save(&params.state);
+    }
     let info =
         ProgressInfo { data_type: params.data_type, byte_count: bytes, max_seq, start_frag: params.state.start_frag };
     // The progress line is optional; the download goes on without it.
     if params.progress.send(info).is_err() {
         log_trace!("{}: the progress reporter has stopped", params.data_type.as_str());
-    }
-}
-
-fn save_state(params: &StreamParams, mode: u32) {
-    let Some(path) = &params.state_file else { return };
-    let res = serde_json::to_vec(&params.state)
-        .map_err(std::io::Error::other)
-        .and_then(|data| write_atomic(path, &data, mode));
-    if let Err(error) = res {
-        log_warn!("Error when saving state: {error}");
     }
 }
 
@@ -123,7 +116,10 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     let mut sink = opened.sink;
     let cur = opened.cur;
     params.state = opened.state;
-    save_state(&params, mode);
+    let saver = params.state_file.clone().map(|path| StateSaver::start(path, mode));
+    if let Some(saver) = &saver {
+        saver.save(&params.state);
+    }
     // Only --recover-private keeps stream info and URLs in the database.
     let recovering = session.opts.recover_private && sink.is_db();
     let mut saved = Saved::default();
@@ -190,14 +186,15 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
             match event {
                 Event::Wrote(bytes) => {
                     let max_seq = lock(&dispatch).max_seq;
-                    record(&mut params, max_seq, bytes, mode);
+                    record(&mut params, saver.as_ref(), max_seq, bytes);
                     if recovering {
                         save_progress(&session, data_type, &sink, max_seq, &mut saved);
                     }
                 }
                 Event::Gap(gap) => {
                     // Fragments near the head of an ended stream often never
-                    // existed; only report real gaps.
+                    // existed; only report real gaps (the same distance as
+                    // `behind_head` in `continue_fragment_download`).
                     let max = lock(&dispatch).max_seq;
                     if !session.is_stopping() && max.is_none_or(|newest| gap + 2 < newest) {
                         log_warn!("{name}: Fragment {gap} could not be downloaded and was skipped");
@@ -234,7 +231,7 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
             let mut span = Span { start: cur, head: head_seq, end: end_seq };
             if session.is_unavailable() {
                 match recover(&session, data_type, database, span, |bytes| {
-                    record(&mut params, Some(head_seq), bytes, mode)
+                    record(&mut params, saver.as_ref(), Some(head_seq), bytes)
                 })
                 .await
                 {
@@ -257,6 +254,9 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         if !skipped.is_empty() {
             retry_until = usable_until(&session.known_urls(data_type));
         }
+    }
+    if let Some(saver) = saver {
+        saver.finish().await;
     }
     sink.finish(&name, mode).await?;
     if let Some(error) = store_err {

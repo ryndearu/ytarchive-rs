@@ -92,6 +92,9 @@ pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState
         return false;
     }
 
+    // The "near the head" checks in this file differ by one from each other
+    // (`<` here, `>` after an HTTP 404, `>=` after a request error). Each is
+    // Go's comparison (util.go), kept as it was.
     let behind_head = state.max_seq.is_some_and(|max| state.seq + 2 < max);
     if behind_head {
         if state.full_retries > 0 {
@@ -192,7 +195,7 @@ async fn sleep_or_stop(session: &Session, state: &FragThreadState) -> bool {
     crate::util::sleep_or_cancel(&session.cancel, retry_delay(state)).await
 }
 
-/// Downloads `st.seq`. With `frag_file`, the data goes to that file instead
+/// Downloads `state.seq`. With `frag_file`, the data goes to that file instead
 /// of memory. Returns `None` if the fragment was given up on or the download
 /// is stopping.
 pub async fn download_fragment(
