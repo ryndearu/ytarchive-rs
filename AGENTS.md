@@ -1,10 +1,8 @@
 # AGENTS.md
 
-Guidelines for working on ytarchive-rs, for people and coding agents alike.
-
 ## What this project is
 
-A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork of [Kethsar/ytarchive](https://github.com/Kethsar/ytarchive)): a YouTube livestream archiver. URL extraction goes through yt-dlp (run as a subprocess); ytarchive downloads the fragments and muxes with ffmpeg. `--sqlite` storage and `--recover-private` borrow their ideas from [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl).
+A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork of [Kethsar/ytarchive](https://github.com/Kethsar/ytarchive)), a YouTube livestream archiver: yt-dlp extracts the URLs, ytarchive downloads the fragments and muxes with ffmpeg. `--sqlite` and `--recover-private` come from [CanOfSocks/livestream_dl](https://github.com/CanOfSocks/livestream_dl).
 
 ## Porting rules
 
@@ -16,11 +14,11 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 ## Platforms
 
 - **Windows, Linux, and macOS are supported**, each as x64 and arm64, and nothing else (no code or docs for other platforms); every change must build and pass tests on all three.
-- **File names**: anything that becomes a file or folder name goes through `util::sterilize_filename` with a `NameStyle`, and through `util::portable_file_name` when `--windows-filenames` is on (default on Windows: forbidden and control characters, reserved names like `CON`/`NUL`/`COM1`, trailing dots and spaces). `--no-windows-filenames` (default elsewhere) only replaces path separators and NUL. With Windows names, `output::final_location` also shortens the title so every path fits in MAX_PATH (unless `--no-path-limit`); if you add a longer file suffix than `.f{itag}.frag{seq}.ts`, raise `SUFFIX_ROOM`.
+- **File names**: anything that becomes a file or folder name goes through `util::sterilize_filename` with a `NameStyle`, and through `util::portable_file_name` when `--windows-filenames` is on. If you add a longer file suffix than `.f{itag}.frag{seq}.ts`, raise `SUFFIX_ROOM` (`output::final_location` keeps paths within MAX_PATH).
 - Don't assume Unix in code or tests: no hard-coded `/tmp`, `sh`, or unescaped paths in JSON; gate platform code with `#[cfg(windows)]` / `#[cfg(unix)]` (see `src/platform.rs`, `util::set_mode`).
-- The Rust version is pinned in `rust-toolchain.toml` (development, CI, and releases all use it); raise it in its own commit. `rust-version` in `Cargo.toml` is the oldest Rust that builds the crate; CI checks it, so raise it when a dependency needs a newer Rust.
+- The Rust version is pinned in `rust-toolchain.toml`; raise it in its own commit. Raise `rust-version` in `Cargo.toml` (checked by CI) when a dependency needs a newer Rust.
 - TLS is rustls with the `ring` provider and the OS certificate store; don't add OpenSSL.
-- The release profile uses fat LTO with `codegen-units = 1`. The allocator is the system's: mimalloc was tried and used two to four times the memory for the same CPU time, so don't add a custom allocator without measuring. Keep panic unwinding (no `panic = "abort"`): the download code catches a panicked worker so the other stream is still finished and muxed, and `ConsoleGuard` restores the Windows console.
+- Don't add a custom allocator without measuring (mimalloc used two to four times the memory). Keep panic unwinding (no `panic = "abort"`): the download code catches a panicked worker, and `ConsoleGuard` restores the Windows console.
 
 ## Code layout and style
 
@@ -49,15 +47,14 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 - While working, run only the tests for what you changed (`cargo test <name or module>`) after each change, and clippy once after a set of related changes. Run the whole suite when the change is broad and before pushing. A passing run stays valid while its inputs are unchanged.
 - If you don't know whether the tests you're about to affect already fail, run them once before the first edit and report failures that were already there.
 - Keep tests essential: every option under "Usage and options", downloading and storage, quality/codec selection, file names, ffmpeg arguments, and parsing of URLs, yt-dlp output, watch pages, durations, and cookies. Don't keep tests for logging, the progress line, help layout, version strings, or small helpers.
-- Downloader tests use a local fake googlevideo server (`src/download/tests/mod.rs`; SQLite and recovery cases in `tests/sqlite.rs`); add cases there for download behavior. `serve_until` makes fragments return 403 from a given sequence on, as for a stream that went private.
-- `--recover-private` waits 5 minutes between recovery rounds; tests use a 20 ms interval (`cfg(test)` in `src/download/recovery.rs`).
-- With `--recover-private`, the SQLite database also stores the stream info, every download URL used, and the newest fragment (`urls`/`meta` tables) for retrying in a later run (`src/prepare.rs`). Without the flag nothing new is stored, recovered, or kept. Don't rename those tables or keys without handling old databases.
-- The database copies its write-ahead log into the main file every 8 MiB (`wal_autocheckpoint = 2000` in `src/download/db_sink.rs`). SQLite's default of 4 MiB did that on nearly every video fragment, and 16 MiB made one insert pause for about 7 seconds with writes limited to 5 MB/s (3.4 at 8 MiB, 1.7 at 4), so measure on a slow or throttled disk before changing it.
+- Add download behavior cases to the fake googlevideo server tests (`src/download/tests/mod.rs`; SQLite and recovery in `tests/sqlite.rs`).
+- Don't rename the `urls`/`meta` tables or their keys in the SQLite database without handling old databases; `--recover-private` reads them in a later run.
+- Measure on a slow or throttled disk before changing `wal_autocheckpoint` in `src/download/db_sink.rs`: a larger value makes single inserts pause longer.
 - Network tests are marked `#[ignore]`. Run them against a real 24/7 stream with: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the env var if deno is installed).
 - For changes to the download/mux flow, also do a short real run, e.g. `--live-from now --capture-duration 10s -o '/tmp/x/%(id)s'`, and check the result with ffprobe.
 - To test failing fragments (5xx, 429, 403, one that never arrives) against a real stream, put a local HTTP server in between: a `--ytdlp-path` wrapper rewrites the googlevideo URLs in yt-dlp's output to `http://127.0.0.1:PORT/HOST/…`, and the server forwards every request (GET and HEAD) except the ones it fails on purpose.
 - A live fragment is given up on only while other fragments download, while the stream is held at `MEMORY_LIMIT`, or once a `--capture-duration` download has started its last fragment. Keep all three working when changing the retry rules, or a download can wait forever.
-- On Windows, processes started from a coding agent's shell can inherit "ignore Ctrl-C", so a scripted Ctrl-C never reaches ytarchive and it gets killed instead. Send Ctrl-Break, or reset the flag with `SetConsoleCtrlHandler(NULL, FALSE)` in the launcher, before judging interrupt behavior.
+- On Windows, a scripted Ctrl-C may never reach ytarchive (agent shells can pass on "ignore Ctrl-C"). Send Ctrl-Break, or reset the flag with `SetConsoleCtrlHandler(NULL, FALSE)` in the launcher, before judging interrupt behavior.
 - Prompts where an empty answer means "go ahead" must tell closed stdin from an empty line (`prompt::get_user_input` returns an empty string for both) and treat closed stdin as "no", so non-interactive runs never wait unattended.
 - List what hasn't been verified in `docs/NOT_TESTED.md`, and delete a line once it is verified.
 
@@ -72,8 +69,8 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 
 ## Releases
 
-- **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release, with a `SHA256SUMS` file and a build provenance attestation for the zips.
-- **Nightly** (`nightly.yml`) runs weekly (or by hand) and replaces the `nightly` pre-release. It skips when `main` hasn't changed since the last nightly or every new commit is a docs commit (`docs:` or `docs(...):`).
-- Both use `build.yml`, which publishes one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only the executable (Linux builds are static musl). Releases build x64 and arm64 for every OS; nightly builds only Windows x64, Linux x64, and macOS arm64. It sets the `YTARCHIVE_*` variables for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
+- **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`); `release.yml` builds x64 and arm64 for every OS.
+- **Nightly** (`nightly.yml`) runs weekly and replaces the `nightly` pre-release. It skips when `main` only has docs commits (`docs:` or `docs(...):`) since the last one, so title docs commits that way.
+- Both use `build.yml`: one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only the executable. It sets the `YTARCHIVE_*` variables for `build.rs`; `Cross.toml` passes them into `cross` containers.
 - **CI** (`ci.yml`) runs only for pushes that touch the code or what builds and checks it; add a new such file to its `paths` list.
-- **Audit** (`audit.yml`) runs `cargo audit` weekly and whenever `Cargo.toml` or `Cargo.lock` changes. It fails on a vulnerable dependency; "unmaintained" notices are only warnings.
+- **Audit** (`audit.yml`) fails on a vulnerable dependency; "unmaintained" notices are only warnings.
