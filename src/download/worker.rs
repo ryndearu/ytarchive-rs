@@ -75,7 +75,11 @@ impl Dispatch {
     }
 
     fn progress(&self) -> StreamProgress {
-        StreamProgress { downloaded: self.downloaded, held: self.held() }
+        // With --capture-duration the other workers stop at the last
+        // fragment, so nothing else downloads to show that the ones still
+        // being tried are stuck.
+        let none_left = self.end_seq.is_some_and(|end| self.next >= end);
+        StreamProgress { downloaded: self.downloaded, held: self.held() || none_left }
     }
 
     fn complete(&mut self, downloaded: bool, head: Option<u64>) {

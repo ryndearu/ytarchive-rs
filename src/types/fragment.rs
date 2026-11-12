@@ -54,7 +54,8 @@ pub struct StreamProgress {
     /// Fragments downloaded so far.
     pub downloaded: u64,
     /// No new fragments are started: too much data is waiting in memory
-    /// behind one that is missing.
+    /// behind one that is missing, or every fragment of the capture has
+    /// been handed out.
     pub held: bool,
 }
 

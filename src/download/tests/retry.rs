@@ -89,6 +89,25 @@ fn moved(downloaded: u64) -> StreamProgress {
 }
 
 #[tokio::test]
+async fn stuck_fragments_do_not_keep_a_capture_from_finishing() {
+    // Fragments 50 and 55 never download, and after the capture's last
+    // fragment nothing else downloads to count against them.
+    let url = serve(200, vec![50, 55]).await;
+    let dir = temp_dir("capture-stuck");
+    let session = Session::for_test(opts(4, true), Some(FragmentUrl::with_sq_param(&url)), true);
+    let (mut stream_params, _rx) = params(&dir, 200, DownloadState::default());
+    stream_params.start_sq = Some(0);
+    stream_params.capture_duration = Some(Duration::from_secs(60));
+    stream_params.retry_sleep = Duration::from_millis(1);
+    let download = download_stream(session, stream_params);
+    let out = tokio::time::timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
+
+    assert_eq!(out.skipped, [50, 55]);
+    assert_eq!(out.state.fragments, 58);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
 async fn fragments_waiting_in_memory_are_limited() {
     // Fragment 3 never downloads. The requests for it stop when it is given
     // up on; `ahead` is the newest fragment asked for by then.
