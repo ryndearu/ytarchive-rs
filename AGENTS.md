@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidelines for working on ytarchive-rs, for people and coding agents alike. These are the rules the project was built with.
+Guidelines for working on ytarchive-rs, for people and coding agents alike.
 
 ## What this project is
 
@@ -9,8 +9,7 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 ## Porting rules
 
 - **Behave like dreammu/ytarchive** unless there is a reason not to. Flag names, defaults, file names (`.f{itag}.ts`, `{id}.f{itag}.state`, `{id}__XXXX` temp dirs), state file format, and log messages follow Go.
-- **Fix Go bugs instead of copying them**, and record every fix in `docs/CHANGES_FROM_GO.md` (what Go did, what the port does).
-- **Record every intentional behavior change** in the same file.
+- **Fix Go bugs instead of copying them.** Record every fix and every intentional behavior change in `docs/CHANGES_FROM_GO.md` (what Go did, what the port does).
 - **Don't port dead code.** Code that is unreachable in Go (InnerTube request, ytcfg, SAPISIDHASH, DASH manifest parsing, UMP) stays out; list it under "Not ported".
 - To compare with the originals, clone them into `refs/` (gitignored): `git clone https://github.com/dreammu/ytarchive refs/dreammu-ytarchive` (likewise Kethsar/ytarchive and CanOfSocks/livestream_dl).
 
@@ -19,17 +18,17 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - **Windows, Linux, and macOS are supported**, each as x64 and arm64, and nothing else (no code or docs for other platforms); every change must build and pass tests on all three.
 - **File names**: anything that becomes a file or folder name goes through `util::sterilize_filename` with a `NameStyle`, and through `util::portable_file_name` when `--windows-filenames` is on (default on Windows: forbidden and control characters, reserved names like `CON`/`NUL`/`COM1`, trailing dots and spaces). `--no-windows-filenames` (default elsewhere) only replaces path separators and NUL. With Windows names, `output::final_location` also shortens the title so every path fits in MAX_PATH (unless `--no-path-limit`); if you add a longer file suffix than `.f{itag}.frag{seq}.ts`, raise `SUFFIX_ROOM`.
 - Don't assume Unix in code or tests: no hard-coded `/tmp`, `sh`, or unescaped paths in JSON; gate platform code with `#[cfg(windows)]` / `#[cfg(unix)]` (see `src/platform.rs`, `util::set_mode`).
-- The Rust version is pinned in `rust-toolchain.toml` (development, CI, and releases all use it); raise it in its own commit. `rust-version` in `Cargo.toml` is the oldest Rust that builds the crate; CI checks it (`cargo check` with that version), so raise it when a dependency needs a newer Rust.
+- The Rust version is pinned in `rust-toolchain.toml` (development, CI, and releases all use it); raise it in its own commit. `rust-version` in `Cargo.toml` is the oldest Rust that builds the crate; CI checks it, so raise it when a dependency needs a newer Rust.
 - TLS is rustls with the `ring` provider and the OS certificate store; don't add OpenSSL.
 - The release profile uses fat LTO with `codegen-units = 1`. The allocator is the system's: mimalloc was tried and used two to four times the memory for the same CPU time, so don't add a custom allocator without measuring. Keep panic unwinding (no `panic = "abort"`): the download code catches a panicked worker so the other stream is still finished and muxed, and `ConsoleGuard` restores the Windows console.
 
 ## Code layout and style
 
 - One module per file. Shared types live in `src/types/`; define or update them before the feature that uses them.
-- A file over 400 lines must be split, but only when you are already editing it; say so in the commit.
-- No crate-wide `allow(dead_code)`. Remove unused code, tests, and dependencies. Tests for minor or unimportant features go only in `src/minor_tests.rs` (`#[cfg(test)] mod minor_tests;`), so they can be deleted all at once.
-- No `unsafe` unless it's truly necessary; prefer a maintained safe wrapper crate. `main.rs` has `#![forbid(unsafe_code)]`; lifting it needs a good reason.
-- Outside tests: no `unwrap()`/`expect()`, no unchecked indexing or slicing, and no `let _ =` on a `Result` (handle it, or log it if it can be ignored). Clippy enforces this (`[lints.clippy]` in `Cargo.toml`; tests are exempt through `clippy.toml`). Use `util::lock` for mutexes and `util::apply_mode` for permissions that may fail.
+- A file over 400 lines must be split, but only when you are already editing it; say so in the commit. Don't refactor files you aren't otherwise touching unless asked.
+- No crate-wide `allow(dead_code)`. Remove unused code and dependencies, and the tests of removed code. Tests for minor or unimportant features go only in `src/minor_tests.rs` (`#[cfg(test)] mod minor_tests;`), so they can be deleted all at once.
+- No `unsafe` unless it's truly necessary; prefer a maintained safe wrapper crate. `main.rs` has `#![forbid(unsafe_code)]`; lifting it needs a good reason, and every `unsafe` block then needs a `// SAFETY:` comment.
+- Outside tests: no `unwrap()`/`expect()` (propagate with `?`), no unchecked indexing or slicing, and no `let _ =` on a `Result` (handle it, or log it if it can be ignored). Clippy enforces this (`[lints.clippy]` in `Cargo.toml`; tests are exempt through `clippy.toml`). Use `util::lock` for mutexes and `util::apply_mode` for permissions that may fail.
 - Names are full words (`sequence`, not `sq` or `s`), including closure parameters.
 - A clone made for an async block goes inside the block passed to the spawn, under the same name: `tokio::spawn({ let session = session.clone(); async move { … } })`.
 - Comments explain a non-obvious *why*, especially where behavior differs from Go. No comments that summarize the code or divide it into sections.
@@ -37,15 +36,17 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 
 ## Testing
 
-Run these as separate commands before pushing (CI runs clippy and tests on all three platforms; a change isn't done until they pass). Clippy is also the typecheck; there's no separate `cargo check` step:
+Run these as separate commands before pushing (CI runs clippy and tests on all three platforms). Clippy is also the typecheck; there's no separate `cargo check` step:
 
 ```sh
 cargo fmt
 cargo test
 cargo clippy --all-targets -- -D warnings
-cargo build --release --locked   # when dependencies or build config change
+cargo build --release --locked   # only when Cargo.toml, dependencies, or build.rs change
 ```
 
+- While working, run only the tests for what you changed (`cargo test <name or module>`) after each change, and clippy once after a set of related changes. Run the whole suite when the change is broad and before pushing. A passing run stays valid while its inputs are unchanged.
+- If you don't know whether the tests you're about to affect already fail, run them once before the first edit and report failures that were already there.
 - Keep tests essential: every option under "Usage and options", downloading and storage, quality/codec selection, file names, ffmpeg arguments, and parsing of URLs, yt-dlp output, watch pages, durations, and cookies. Don't keep tests for logging, the progress line, help layout, version strings, or small helpers.
 - Downloader tests use a local fake googlevideo server (`src/download/tests/mod.rs`; SQLite and recovery cases in `tests/sqlite.rs`); add cases there for download behavior. `serve_until` makes fragments return 403 from a given sequence on, as for a stream that went private.
 - `--recover-private` waits 5 minutes between recovery rounds; tests use a 20 ms interval (`cfg(test)` in `src/download/recovery.rs`).
@@ -58,17 +59,17 @@ cargo build --release --locked   # when dependencies or build config change
 
 ## Commits
 
-- Title format (Conventional Commits): `<type>(<scope>): <lowercase imperative summary>`, no trailing period. Types: `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `chore`. The scope is the module (`download`, `cli`, `tui`, …) and can be left out for broad changes (`docs: …`). Add the PR number at the end, `(#12)`, only when the commit comes from a pull request. Releases are `chore: release 0.2.0`. Examples: `fix(download): close the database before cleanup in test`, `feat(cli): add --recover-private`, `docs: describe --recover-private`.- Body: bullet list of what changed, plus a paragraph on Go bugs fixed or behavior changes.
+- Title format (Conventional Commits): `<type>(<scope>): <lowercase imperative summary>`, no trailing period. Types: `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `chore`. The scope is the module (`download`, `cli`, `tui`, …) and can be left out for broad changes (`docs: …`). Add the PR number at the end, `(#12)`, only when the commit comes from a pull request. Releases are `chore: release 0.2.0`. Examples: `fix(download): close the database before cleanup in test`, `feat(cli): add --recover-private`, `docs: describe --recover-private`.
+- Body: bullet list of what changed, plus a paragraph on Go bugs fixed or behavior changes.
 - One commit per completed step. Each commit also updates the docs it affects (`README.md`, `docs/CHANGES_FROM_GO.md`, `docs/NOT_TESTED.md`, this file) in the same commit.
 - Exception: when the user asks for a large docs update, attach each docs change to the commit it belongs to; only changes with no relevant commit go into a separate `docs:` commit.
-- Pause after each commit for review before starting the next step, and push once the work is reviewed.
-- Each commit should build on its own.
-- Never force-push or rewrite pushed history. Unpushed commits may be reorganized.
+- Each commit should build on its own. Commit and push only when asked, and pause after each step for review.
+- Never force-push or rewrite pushed history. Unpushed commits may be reorganized. Never commit secrets.
 
 ## Releases
 
 - **Releases** are manual: push a `v*` tag (e.g. `v0.1.0`). `release.yml` builds all platforms and publishes a normal release, with a `SHA256SUMS` file and a build provenance attestation for the zips.
-- **Nightly** (`nightly.yml`) runs weekly, Fridays at 00:00 UTC (or by hand). It skips when `main` hasn't changed since the last nightly or every new commit is a docs commit (`docs:` or `docs(...):`), otherwise replaces the `nightly` pre-release, listing commits since the last `v*` release as links to their commit pages.
-- Both use `build.yml`, which publishes one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only `ytarchive`/`ytarchive.exe` (Linux builds are static musl). Releases build x64 and arm64 for every OS; nightly (`all_targets: false`) builds only Windows x64, Linux x64, and macOS arm64. It sets `YTARCHIVE_CHANNEL`/`YTARCHIVE_VERSION`/`YTARCHIVE_COMMIT`/`YTARCHIVE_DATE` for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
-- **CI** runs only for pushes that touch the code or what builds and checks it: `src/`, `build.rs`, `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`, or `ci.yml` itself. Besides the three-platform tests, it checks that the crate builds with the `rust-version` in `Cargo.toml`.
-- **Audit** (`audit.yml`) runs `cargo audit` every Monday and whenever `Cargo.toml` or `Cargo.lock` changes. It fails on a vulnerable dependency; "unmaintained" notices are only warnings. `cargo-audit` is installed as a prebuilt binary.
+- **Nightly** (`nightly.yml`) runs weekly (or by hand) and replaces the `nightly` pre-release. It skips when `main` hasn't changed since the last nightly or every new commit is a docs commit (`docs:` or `docs(...):`).
+- Both use `build.yml`, which publishes one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only the executable (Linux builds are static musl). Releases build x64 and arm64 for every OS; nightly builds only Windows x64, Linux x64, and macOS arm64. It sets the `YTARCHIVE_*` variables for `build.rs`'s version string; `Cross.toml` passes them into `cross` containers.
+- **CI** (`ci.yml`) runs only for pushes that touch the code or what builds and checks it; add a new such file to its `paths` list.
+- **Audit** (`audit.yml`) runs `cargo audit` weekly and whenever `Cargo.toml` or `Cargo.lock` changes. It fails on a vulnerable dependency; "unmaintained" notices are only warnings.
