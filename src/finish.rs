@@ -48,10 +48,16 @@ async fn decide(action: Action, question: &str) -> bool {
 }
 
 impl Finish<'_> {
-    fn move_all(&self, items: &[&Option<Moved>]) -> bool {
+    async fn move_all(&self, items: &[&Option<Moved>]) -> bool {
         let mut ok = true;
         for moved in items.iter().copied().flatten() {
-            ok &= try_move(&moved.temp, &moved.dest).is_ok();
+            // A move to another filesystem copies the whole file.
+            let result = tokio::task::spawn_blocking({
+                let moved = moved.clone();
+                move || try_move(&moved.temp, &moved.dest)
+            })
+            .await;
+            ok &= matches!(result, Ok(Ok(())));
         }
         ok
     }
@@ -132,7 +138,7 @@ impl Finish<'_> {
                 .await;
 
         if save_files {
-            let ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description]);
+            let ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description]).await;
             self.cleanup_temp(ok);
             self.delete_state_files();
         } else if !save_state {
@@ -158,7 +164,8 @@ impl Finish<'_> {
         }
 
         let mux_file = Some(self.mux_file.clone());
-        let moves_ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]);
+        let moves_ok =
+            self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]).await;
 
         // Go kept the output name it chose before the download started.
         let mux = self.mux.with_unused_output();
@@ -240,5 +247,62 @@ impl Finish<'_> {
             log_general!("Final audio file: {}", audio_mux.output.display());
         }
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mux::MuxInput;
+
+    /// Ctrl-C with "keep the files": the downloaded data and thumbnail move
+    /// to the final folder, a file that was never created is skipped, and
+    /// the temp folder and state file are removed.
+    #[tokio::test]
+    async fn cancel_keeping_files_moves_them_and_cleans_up() {
+        let final_dir = std::env::temp_dir().join(format!("ytarchive-rs-finish-{}", std::process::id()));
+        let temp_dir = final_dir.join("vid__1a2b");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let plan = OutputPlan { final_dir: final_dir.clone(), file_name: "out".into(), temp_dir };
+        let moved = |suffix: &str| Moved { temp: plan.temp(suffix), dest: plan.final_path(suffix) };
+        let state_file = final_dir.join("vid.f140.state");
+        std::fs::write(&state_file, b"{}").unwrap();
+        std::fs::write(plan.temp(".f140.ts"), b"audio").unwrap();
+        std::fs::write(plan.temp(".jpg"), b"thumbnail").unwrap();
+
+        let opts = Options { merge_on_cancel: Action::DoNot, save_files_on_cancel: Action::Do, ..Default::default() };
+        let audio = plan.final_path(".f140.ts");
+        let finish = Finish {
+            opts: &opts,
+            plan: &plan,
+            video_id: "vid",
+            audio_ts: Some(moved(".f140.ts")),
+            video_ts: Some(moved(".f299.ts")),
+            thumbnail: Some(moved(".jpg")),
+            description: None,
+            mux_file: moved(".ffmpeg.txt"),
+            mux: mux::ffmpeg_args(&MuxInput {
+                audio: Some(&audio),
+                video: None,
+                thumbnail: None,
+                mkv: false,
+                metadata: None,
+                out_dir: &final_dir,
+                file_name: "out",
+            }),
+            audio_mux: None,
+            state_files: vec![state_file.clone()],
+            audio_frags: Some(1),
+            video_frags: None,
+            keep_for_retry: None,
+        };
+
+        assert_eq!(finish.on_cancel().await, Some(2));
+        assert_eq!(std::fs::read(&audio).unwrap(), b"audio");
+        assert_eq!(std::fs::read(plan.final_path(".jpg")).unwrap(), b"thumbnail");
+        assert!(!plan.final_path(".f299.ts").exists());
+        assert!(!plan.temp_dir.exists());
+        assert!(!state_file.exists());
+        std::fs::remove_dir_all(&final_dir).unwrap();
     }
 }
