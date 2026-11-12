@@ -4,6 +4,7 @@ mod db_sink;
 mod fragment;
 mod recovery;
 mod sink;
+mod state_saver;
 mod stream;
 #[cfg(test)]
 mod tests;
