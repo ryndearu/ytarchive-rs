@@ -44,7 +44,8 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 ### Files and cleanup
 
 - Only temp directories named `{video_id}__*` (the ones ytarchive creates) are ever deleted. Go deleted whatever directory a state file named, so a corrupted state file could point it at any directory.
-- The final file's name (`name.mp4`, or `name-1.mp4` … if taken) is picked again right before muxing, and the `.ffmpeg.txt` command is updated to match. Go picked it before the download started, so a file created under that name during the download made ffmpeg fail.- The `publish_date` template value is always `YYYYMMDD`. Go kept the raw value, which for newer pages includes a time and offset.
+- The final file's name (`name.mp4`, or `name-1.mp4` … if taken) is picked again right before muxing, and the `.ffmpeg.txt` command is updated to match. Go picked it before the download started, so a file created under that name during the download made ffmpeg fail.
+- When `name.mp4` and `name-1.mp4` to `name-10.mp4` all exist, ytarchive says so and doesn't run ffmpeg; the `.ts` files are kept. Go ran ffmpeg, which refused to overwrite, and reported only its exit code.- The `publish_date` template value is always `YYYYMMDD`. Go kept the raw value, which for newer pages includes a time and offset.
 
 ### Output and signals
 
