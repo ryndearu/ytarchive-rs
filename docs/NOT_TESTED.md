@@ -11,5 +11,5 @@ Keep this file current: when something listed here gets verified, delete its lin
 - **Channel monitoring going back to `/live`** when it shows a stream marked playable that hasn't started (a channel going live while being watched was found, downloaded, and monitored further, but that case didn't come up).
 - **`--recover-private` against a real stream going private**: whether YouTube keeps serving the old URLs, the recovery rounds against googlevideo, and the 5-minute round spacing and one-hour limit in practice (only the fake server was used).
 - **Long-running behavior**: the 5-hour background URL refresh (and its retry 5 minutes after a failed one) and URL refresh after repeated 403s.
-- **`--sqlite` on a slow disk**: the 16 MiB write-ahead log limit was only measured on an NVMe drive (a quarter fewer disk writes, same output); how long one insert can stall on a hard disk or network share wasn't.
+- **`--sqlite` on a real hard disk or network share**: the 8 MiB write-ahead log limit was measured on an NVMe drive with writes limited to 1, 5 and 20 MB/s. The download finished normally; at 5 MB/s one insert can pause for about 3.4 seconds (1.7 with SQLite's default).
 - **A full disk while writing the `.ts` file**: that the saved state then never counts a fragment that didn't reach the file, so the next run resumes instead of starting over.

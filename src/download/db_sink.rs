@@ -37,9 +37,9 @@ impl DbSink {
              PRAGMA synchronous = NORMAL;
              -- SQLite's default of 1000 pages (4 MiB) is about two video
              -- fragments, so nearly every insert also copied the log into
-             -- the database and synced it. 16 MiB does that a quarter as
-             -- often; larger made single inserts stall for too long.
-             PRAGMA wal_autocheckpoint = 4000;
+             -- the database and synced it. 8 MiB does that half as often;
+             -- 16 MiB made one insert stall for 7 seconds on a slow disk.
+             PRAGMA wal_autocheckpoint = 2000;
              CREATE TABLE IF NOT EXISTS segments (
                  seq  INTEGER PRIMARY KEY,
                  mime TEXT NOT NULL,
