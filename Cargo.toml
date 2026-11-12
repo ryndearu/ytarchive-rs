@@ -1,6 +1,6 @@
 [package]
 name = "ytarchive"
-version = "0.2.0"
+version = "1.0.0"
 edition = "2024"
 # The oldest Rust that builds this crate (set by the dependencies).
 rust-version = "1.89"
