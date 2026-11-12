@@ -1,7 +1,5 @@
 # What isn't tested
 
-Keep this file current: when something listed here gets verified, delete its line.
-
 - **`-6`** (the test machines had no IPv6).
 - **The short post-live window** right after a stream ends.
 - **Members-only streams and cookies** with a real account.
@@ -11,4 +9,4 @@ Keep this file current: when something listed here gets verified, delete its lin
 - **`--recover-private` against a real stream going private**: whether YouTube keeps serving the old URLs, the recovery rounds against googlevideo, and the 5-minute round spacing and one-hour limit in practice (only the fake server was used).
 - **Long-running behavior**: the 5-hour background URL refresh.
 - **`--sqlite` on a real hard disk or network share**: the 8 MiB write-ahead log limit was measured on an NVMe drive with writes limited to 1, 5 and 20 MB/s. The download finished normally; at 5 MB/s one insert can pause for about 3.4 seconds (1.7 with SQLite's default).
-- **Resuming after a disk fills up mid-download**: that the saved state never counts a fragment that didn't reach the `.ts` file is tested only on Linux, with a file that takes no data from the start (`/dev/full`). On a disk that filled up later (a 4 MiB tmpfs) the download stopped with an error, ffmpeg failed, and the `.ts` files were kept, but the state files were removed, so the state couldn't be checked and the next run started over. It would only matter for a run that is killed at that moment.
+- **A disk that fills up with `--sqlite`**, and a failed `--sqlite` export. Without `--sqlite` it was run on a 4 MiB disk: the download stopped without merging, kept the `.ts` files and state, and the next run resumed and merged.

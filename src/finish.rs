@@ -102,14 +102,16 @@ impl Finish<'_> {
         }
     }
 
-    /// A stream's storage couldn't be opened. Go still said "Download
-    /// Finished" and ran ffmpeg on the missing file; this doesn't merge. With
-    /// nothing downloaded (now or by an earlier run) the files are removed,
-    /// otherwise left for resuming once the cause is fixed. Returns the exit code.
+    /// A stream's storage couldn't be opened, written to, or exported. Go
+    /// still said "Download Finished" and ran ffmpeg; this doesn't merge,
+    /// which would move the data away from its resume state and delete that
+    /// state. With nothing downloaded (now or by an earlier run) the files are
+    /// removed, otherwise left for resuming once the cause is fixed. Returns
+    /// the exit code.
     pub fn on_storage_error(&self, had_data: bool) -> i32 {
         if had_data {
             log_error!(
-                "Not merging because a download's storage couldn't be opened. The files were left in {} to resume later.",
+                "Not merging because a download's data couldn't be stored. The files were left in {} to resume later.",
                 self.plan.temp_dir.display()
             );
         } else {
@@ -252,29 +254,32 @@ impl Finish<'_> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
     use crate::mux::MuxInput;
 
-    /// Ctrl-C with "keep the files": the downloaded data and thumbnail move
-    /// to the final folder, a file that was never created is skipped, and
-    /// the temp folder and state file are removed.
-    #[tokio::test]
-    async fn cancel_keeping_files_moves_them_and_cleans_up() {
-        let final_dir = std::env::temp_dir().join(format!("ytarchive-rs-finish-{}", std::process::id()));
+    /// A finished audio download with a thumbnail in a temp folder, and its
+    /// state file.
+    fn downloaded(name: &str) -> (OutputPlan, PathBuf) {
+        let final_dir = std::env::temp_dir().join(format!("ytarchive-rs-finish-{name}-{}", std::process::id()));
         let temp_dir = final_dir.join("vid__1a2b");
         std::fs::create_dir_all(&temp_dir).unwrap();
         let plan = OutputPlan { final_dir: final_dir.clone(), file_name: "out".into(), temp_dir };
-        let moved = |suffix: &str| Moved { temp: plan.temp(suffix), dest: plan.final_path(suffix) };
         let state_file = final_dir.join("vid.f140.state");
         std::fs::write(&state_file, b"{}").unwrap();
         std::fs::write(plan.temp(".f140.ts"), b"audio").unwrap();
         std::fs::write(plan.temp(".jpg"), b"thumbnail").unwrap();
+        (plan, state_file)
+    }
 
-        let opts = Options { merge_on_cancel: Action::DoNot, save_files_on_cancel: Action::Do, ..Default::default() };
+    fn finish_of<'a>(opts: &'a Options, plan: &'a OutputPlan, state_file: &Path) -> Finish<'a> {
+        let moved = |suffix: &str| Moved { temp: plan.temp(suffix), dest: plan.final_path(suffix) };
         let audio = plan.final_path(".f140.ts");
-        let finish = Finish {
-            opts: &opts,
-            plan: &plan,
+        let final_dir = &plan.final_dir;
+        Finish {
+            opts,
+            plan,
             video_id: "vid",
             audio_ts: Some(moved(".f140.ts")),
             video_ts: Some(moved(".f299.ts")),
@@ -287,22 +292,51 @@ mod tests {
                 thumbnail: None,
                 mkv: false,
                 metadata: None,
-                out_dir: &final_dir,
+                out_dir: final_dir,
                 file_name: "out",
             }),
             audio_mux: None,
-            state_files: vec![state_file.clone()],
+            state_files: vec![state_file.to_path_buf()],
             audio_frags: Some(1),
             video_frags: None,
             keep_for_retry: None,
-        };
+        }
+    }
+
+    /// Ctrl-C with "keep the files": the downloaded data and thumbnail move
+    /// to the final folder, a file that was never created is skipped, and
+    /// the temp folder and state file are removed.
+    #[tokio::test]
+    async fn cancel_keeping_files_moves_them_and_cleans_up() {
+        let (plan, state_file) = downloaded("cancel");
+        let opts = Options { merge_on_cancel: Action::DoNot, save_files_on_cancel: Action::Do, ..Default::default() };
+        let finish = finish_of(&opts, &plan, &state_file);
 
         assert_eq!(finish.on_cancel().await, Some(2));
-        assert_eq!(std::fs::read(&audio).unwrap(), b"audio");
+        assert_eq!(std::fs::read(plan.final_path(".f140.ts")).unwrap(), b"audio");
         assert_eq!(std::fs::read(plan.final_path(".jpg")).unwrap(), b"thumbnail");
         assert!(!plan.final_path(".f299.ts").exists());
         assert!(!plan.temp_dir.exists());
         assert!(!state_file.exists());
-        std::fs::remove_dir_all(&final_dir).unwrap();
+        std::fs::remove_dir_all(&plan.final_dir).unwrap();
+    }
+
+    /// A storage error after data was stored leaves the data and its state
+    /// where a later run resumes from; with nothing stored, both are removed.
+    #[test]
+    fn storage_error_keeps_what_can_be_resumed() {
+        let (plan, state_file) = downloaded("storage");
+        let opts = Options::default();
+        let finish = finish_of(&opts, &plan, &state_file);
+
+        assert_eq!(finish.on_storage_error(true), 1);
+        assert_eq!(std::fs::read(plan.temp(".f140.ts")).unwrap(), b"audio");
+        assert!(state_file.exists());
+        assert!(!plan.final_path(".f140.ts").exists());
+
+        assert_eq!(finish.on_storage_error(false), 1);
+        assert!(!plan.temp_dir.exists());
+        assert!(!state_file.exists());
+        std::fs::remove_dir_all(&plan.final_dir).unwrap();
     }
 }
