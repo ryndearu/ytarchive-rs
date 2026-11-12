@@ -95,6 +95,11 @@ impl TsSink {
                 let first = self.next_write == self.start_frag;
                 let data = strip_for_concat(&raw, &frag.mime_type, first).map_or(raw, Bytes::from);
                 self.file.write_all(&data).await?;
+                // tokio writes in the background and reports a failure only
+                // on the next call; without this a fragment that never
+                // reached the file (full disk) is counted in the saved
+                // state, and the next run can't resume from it.
+                self.file.flush().await?;
                 Ok::<_, std::io::Error>(data.len() as u64)
             }
             .await;
