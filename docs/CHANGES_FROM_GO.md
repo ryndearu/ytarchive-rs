@@ -28,6 +28,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 ### Downloading
 
 - The URL is passed to yt-dlp after `--`, so a URL can never be read as a yt-dlp option.
+- One yt-dlp run may take 60 seconds before it is stopped and tried again. Go allowed 30, which a slow machine or connection could exceed on every attempt.
 - yt-dlp runs with `--encoding utf-8` (and `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`), so titles and other text arrive as UTF-8 whatever the console's code page is. `--ytdlp-opts` can still override it.
 - **Downloads from a channel URL are pinned to the stream they started on** in `--ytdlp-info` mode too: once `/live` resolves, URL refreshes use the stream's watch URL. Go's yt-dlp mode kept refreshing through `/live` and could switch to a different stream mid-download. `--monitor-channel` still starts each check from `/live`.
 - **Waiting on a channel keeps checking `/live` until a stream starts** (with `--monitor-channel`, or a channel URL with `-r`). When `/live` showed a stream marked playable that hadn't started, Go switched to that video's watch URL and kept polling it, so another stream on the channel starting first was missed. The port goes back to `/live` each time. A video URL still waits on that video.
@@ -43,8 +44,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 ### Files and cleanup
 
 - Only temp directories named `{video_id}__*` (the ones ytarchive creates) are ever deleted. Go deleted whatever directory a state file named, so a corrupted state file could point it at any directory.
-- The final file's name (`name.mp4`, or `name-1.mp4` … if taken) is picked again right before muxing, and the `.ffmpeg.txt` command is updated to match. Go picked it before the download started, so a file created under that name during the download made ffmpeg fail.
-- The `publish_date` template value is always `YYYYMMDD`. Go kept the raw value, which for newer pages includes a time and offset.
+- The final file's name (`name.mp4`, or `name-1.mp4` … if taken) is picked again right before muxing, and the `.ffmpeg.txt` command is updated to match. Go picked it before the download started, so a file created under that name during the download made ffmpeg fail.- The `publish_date` template value is always `YYYYMMDD`. Go kept the raw value, which for newer pages includes a time and offset.
 
 ### Output and signals
 
