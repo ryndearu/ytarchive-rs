@@ -40,6 +40,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - **Fragments that never download don't keep a `--capture-duration` download from finishing.** Once the capture's last fragment has been started, nothing else downloads anymore, so Go (and the rule above) retried the ones still failing for as long as the stream was live. The port gives up on each once its tries have run out 4 times, if anything else downloaded since it was first tried. An outage that starts earlier is still waited out; one that starts during the capture's last fragments and lasts that long loses them.
 - **A failed scheduled URL refresh is tried again after 5 minutes.** Go counted a failed 5-hour refresh as done and waited another 5 hours, by which time the URLs (valid for about 6 hours) had expired, so the download only got new ones after fragments started failing.
 - With `--sqlite`, storing a fragment and the export to the `.ts` file no longer hold up the other stream's download while they run.
+- Moving the finished files to the output folder no longer holds up the program when they have to be copied to another filesystem (`--temporary-dir` on a different disk).
 - A temp directory named in a saved state file is only reused if it still exists.
 - `--separate-audio` only makes the extra audio file when both audio and video were downloaded. Go also made a duplicate for audio-only downloads.
 
