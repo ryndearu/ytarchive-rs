@@ -7,11 +7,11 @@ For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) inste
 ## What's different from Go ytarchive
 
 - `--sqlite` stores fragments in a database, so a resumed download fetches only the fragments that are missing.
-- `--recover-private` keeps retrying missing fragments after a stream goes private mid-recording, in the same run or a later one.
+- `--recover-private` keeps retrying missing fragments after a stream goes private mid-recording, in the same run or a later one (see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
 - The channel monitor doesn't record the same stream twice, and keeps checking `/live` so it doesn't miss a stream that starts before the scheduled one.
 - Builds for Windows, Linux, and macOS, each as x64 and arm64. The Linux builds are static.
 
-The full list is in [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md).
+The full list is in [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md); what hasn't been tested yet is in [docs/NOT_TESTED.md](docs/NOT_TESTED.md).
 
 ## Features
 
@@ -21,8 +21,6 @@ The full list is in [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md).
 - Watches a channel and records each new stream (`--monitor-channel`), including members-only streams with cookies.
 - Parallel fragment downloads, URL refresh when fragments start failing, and a background refresh every 5 hours before URLs expire.
 - Resumable downloads: interrupt with Ctrl-C, keep the state, rerun to continue.
-- Optional SQLite fragment storage (`--sqlite`) that resumes by re-fetching only missing fragments.
-- Optional recovery after a stream goes private mid-recording (`--recover-private`; see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
 - Muxes to mp4/mkv/m4a with ffmpeg, with optional thumbnail, metadata, and description files.
 
 ## Requirements
@@ -245,11 +243,6 @@ By default a stream that goes private during the recording ends the download. Wi
 yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. Cookies (`-c cookies.txt`, Netscape format) are used both by yt-dlp and by ytarchive's own requests to YouTube pages (watch, `/live`, and `/streams` pages).
 
 yt-dlp gets the cookies file itself, so it can save refreshed cookies back to it. If yt-dlp couldn't read the file (it isn't valid UTF-8, the `# Netscape HTTP Cookie File` header is missing, a cookie's second column doesn't match whether its domain starts with `.`, or a stray line starts like JSON), ytarchive warns and passes yt-dlp a repaired copy in the temp folder instead, deleted when ytarchive exits. Cookies yt-dlp refreshes during that run aren't saved back to your file. A JSON cookie export isn't repaired; yt-dlp reports that it must be Netscape formatted.
-
-## Differences from Go and testing status
-
-- [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md): behavior changes, new options, Go bugs fixed during the port, and Go code that was not ported.
-- [docs/NOT_TESTED.md](docs/NOT_TESTED.md): what has not been tested yet.
 
 ## Credits
 
