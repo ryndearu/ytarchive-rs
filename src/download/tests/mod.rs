@@ -269,6 +269,28 @@ async fn unopenable_storage_is_reported_as_such() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// `/dev/full` takes no data, like a full disk; only Linux has it.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_fragment_that_does_not_reach_a_full_disk_is_not_counted() {
+    let url = serve(10, vec![]).await;
+    let dir = temp_dir("full-disk");
+    let mut options = opts(2, false);
+    // The mode /dev/full already has, so applying it changes nothing.
+    options.file_mode = 0o666;
+    let session = Session::for_test(options, Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, mut receiver) = params(&dir, 10, DownloadState::default());
+    stream_params.data_file = PathBuf::from("/dev/full");
+    let err = download_stream(session.clone(), stream_params).await.unwrap_err();
+
+    assert!(matches!(err, crate::error::Error::Io(_)), "{err}");
+    assert!(session.is_stopping());
+    assert!(receiver.try_recv().is_err(), "progress was reported for an unwritten fragment");
+    let saved = load_state(&dir.join("out.f140.state")).unwrap();
+    assert_eq!((saved.fragments, saved.size), (0, 0));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Hits YouTube: downloads 3 real audio fragments from a 24/7 stream.
 /// Run with `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored live_fragments`.
 #[tokio::test]

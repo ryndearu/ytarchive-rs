@@ -47,7 +47,7 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 - While working, run only the tests for what you changed (`cargo test <name or module>`) after each change, and clippy once after a set of related changes. Run the whole suite when the change is broad and before pushing. A passing run stays valid while its inputs are unchanged.
 - If you don't know whether the tests you're about to affect already fail, run them once before the first edit and report failures that were already there.
 - Keep tests essential: every option under "Usage and options", downloading and storage, quality/codec selection, file names, ffmpeg arguments, and parsing of URLs, yt-dlp output, watch pages, durations, and cookies. Don't keep tests for logging, the progress line, help layout, version strings, or small helpers.
-- Add download behavior cases to the fake googlevideo server tests (`src/download/tests/mod.rs`; SQLite and recovery in `tests/sqlite.rs`).
+- Add download behavior cases to the fake googlevideo server tests (`src/download/tests/mod.rs`; retrying in `tests/retry.rs`, SQLite and recovery in `tests/sqlite.rs`).
 - Don't rename the `urls`/`meta` tables or their keys in the SQLite database without handling old databases; `--recover-private` reads them in a later run.
 - Measure on a slow or throttled disk before changing `wal_autocheckpoint` in `src/download/db_sink.rs`: a larger value makes single inserts pause longer.
 - Network tests are marked `#[ignore]`. Run them against a real 24/7 stream with: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the env var if deno is installed).
