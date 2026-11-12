@@ -56,6 +56,36 @@ async fn expired_urls_on_an_ended_stream_keep_the_partial_file() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[tokio::test]
+async fn a_stream_that_ends_while_its_fragments_fail_keeps_the_partial_file() {
+    // Fragments from 5 on get 500. While live that is an outage and they are
+    // retried without limit; once the stream has ended the tries run out,
+    // and the download finishes normally (exit code 0 after muxing, as in
+    // Go) with what it has.
+    let url = serve(12, (5..=12).collect()).await;
+    let dir = temp_dir("ends-blocked");
+    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), true);
+    let (mut stream_params, _rx) = params(&dir, 12, DownloadState::default());
+    stream_params.retry_sleep = Duration::from_millis(1);
+    tokio::spawn({
+        let session = session.clone();
+        async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            session.set_live(false);
+        }
+    });
+    let download = download_stream(session, stream_params);
+    let out = tokio::time::timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
+
+    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(out.state.fragments, 5);
+    // 10 and 11 are within two of the head: taken as never created.
+    assert_eq!(out.skipped, [5, 6, 7, 8, 9]);
+    assert_eq!(load_state(&dir.join("out.f140.state")).unwrap().fragments, 5);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// A live fragment whose tries (2 in these tests) have just run out.
 fn exhausted(state: &mut FragThreadState) {
     state.tries = 2;
