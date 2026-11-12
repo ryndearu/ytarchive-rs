@@ -55,6 +55,19 @@ type OnForbidden = Arc<dyn Fn() + Send + Sync>;
 /// Like `serve`, but sequences from `forbidden` on get 403, as for a stream
 /// that went private.
 async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64, on_forbidden: Option<OnForbidden>) -> String {
+    serve_observed(head, fail, forbidden, on_forbidden, None).await
+}
+
+/// Called by the fake server with the sequence of every request.
+type OnRequest = Arc<dyn Fn(u64) + Send + Sync>;
+
+async fn serve_observed(
+    head: u64,
+    fail: Vec<u64>,
+    forbidden: u64,
+    on_forbidden: Option<OnForbidden>,
+    on_request: Option<OnRequest>,
+) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let fail = Arc::new(fail);
@@ -65,6 +78,7 @@ async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64, on_forbidden: Op
             };
             let fail = fail.clone();
             let on_forbidden = on_forbidden.clone();
+            let on_request = on_request.clone();
             tokio::spawn(async move {
                 let mut buf = vec![0u8; 8192];
                 let mut count = 0;
@@ -81,6 +95,9 @@ async fn serve_until(head: u64, fail: Vec<u64>, forbidden: u64, on_forbidden: Op
                     .and_then(|path| path.rsplit("sq=").next())
                     .and_then(|text| text.parse().ok())
                     .unwrap_or(u64::MAX);
+                if let Some(callback) = &on_request {
+                    callback(seq);
+                }
                 let (status, body) = if seq >= forbidden && seq != u64::MAX {
                     if let Some(callback) = &on_forbidden {
                         callback();
@@ -134,6 +151,7 @@ fn params(
             retry_sleep: Duration::from_millis(10),
             progress: sender,
             saved: None,
+            memory_limit: MEMORY_LIMIT,
         },
         receiver,
     )

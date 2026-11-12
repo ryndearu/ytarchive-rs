@@ -11,4 +11,4 @@ mod worker;
 
 pub use db_sink::{KeptStream, read_kept};
 pub use recovery::local_time;
-pub use stream::{StreamParams, download_stream, load_state};
+pub use stream::{MEMORY_LIMIT, StreamParams, download_stream, load_state};

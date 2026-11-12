@@ -23,6 +23,15 @@ pub struct TsSink {
     next_write: u64,
     start_frag: u64,
     pending: BTreeMap<u64, Option<Fragment>>,
+    /// Bytes of `pending` held in memory (fragment files don't count).
+    waiting_bytes: u64,
+}
+
+fn memory_bytes(entry: Option<&Fragment>) -> u64 {
+    match entry.map(|fragment| &fragment.data) {
+        Some(FragData::Memory(bytes)) => bytes.len() as u64,
+        _ => 0,
+    }
 }
 
 pub async fn fragment_bytes(data: &FragData) -> std::io::Result<Bytes> {
@@ -77,14 +86,18 @@ impl TsSink {
     }
 
     fn new(file: tokio::fs::File, path: &Path, next_write: u64, start_frag: u64) -> Self {
-        Self { file, path: path.to_path_buf(), next_write, start_frag, pending: BTreeMap::new() }
+        Self { file, path: path.to_path_buf(), next_write, start_frag, pending: BTreeMap::new(), waiting_bytes: 0 }
     }
 
     /// Queues `frag` (`None` = given up) and writes everything now in order.
     pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> std::io::Result<Vec<Event>> {
-        self.pending.insert(seq, frag);
+        self.waiting_bytes += memory_bytes(frag.as_ref());
+        if let Some(replaced) = self.pending.insert(seq, frag) {
+            self.waiting_bytes = self.waiting_bytes.saturating_sub(memory_bytes(replaced.as_ref()));
+        }
         let mut events = Vec::new();
         while let Some(entry) = self.pending.remove(&self.next_write) {
+            self.waiting_bytes = self.waiting_bytes.saturating_sub(memory_bytes(entry.as_ref()));
             let Some(frag) = entry else {
                 events.push(Event::Gap(self.next_write));
                 self.next_write += 1;
@@ -232,6 +245,15 @@ async fn keep_existing_data(data_file: &Path, name: &str) {
 impl Sink {
     pub fn is_db(&self) -> bool {
         matches!(self, Sink::Db(..))
+    }
+
+    /// Bytes of downloaded fragments held in memory until an earlier one
+    /// arrives. The database stores each fragment at once.
+    pub fn waiting_bytes(&self) -> u64 {
+        match self {
+            Sink::Ts(ts_sink) => ts_sink.waiting_bytes,
+            Sink::Db(..) => 0,
+        }
     }
 
     pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> Result<Vec<Event>> {

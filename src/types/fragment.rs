@@ -47,6 +47,17 @@ pub struct ProgressInfo {
     pub start_frag: u64,
 }
 
+/// How the rest of a stream is doing, for judging a fragment that keeps
+/// failing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StreamProgress {
+    /// Fragments downloaded so far.
+    pub downloaded: u64,
+    /// No new fragments are started: too much data is waiting in memory
+    /// behind one that is missing.
+    pub held: bool,
+}
+
 /// Per-worker retry state for a single fragment.
 #[derive(Debug, Clone)]
 pub struct FragThreadState {

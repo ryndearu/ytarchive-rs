@@ -2,10 +2,11 @@
 //! off, and giving up on a fragment that is stuck on a live stream.
 
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::super::fragment::{continue_fragment_download, retry_delay, without_query};
 use super::*;
-use crate::types::FragThreadState;
+use crate::types::{FragThreadState, StreamProgress};
 
 #[tokio::test]
 async fn a_stream_that_ends_mid_download_is_finished() {
@@ -69,18 +70,58 @@ async fn a_live_fragment_is_given_up_only_while_the_rest_downloads() {
     // Nothing else downloads either (an outage): retried forever, as in Go.
     for _ in 0..20 {
         exhausted(&mut state);
-        assert!(continue_fragment_download(&session, &mut state, 4));
+        assert!(continue_fragment_download(&session, &mut state, moved(4)));
         assert_eq!(state.tries, 0);
     }
     // The rest of the stream moves on, round after round.
     for downloaded in [20, 40, 60] {
         exhausted(&mut state);
-        assert!(continue_fragment_download(&session, &mut state, downloaded));
+        assert!(continue_fragment_download(&session, &mut state, moved(downloaded)));
     }
     exhausted(&mut state);
-    assert!(!continue_fragment_download(&session, &mut state, 80));
+    assert!(!continue_fragment_download(&session, &mut state, moved(80)));
     // Only this fragment is dropped; the stream goes on.
     assert!(!session.is_finished(DataType::Audio));
+}
+
+fn moved(downloaded: u64) -> StreamProgress {
+    StreamProgress { downloaded, held: false }
+}
+
+#[tokio::test]
+async fn fragments_waiting_in_memory_are_limited() {
+    // Fragment 3 never downloads. The requests for it stop when it is given
+    // up on; `ahead` is the newest fragment asked for by then.
+    let newest = Arc::new(AtomicU64::new(0));
+    let ahead = Arc::new(AtomicU64::new(0));
+    let on_request: OnRequest = Arc::new({
+        let (newest, ahead) = (newest.clone(), ahead.clone());
+        move |sequence| {
+            let seen = newest.fetch_max(sequence, Ordering::SeqCst).max(sequence);
+            if sequence == 3 {
+                ahead.store(seen, Ordering::SeqCst);
+            }
+        }
+    });
+    let url = serve_observed(200, vec![3], u64::MAX, None, Some(on_request)).await;
+    let dir = temp_dir("memory-limit");
+    let session = Session::for_test(opts(4, false), Some(FragmentUrl::with_sq_param(&url)), true);
+    let (mut stream_params, _rx) = params(&dir, 200, DownloadState::default());
+    stream_params.start_sq = Some(0);
+    stream_params.capture_duration = Some(Duration::from_secs(60));
+    stream_params.retry_sleep = Duration::from_millis(1);
+    stream_params.memory_limit = 6 * fragment_body(4).len() as u64;
+    let out = download_stream(session, stream_params).await.unwrap();
+
+    // Six waiting fragments, plus what the workers and the channel to the
+    // writer hold. Without the limit all 60 are downloaded long before.
+    let ahead = ahead.load(Ordering::SeqCst);
+    assert!(ahead <= 3 + 6 + 12, "{ahead}");
+    assert_eq!(out.skipped, [3]);
+    let want: Vec<u8> =
+        (0..60).filter(|sequence| *sequence != 3).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

@@ -10,7 +10,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-pub use fragment::{DataType, FragData, FragThreadState, Fragment, FragmentUrl, ProgressInfo, is_fragmented};
+pub use fragment::{
+    DataType, FragData, FragThreadState, Fragment, FragmentUrl, ProgressInfo, StreamProgress, is_fragmented,
+};
 pub use options::{
     Action, BEST_CODEC_ORDER, IpVersion, LogLevel, Options, StorageMode, VideoCodec, complete_codec_order,
     parse_codec_list,
