@@ -20,7 +20,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - The scheduled-stream question is numbered: `1) wait  2) poll  3) no (default 3):` (`wait`/`poll` still work; Enter and closed stdin mean no). Go asked `wait/poll/[no]:`.
 - `--ytdlp-info` asks for the quality while waiting for a scheduled stream. Go asked once the stream started.
 - When none of the chosen qualities are available, `best` is used. Go asked again, which stalled an unattended download.
-- The version includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)`, `v0.1.0-abc1234 (2026-11-07)`.
+- The version includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)`, `v0.1.0+abc1234 (2026-11-07)`.
 - Arguments that aren't valid UTF-8 are converted instead of rejected.
 - yt-dlp gets a repaired copy of a cookies file it can't read (the cases are under [PO tokens and cookies](../README.md#po-tokens-and-cookies)). Go passed the file as it was, and yt-dlp failed.
 
@@ -66,33 +66,33 @@ Windows, Linux, and macOS are supported, each as x64 and arm64. Go built for mor
 
 ## Go bugs fixed during the port
 
-1. **The filename blacklist was never applied**, so `%(description)s` inserted the whole description.
-2. **Template expansion could loop forever** when a value contained its own placeholder. Substitution is now single-pass.
-3. **Long names weren't shortened enough** when a template used `%(title)s` more than once.
-4. **Session cookies (expiry `0`) were dropped.**
-5. **The `--live-from` 7-day check compared a fragment count with seconds.**
-6. **An empty start timestamp or a malformed googlevideo `id` crashed.**
-7. **"Try N more times" never retried**: the try counter wasn't reset.
-8. **One bad fragment ended the download** of an ended stream, dropping everything after it. The port skips it and lists the missing sequence numbers.
-9. **Slower workers gave up early** when another worker reached the last sequence.
-10. **Resuming with a missing data file** wrote into a new empty file. It now starts over.
-11. **MP4 box scanning** hung on a zero-length box and looked only at the first 8 KiB of a fragment.
-12. **The ffmpeg command could name a thumbnail that failed to download.**
-13. **The audio/video mismatch warning never fired.**
-14. **Disabling QuickEdit never worked**: the `ENABLE_EXTENDED_FLAGS` bit was missing.
-15. **Page downloads failed with HTTP/2 errors** (port-specific): YouTube's ~20 KB of response headers exceeded the HTTP library's 16 KB default.
-16. **`--file-permissions` skipped the muxed file** and the `--separate-audio` file.
-17. **Repeating a flag was an error** (port-specific, v0.1.0). The last value wins, as in Go; `--metadata` collects every value.
-18. **Ctrl-Break didn't stop the download on Windows** (port-specific, v0.1.0). It now acts like Ctrl-C, as in Go.
-19. **A download that couldn't be stored was still "finished" and muxed.** When a data file or database couldn't be opened, Go ran ffmpeg on the missing file (code -22). The port doesn't merge and exits with 1: with nothing downloaded it removes the temp folder and state files, otherwise it leaves everything to resume. The same applies when storing fails later, e.g. a full disk or a failed `--sqlite` export (port-specific: v1.0.0 merged and removed the state files).
-20. **A crash while saving the state could lose the download.** Go rewrote the `.state` file in place, and after an unreadable state the next run overwrote the data. The port writes a temporary file and renames it, and keeps data it can't resume as `{name}.f{itag}.ts.old` (its temp folder is then not cleaned up). The state file isn't synced to disk (that made each save about 20 times slower), so a power loss isn't covered.
+1. **Filename blacklist was never applied.** `FormatFilename` blanked `description` and then immediately overwrote it with the real value, so `%(description)s` in a template inserted the whole description.
+2. **Template expansion could loop forever.** `FormatPythonMapString` re-scanned substituted values, so a title containing its own placeholder (e.g. `%(title)s`) never finished. Substitution is now single-pass.
+3. **Long-name truncation was too small for repeated titles.** When a template used `%(title)s` more than once, only one copy's worth was removed. Every copy is now shortened enough to fit.
+4. **Session cookies were discarded.** Cookies with expiry `0` were given a 1970 expiry date, which made Go's cookie jar drop them.
+5. **`--live-from` 7-day check compared different units.** It compared a fragment count against a number of seconds.
+6. **Missing start timestamps crashed.** Slicing an empty timestamp string panicked; malformed googlevideo `id` parameters did too.
+7. **"Try N more times" never retried.** `ContinueFragmentDownload` promised extra attempts for fragments behind the head but didn't reset the try counter, so the download loop exited immediately and the fragment was dropped.
+8. **One bad fragment ended the whole download.** On an ended stream, a fragment well behind the head that failed permanently ended the download, silently dropping everything after it. The port skips that one fragment, keeps going, and lists the missing sequence numbers at the end.
+9. **Slower workers gave up early.** When one worker reached the last sequence it marked the stream finished, and other workers abandoned the fragments they were still retrying. Running out of sequence numbers now only stops that worker.
+10. **Resuming with a missing data file produced a broken file.** Go marked the download as resumed and continued writing into a new empty file. It now starts over.
+11. **MP4 box scanning could hang and was incomplete.** A zero-length box made `GetAtoms` loop forever, and only the first 8 KiB of each fragment was scanned for `sidx`/`ftyp`.
+12. **The ffmpeg command could reference a missing thumbnail.** The arguments were built before the thumbnail download, so a failed download broke the merge. They are now built afterwards.
+13. **The audio/video mismatch warning never fired.** The fragment counts it compared were never incremented.
+14. **Disabling QuickEdit never worked.** Go cleared `ENABLE_QUICK_EDIT_MODE` without the `ENABLE_EXTENDED_FLAGS` bit Windows requires, so a click in the console could still pause the download. The port sets both, and restores the original console mode on exit.
+15. **Page downloads failed with HTTP/2 errors** (port-specific, found while testing). With a Firefox user agent YouTube sends ~20 KB of response headers, above the HTTP library's 16 KB default. The limit is raised.
+16. **`--file-permissions` skipped the final file.** Go applied it only to files it wrote itself (thumbnail, description, mux file, state and fragment files); the muxed file and the `--separate-audio` file kept ffmpeg's default mode. The port sets the mode on both after muxing.
+17. **Repeating a flag was an error** (port-specific, found while testing the nightly). v0.1.0 rejected a flag given twice, e.g. `--ytdlp-opts … --ytdlp-opts …` or `-o a -o b`. As with Go's flag package, the last value now wins; `--metadata` still collects every value.
+18. **Ctrl-Break didn't stop the download on Windows** (port-specific). Go's `os.Interrupt` catches both Ctrl-C and Ctrl-Break; v0.1.0 caught only Ctrl-C, so Ctrl-Break ended the program without merging or saving. Both now stop the download (and exit from a prompt) the same way.
+19. **A download whose file couldn't be created was still "finished" and muxed.** When a stream's data file or database couldn't be opened (e.g. a name Windows rejects under `--no-windows-filenames`), Go logged the error, then printed "Download Finished" and ran ffmpeg on the missing file, which failed with code -22. The port doesn't merge and exits with 1: if nothing was downloaded it removes the temp folder and state files, and if an earlier run's data is there (a resume) it leaves everything to resume once the cause is fixed. The same applies when storing fails later, e.g. the disk fills up or the `--sqlite` export fails (port-specific): v1.0.0 went on to merge and removed the state files, so the run couldn't be resumed, and after a failed export the cleanup could remove the database.
+20. **A crash while saving the state could lose the whole download.** Go rewrote the `.state` file in place after every fragment, so a crash mid-write left an unreadable file; the next run then started from the beginning and overwrote the data already downloaded. The port writes the state to a temporary file and renames it over the old one, and a data file that can't be resumed (its state is missing, unreadable, or doesn't match) is kept as `{name}.f{itag}.ts.old` instead of being overwritten. That applies when the temp folder is reused, i.e. the other stream's state was still good or the file is shorter than its state says; when no state can be read, the run uses a new temp folder and the old one is left untouched. The cleanup after merging leaves a `.old` file and its temp folder in place and says so. The state file isn't synced to disk before the rename (that made each save about 20 times slower), so this covers a crash of the program, not a power loss.
 
 ## Not ported
 
-Unreachable, unused, or only documented in Go:
+These parts of Go were unreachable, unused, or only documented, so they were left out:
 
-- **InnerTube player request** (`DownloadWebAPIPlayerResponse`), the `ytcfg` scraping that fed it, and **SAPISIDHASH** authentication.
-- **DASH manifest parsing** (`GetUrlsFromManifest`, `MPD` types): yt-dlp provides the URLs.
-- **UMP parsing** (`yt_ump.go`).
+- **InnerTube player request** (`DownloadWebAPIPlayerResponse`), the `ytcfg` scraping that fed it, and **SAPISIDHASH** authentication. None of them are called in dreammu.
+- **DASH manifest parsing** (`GetUrlsFromManifest`, `MPD` types): never called in dreammu, since yt-dlp provides the URLs.
+- **UMP parsing** (`yt_ump.go`): never called.
 - **Slow-fragment URL refresh**: Go counted slow fragments, but the refresh call is commented out.
-- **`--info-only`**: in dreammu's README, but neither Go codebase implements it.
+- **`--info-only`**: listed in dreammu's README, but neither Go codebase implements it.

@@ -48,7 +48,7 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 - Keep tests essential: every option under "Usage and options", downloading and storage, quality/codec selection, file names, ffmpeg arguments, and parsing of URLs, yt-dlp output, watch pages, durations, and cookies. No tests for logging, the progress line, help layout, version strings, or small helpers.
 - Tests for minor features go only in `src/minor_tests.rs` (`#[cfg(test)] mod minor_tests;`; create it with the first such test), so they can be deleted all at once.
 - Download behavior cases go in the fake googlevideo server tests (`src/download/tests/mod.rs`; retrying in `tests/retry.rs`, SQLite and recovery in `tests/sqlite.rs`).
-- Network tests are `#[ignore]`d. Run them against a real 24/7 stream: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the variable if deno is installed).
+- Network tests are marked `#[ignore]`. Run them against a real 24/7 stream: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the variable if deno is installed).
 - For changes to the download/mux flow, also do a short real run, e.g. `--live-from now --capture-duration 10s -o '/tmp/x/%(id)s'`, and check the result with ffprobe.
 - To fail fragments on purpose (5xx, 429, 403, one that never arrives) against a real stream, put a local HTTP server in between: a `--ytdlp-path` wrapper rewrites the googlevideo URLs in yt-dlp's output to `http://127.0.0.1:PORT/HOST/…`, and the server forwards every other request (GET and HEAD).
 - On Windows, a scripted Ctrl-C may never reach ytarchive (agent shells can pass on "ignore Ctrl-C"). Send Ctrl-Break, or reset the flag with `SetConsoleCtrlHandler(NULL, FALSE)` in the launcher.
@@ -78,5 +78,5 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 - **Nightly** (`nightly.yml`) runs weekly and replaces the `nightly` pre-release. It skips when `main` has only docs commits (`docs:` or `docs(...):`) since the last one, so title docs commits that way.
 - Both use `build.yml`: one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only the executable. It sets the `YTARCHIVE_*` variables for `build.rs`; `Cross.toml` passes them into `cross` containers.
 - **CI** (`ci.yml`) runs only for pushes that touch the code or what builds and checks it; add a new such file to its `paths` list. Tests run on Windows x64, Linux x64, and macOS arm64; the `check` job only compiles the other three targets.
-- **Network tests** (`network.yml`) run the `#[ignore]`d tests weekly with yt-dlp nightly. They never block a push; a failure can also mean YouTube refused the runner's address.
+- **Network tests** (`network.yml`) run the tests marked `#[ignore]` weekly with yt-dlp nightly. They never block a push; a failure can also mean YouTube refused the runner's address.
 - **Audit** (`audit.yml`) fails on a vulnerable dependency ("unmaintained" only warns) and runs cargo-deny (`deny.toml`): a license not on its list, or a source other than crates.io, fails. Add a new permissive license to the list.
