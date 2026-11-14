@@ -75,8 +75,8 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 ## Releases and CI
 
 - **Releases** are manual: push a `v*` tag; `release.yml` builds x64 and arm64 for every OS.
-- **Nightly** (`nightly.yml`) runs weekly and replaces the `nightly` pre-release. It skips when `main` has only docs commits (`docs:` or `docs(...):`) since the last one, so title docs commits that way.
+- **Nightly** (`nightly.yml`) runs only by hand and replaces the `nightly` pre-release. It skips when `main` has only docs commits (`docs:` or `docs(...):`) since the last one, so title docs commits that way.
 - Both use `build.yml`: one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only the executable. It sets the `YTARCHIVE_*` variables for `build.rs`; `Cross.toml` passes them into `cross` containers.
-- **CI** (`ci.yml`) runs only for pushes that touch the code or what builds and checks it; add a new such file to its `paths` list. Tests run on Windows x64, Linux x64, and macOS arm64; the `check` job only compiles the other three targets.
+- **CI** (`ci.yml`) runs only for pushes that touch the code or what builds and checks it; add a new such file to its `paths` list. Tests run on Windows x64, Linux x64, and macOS arm64; the other three release targets are built only by releases.
 - **Network tests** (`network.yml`) run the tests marked `#[ignore]` weekly with yt-dlp nightly. They never block a push; a failure can also mean YouTube refused the runner's address.
 - **Audit** (`audit.yml`) fails on a vulnerable dependency ("unmaintained" only warns) and runs cargo-deny (`deny.toml`): a license not on its list, or a source other than crates.io, fails. Add a new permissive license to the list.
