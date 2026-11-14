@@ -1,7 +1,6 @@
 # What isn't tested
 
 - **`-6`** (the test machines had no IPv6).
-- **The short post-live window** right after a stream ends.
 - **Members-only streams and cookies** with a real account.
 - **A stream that ends mid-download** when YouTube itself ends it.
 - **Retry exhaustion against a real stream**: a download that is still running when the stream ends while its fragments are blocked. Only the fake server was used (the partial file and its state are kept and the download finishes normally; Go's code also goes on to mux and exit with code 0): on a live stream the retry count is reset (a run with googlevideo blocked kept retrying for 90 s), and on an ended stream no download starts.

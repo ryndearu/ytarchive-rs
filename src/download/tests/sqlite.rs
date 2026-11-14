@@ -39,11 +39,8 @@ async fn sqlite_resume_fills_gap() {
     let second = download_stream(session, stream_params).await.unwrap();
     assert!(second.skipped.is_empty());
     assert_eq!(second.state.fragments, 10);
-    let mut fetched = 0;
-    while receiver.try_recv().is_ok() {
-        fetched += 1;
-    }
-    assert_eq!(fetched, 1, "only the gap should be downloaded again");
+    // The 9 stored fragments, then only the gap downloaded again.
+    assert_eq!(progress_counts(&mut receiver), [9, 1]);
 
     let want: Vec<u8> = (0..10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
@@ -142,11 +139,8 @@ async fn recovery_gives_up_and_a_later_run_retries() {
     let (stream_params, mut receiver) = params(&dir, 12, state);
     let out = download_stream(session, stream_params).await.unwrap();
     assert!(out.skipped.is_empty(), "{:?}", out.skipped);
-    let mut fetched = 0;
-    while receiver.try_recv().is_ok() {
-        fetched += 1;
-    }
-    assert_eq!(fetched, 7, "5..=11 are fetched again, nothing else");
+    // 0..=4 were stored; 5..=11 are fetched again, nothing else.
+    assert_eq!(progress_counts(&mut receiver), [5, 1, 1, 1, 1, 1, 1, 1]);
     let want: Vec<u8> = (0..12).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
     std::fs::remove_dir_all(&dir).unwrap();

@@ -157,6 +157,11 @@ fn params(
     )
 }
 
+/// The fragment count of each progress message sent so far.
+fn progress_counts(receiver: &mut mpsc::UnboundedReceiver<crate::types::ProgressInfo>) -> Vec<u64> {
+    std::iter::from_fn(|| receiver.try_recv().ok()).map(|progress| progress.fragments).collect()
+}
+
 fn opts(threads: usize, frag_files: bool) -> Options {
     Options { threads, frag_max_tries: 2, frag_files, file_mode: 0o644, ..Default::default() }
 }
@@ -221,11 +226,12 @@ async fn resumes_from_saved_state() {
     let state = DownloadState { start_frag: 0, fragments: 4, size: first.len() as u64, ..Default::default() };
 
     let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (stream_params, _rx) = params(&dir, 10, state);
+    let (stream_params, mut receiver) = params(&dir, 10, state);
     let out = download_stream(session, stream_params).await.unwrap();
     let want: Vec<u8> = (0..10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 10);
+    assert_eq!(progress_counts(&mut receiver), [4, 1, 1, 1, 1, 1, 1]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -235,11 +241,14 @@ async fn resume_with_missing_file_starts_over() {
     let dir = temp_dir("resume-missing");
     let state = DownloadState { start_frag: 0, fragments: 3, size: 100, ..Default::default() };
     let session = Session::for_test(opts(1, false), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (stream_params, _rx) = params(&dir, 5, state);
+    let (stream_params, mut receiver) = params(&dir, 5, state);
     let out = download_stream(session, stream_params).await.unwrap();
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 5);
+    // The 3 fragments in the state are gone with the file, so the progress
+    // line must not count them.
+    assert_eq!(progress_counts(&mut receiver), [1; 5]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
