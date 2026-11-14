@@ -95,15 +95,19 @@ jobs:
           {
             echo "Automated nightly build of [\`${SHA:0:7}\`]($commits/$SHA): \`ytarchive $version\`."
             echo
+            echo "<details>"
+            echo "<summary><h3>Changelog</h3></summary>"
+            echo
             if [ -n "$last" ]; then
-              echo "## Changes since $last"
+              echo "**Full changelog**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$last...$SHA"
               range="$last..$SHA"
             else
-              echo "## Changes (no release yet)"
               range="$SHA"
             fi
             echo
             git log --no-merges --format="- [\`%h\`]($commits/%H) %s" $range
+            echo
+            echo "</details>"
           } > notes.md
           cat notes.md
 
