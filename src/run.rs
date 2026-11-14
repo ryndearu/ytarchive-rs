@@ -16,7 +16,7 @@ use crate::http::Http;
 use crate::input_url::InputUrl;
 use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
-use crate::log::{Totals, report_progress};
+use crate::log::report_progress;
 use crate::mux::{MuxInput, command_line, ffmpeg_args};
 use crate::output::{OutputPlan, ensure_dir, final_location, load_states, temp_dir};
 use crate::prepare::{Prepared, prepare, prepared_from_kept};
@@ -242,16 +242,8 @@ async fn download(
     let refresher = session.spawn_periodic_refresh();
 
     let resumed = states.iter().any(|state| state.fragments > 0);
-    let mut initial = Totals::default();
-    for ((data_type, _), state) in streams.iter().zip(&states) {
-        match data_type {
-            DataType::Audio => initial.audio_frags = state.fragments,
-            DataType::Video => initial.video_frags = state.fragments,
-        }
-        initial.bytes += state.size;
-    }
     let (sender, receiver) = mpsc::unbounded_channel();
-    let reporter = tokio::spawn(report_progress(receiver, initial, opts.status_newlines));
+    let reporter = tokio::spawn(report_progress(receiver, opts.status_newlines));
 
     let mut tasks = Vec::new();
     for ((data_type, itag), state) in streams.iter().copied().zip(states) {

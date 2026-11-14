@@ -38,10 +38,12 @@ pub struct Fragment {
     pub mime_type: String,
 }
 
-/// Sent from a stream writer to the progress reporter after each fragment.
+/// Sent from a stream writer to the progress reporter after each fragment,
+/// and once with what storage already holds when a download resumes.
 #[derive(Debug, Clone, Copy)]
 pub struct ProgressInfo {
     pub data_type: DataType,
+    pub fragments: u64,
     pub byte_count: u64,
     pub max_seq: Option<u64>,
     pub start_frag: u64,

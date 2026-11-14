@@ -84,8 +84,17 @@ fn record(params: &mut StreamParams, saver: Option<&StateSaver>, max_seq: Option
     if let Some(saver) = saver {
         saver.save(&params.state);
     }
-    let info =
-        ProgressInfo { data_type: params.data_type, byte_count: bytes, max_seq, start_frag: params.state.start_frag };
+    report(params, 1, bytes, max_seq);
+}
+
+fn report(params: &StreamParams, fragments: u64, bytes: u64, max_seq: Option<u64>) {
+    let info = ProgressInfo {
+        data_type: params.data_type,
+        fragments,
+        byte_count: bytes,
+        max_seq,
+        start_frag: params.state.start_frag,
+    };
     // The progress line is optional; the download goes on without it.
     if params.progress.send(info).is_err() {
         log_trace!("{}: the progress reporter has stopped", params.data_type.as_str());
@@ -116,6 +125,11 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     let mut sink = opened.sink;
     let cur = opened.cur;
     params.state = opened.state;
+    // Counted from what storage holds, not the state file: a resume that
+    // starts over (its .ts file is gone) holds nothing.
+    if params.state.fragments > 0 {
+        report(&params, params.state.fragments, params.state.size, params.last_sq);
+    }
     let saver = params.state_file.clone().map(|path| StateSaver::start(path, mode));
     if let Some(saver) = &saver {
         saver.save(&params.state);

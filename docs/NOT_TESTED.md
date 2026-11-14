@@ -3,7 +3,6 @@
 Keep this file current: when something listed here gets verified, delete its line.
 
 - **`-6`** (the test machines had no IPv6).
-- **The short post-live window** right after a stream ends.
 - **Members-only streams and cookies** with a real account.
 - **A stream that ends mid-download** against YouTube (only the fake server was used).
 - **Retry exhaustion**: whether exiting with code 0 after saving a partial file, when fragment retries run out, matches Go. It needs a download that is still running when the stream ends while its fragments are blocked: on a live stream the retry count is reset (a run with googlevideo blocked kept retrying for 90 s), and on an ended stream no download starts.

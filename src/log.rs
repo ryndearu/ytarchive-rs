@@ -21,8 +21,8 @@ pub struct Totals {
 impl Totals {
     pub fn add(&mut self, progress: &ProgressInfo) {
         match progress.data_type {
-            DataType::Audio => self.audio_frags += 1,
-            DataType::Video => self.video_frags += 1,
+            DataType::Audio => self.audio_frags += progress.fragments,
+            DataType::Video => self.video_frags += progress.fragments,
         }
         self.bytes += progress.byte_count;
         if progress.max_seq > self.max_seq {
@@ -45,13 +45,8 @@ impl Totals {
 }
 
 /// Prints a status line per progress message until the channel closes.
-/// Starts from `initial` (resumed fragment counts).
-pub async fn report_progress(
-    mut receiver: mpsc::UnboundedReceiver<ProgressInfo>,
-    initial: Totals,
-    newlines: bool,
-) -> Totals {
-    let mut totals = initial;
+pub async fn report_progress(mut receiver: mpsc::UnboundedReceiver<ProgressInfo>, newlines: bool) -> Totals {
+    let mut totals = Totals::default();
     let verbose = enabled(LogLevel::Info);
     while let Some(progress) = receiver.recv().await {
         totals.add(&progress);
