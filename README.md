@@ -4,6 +4,14 @@ Archive a YouTube livestream from the start, or wait for a scheduled stream and 
 
 For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) instead.
 
+## What's different from Go ytarchive
+
+- `--sqlite` stores fragments in a database, so a resumed download fetches only the fragments that are missing.
+- `--recover-private` keeps retrying missing fragments after a stream goes private mid-recording, in the same run or a later one (see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
+- The channel monitor doesn't record the same stream twice, and keeps checking `/live` so it doesn't miss a stream that starts before the scheduled one.
+
+The full list is in [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md); what hasn't been tested yet is in [docs/NOT_TESTED.md](docs/NOT_TESTED.md).
+
 ## Features
 
 - Downloads live streams from the beginning (up to YouTube's 7-day seek window), or from a chosen point with `--live-from`.
@@ -12,14 +20,13 @@ For finished videos (VODs), use [yt-dlp](https://github.com/yt-dlp/yt-dlp) inste
 - Watches a channel and records each new stream (`--monitor-channel`), including members-only streams with cookies.
 - Parallel fragment downloads, URL refresh when fragments start failing, and a background refresh every 5 hours before URLs expire.
 - Resumable downloads: interrupt with Ctrl-C, keep the state, rerun to continue.
-- Optional SQLite fragment storage (`--sqlite`) that resumes by re-fetching only missing fragments.
-- Optional recovery after a stream goes private mid-recording (`--recover-private`; see [Private streams and missing fragments](#private-streams-and-missing-fragments)).
 - Muxes to mp4/mkv/m4a with ffmpeg, with optional thumbnail, metadata, and description files.
+- Builds are for Windows, Linux (static), and macOS, each as x64 and arm64.
 
 ## Requirements
 
 - [ffmpeg](https://ffmpeg.org/) to mux the final file.
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp), kept up to date. It extracts the download URLs. The **nightly** channel is recommended, since YouTube changes often and fixes land there first: `yt-dlp --update-to nightly` (or `pip install -U --pre "yt-dlp[default]"` for pip installs).
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp), kept up to date. It extracts the download URLs. The **nightly** channel is recommended, since YouTube changes often and fixes land there first: `yt-dlp --update-to nightly`, `pip install -U --pre "yt-dlp[default]"`, or the binary from [yt-dlp-nightly-builds](https://github.com/yt-dlp/yt-dlp-nightly-builds/releases) (distro packages and Homebrew only have stable).
 - A JavaScript runtime for yt-dlp's YouTube support: [deno](https://deno.com/) by default. If you only have node, add `--ytdlp-opts "--js-runtimes node"`.
 
 ytarchive looks for `ffmpeg` and `yt-dlp` on your `PATH`. On Windows you can also put `ffmpeg.exe` and `yt-dlp.exe` in the same folder as `ytarchive.exe`.
@@ -41,9 +48,6 @@ Nightly builds, with the newest changes: [Windows x64](https://github.com/ryndea
 ```sh
 # Arch:          sudo pacman -S ffmpeg deno
 # Debian/Ubuntu: sudo apt install ffmpeg, then install deno from its website
-# yt-dlp nightly (distro packages are stable-only and often old):
-#   download the yt-dlp binary from https://github.com/yt-dlp/yt-dlp-nightly-builds/releases, or
-#   pip install -U --pre "yt-dlp[default]"
 unzip ytarchive_linux_x64.zip   # arm64: ytarchive_linux_arm64.zip
 ./ytarchive --help
 ```
@@ -63,7 +67,6 @@ While running on Windows, ytarchive keeps the PC from going to sleep and turns o
 
 ```sh
 brew install ffmpeg deno
-# yt-dlp nightly: download yt-dlp_macos from https://github.com/yt-dlp/yt-dlp-nightly-builds/releases (Homebrew only has stable)
 unzip ytarchive_macos_arm64.zip   # Intel: ytarchive_macos_x64.zip
 xattr -d com.apple.quarantine ytarchive   # unsigned binary
 ./ytarchive --help
@@ -71,7 +74,7 @@ xattr -d com.apple.quarantine ytarchive   # unsigned binary
 
 ### Building from source
 
-Needs Rust 1.89 or newer (rustup installs the version the project is developed with) and a C compiler (for SQLite and the TLS library; on Windows, the Visual Studio Build Tools that rustup asks for):
+Needs Rust 1.89 or newer (the oldest that builds it; rustup installs the version the project is developed with) and a C compiler (for SQLite and the TLS library; on Windows, the Visual Studio Build Tools that rustup asks for):
 
 ```sh
 cargo build --release
@@ -208,14 +211,13 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 
 ### File names
 
-- `--windows-filenames` (default on Windows) makes file and folder names Windows-compatible: characters like `<>:"/\|?*` and control characters are replaced, and names Windows reserves (`CON`, `NUL`, …) or that end in a dot or space are adjusted. This includes folders created from the template, such as `%(channel)s/`. The title is also shortened so every file ytarchive writes (final and temporary, including fragment files) stays within Windows' 260-character path limit (MAX_PATH). Use it on Linux/macOS if the files will end up on Windows or a Windows-formatted drive.
-- `--no-path-limit` keeps full titles instead. ytarchive itself can write longer paths, but ffmpeg and other programs may not open them unless long paths are enabled in Windows (the `LongPathsEnabled` setting).
-- `--no-windows-filenames` (default on Linux and macOS) only replaces path separators, so titles keep characters like `?` and `:`. On Windows a title with such a character can't be saved; ytarchive then stops without merging and cleans up.
-- Resume state (`{id}.f{itag}.state`) is written to `--temporary-dir`, or the current folder without it, not next to the `-o` file. Resume from the same folder; a different `-o` still finds the state by video ID.
-- If a stream's earlier data can't be continued (its state file is damaged while the other stream's is fine, or the data file is shorter than the state says), that stream starts over and the earlier data is kept as `{name}.f{itag}.ts.old`. The temporary folder holding it is not deleted after the merge; delete it yourself once you don't need the file.
-- If downloaded data can't be stored (the disk is full, or the `--sqlite` export fails), ytarchive stops without merging, exits with code 1, and leaves the files and resume state in place. Fix the cause and run the same command again to continue.
-- If the final file already exists, the new one is named `{name}-1`, `{name}-2`, … up to `{name}-10`. The name is chosen right before muxing, so a file that appears during the download isn't a problem. If all of those exist, ytarchive says so and keeps the `.ts` files instead of muxing.
-- File names are always at most 255 bytes.
+- `--windows-filenames` (default on Windows) replaces characters Windows doesn't allow (`<>:"/\|?*`, control characters) and adjusts reserved names (`CON`, `NUL`, …), in folders from the template too. It also shortens the title so every file ytarchive writes stays within Windows' 260-character path limit. Use it on Linux/macOS for files headed to Windows.
+- `--no-path-limit` keeps full titles; ffmpeg and other programs may then need Windows' `LongPathsEnabled` setting to open them.
+- `--no-windows-filenames` (default on Linux and macOS) only replaces path separators. On Windows a title with `?` or `:` then can't be saved, and ytarchive stops without merging.
+- Resume state (`{id}.f{itag}.state`) goes to `--temporary-dir`, or the current folder. Resume from the same folder; a different `-o` still finds it by video ID.
+- Data that can't be continued is kept as `{name}.f{itag}.ts.old` in the temporary folder, which is then left for you to delete.
+- If data can't be stored (full disk, failed `--sqlite` export), ytarchive exits with code 1 without merging and keeps everything; run the same command again to continue.
+- An existing final file gets the new one named `{name}-1` … `{name}-10`; past that the `.ts` files are kept unmuxed.
 
 ### Output template keys
 
@@ -235,12 +237,7 @@ By default a stream that goes private during the recording ends the download. Wi
 
 yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. Cookies (`-c cookies.txt`, Netscape format) are used both by yt-dlp and by ytarchive's own requests to YouTube pages (watch, `/live`, and `/streams` pages).
 
-yt-dlp gets the cookies file itself, so it can save refreshed cookies back to it. If yt-dlp couldn't read the file (it isn't valid UTF-8, the `# Netscape HTTP Cookie File` header is missing, a cookie's second column doesn't match whether its domain starts with `.`, or a stray line starts like JSON), ytarchive warns and passes yt-dlp a repaired copy in the temp folder instead, deleted when ytarchive exits. Cookies yt-dlp refreshes during that run aren't saved back to your file. A JSON cookie export isn't repaired; yt-dlp reports that it must be Netscape formatted.
-
-## Differences from Go and testing status
-
-- [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md): behavior changes, new options, Go bugs fixed during the port, and Go code that was not ported.
-- [docs/NOT_TESTED.md](docs/NOT_TESTED.md): what has not been tested yet.
+yt-dlp gets the cookies file itself, so it can save refreshed cookies back to it. If yt-dlp can't read the file, ytarchive warns and passes it a repaired copy instead; cookies refreshed in that run then aren't saved back. JSON cookie exports aren't supported.
 
 ## Credits
 
