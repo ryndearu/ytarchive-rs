@@ -225,7 +225,7 @@ mod tests {
     fn args() {
         let opts = Options {
             cookies_file: Some("c.txt".into()),
-            proxy: Some(url::Url::parse("socks5://127.0.0.1:1080").unwrap()),
+            proxy: Some(reqwest::Url::parse("socks5://127.0.0.1:1080").unwrap()),
             ytdlp_opts: vec!["--extractor-args".into(), "youtube:x".into()],
             ..Default::default()
         };

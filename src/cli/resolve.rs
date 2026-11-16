@@ -15,7 +15,7 @@ use crate::types::{
 };
 
 fn is_googlevideo(url: &str) -> bool {
-    url::Url::parse(url)
+    reqwest::Url::parse(url)
         .ok()
         .and_then(|parsed| parsed.host_str().map(|host| host.ends_with(".googlevideo.com")))
         .unwrap_or(false)

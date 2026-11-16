@@ -230,7 +230,7 @@ pub struct Cli {
     pub ipv6: bool,
     /// Proxy URL (http, https, or socks5).
     #[arg(long, value_name = "URL", value_parser = parse_proxy, help_heading = NETWORK)]
-    pub proxy: Option<url::Url>,
+    pub proxy: Option<reqwest::Url>,
 
     /// Print nothing except prompts.
     #[arg(short = 'q', long, help_heading = VERBOSITY)]
@@ -263,8 +263,8 @@ fn parse_octal(text: &str) -> std::result::Result<u32, String> {
         .ok_or_else(|| format!("'{text}' is not an octal permission mode like 0644"))
 }
 
-fn parse_proxy(text: &str) -> std::result::Result<url::Url, String> {
-    let url = url::Url::parse(text).map_err(|_| "invalid proxy URL".to_string())?;
+fn parse_proxy(text: &str) -> std::result::Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(text).map_err(|_| "invalid proxy URL".to_string())?;
     match url.scheme() {
         "http" | "https" | "socks5" => Ok(url),
         _ => Err("the proxy URL scheme must be http, https, or socks5".into()),

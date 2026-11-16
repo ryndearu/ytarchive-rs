@@ -181,7 +181,7 @@ pub struct Options {
     pub members_only: bool,
 
     pub ip_version: IpVersion,
-    pub proxy: Option<url::Url>,
+    pub proxy: Option<reqwest::Url>,
 
     // Output/logging
     pub log_level: LogLevel,

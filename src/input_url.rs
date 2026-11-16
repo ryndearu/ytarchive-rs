@@ -29,7 +29,8 @@ const CHANNEL_PREFIXES: &[&str] = &["/channel/", "/c/", "/user/", "/@"];
 
 pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
     let raw = raw.trim();
-    let parsed = url::Url::parse(raw).map_err(|error| Error::InvalidArg(format!("invalid URL '{raw}': {error}")))?;
+    let parsed =
+        reqwest::Url::parse(raw).map_err(|error| Error::InvalidArg(format!("invalid URL '{raw}': {error}")))?;
     let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
     let host = host.strip_prefix("www.").or_else(|| host.strip_prefix("m.")).unwrap_or(&host);
     let path = parsed.path();
@@ -85,7 +86,7 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
 /// Validates a googlevideo fragment URL for `data_type` and returns it as a
 /// fragment template plus its itag.
 pub fn parse_gvideo_url(raw: &str, data_type: DataType) -> Result<(FragmentUrl, u32)> {
-    let parsed = url::Url::parse(raw.trim())
+    let parsed = reqwest::Url::parse(raw.trim())
         .map_err(|error| Error::InvalidArg(format!("error parsing Google Video URL: {error}")))?;
     let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
     if !host.ends_with(".googlevideo.com") {
@@ -106,14 +107,14 @@ pub fn parse_gvideo_url(raw: &str, data_type: DataType) -> Result<(FragmentUrl, 
     }
 }
 
-fn parse_itag(url: &url::Url) -> Result<u32> {
+fn parse_itag(url: &reqwest::Url) -> Result<u32> {
     query_param(url, "itag")
         .and_then(|text| text.parse().ok())
         .filter(|itag| *itag > 0)
         .ok_or_else(|| Error::InvalidArg("error parsing itag parameter of Google Video URL".into()))
 }
 
-fn query_param(url: &url::Url, key: &str) -> Option<String> {
+fn query_param(url: &reqwest::Url, key: &str) -> Option<String> {
     url.query_pairs().find(|(name, _)| name == key).map(|(_, value)| value.into_owned())
 }
 

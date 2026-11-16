@@ -2498,7 +2498,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-util",
- "url",
  "winapi-util",
 ]
 

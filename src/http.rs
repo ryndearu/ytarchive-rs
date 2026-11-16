@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn builds_with_proxy_and_ip_version() {
         let opts = Options {
-            proxy: Some(url::Url::parse("socks5://127.0.0.1:1080").unwrap()),
+            proxy: Some(reqwest::Url::parse("socks5://127.0.0.1:1080").unwrap()),
             ip_version: IpVersion::V4,
             ..Default::default()
         };

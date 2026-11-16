@@ -162,7 +162,7 @@ impl FragmentUrl {
     }
 
     pub fn host(&self) -> Option<String> {
-        url::Url::parse(self.base()).ok().and_then(|url| url.host_str().map(str::to_string))
+        reqwest::Url::parse(self.base()).ok().and_then(|url| url.host_str().map(str::to_string))
     }
 
     /// googlevideo URLs meant for fragmented download carry `noclen`
@@ -173,7 +173,7 @@ impl FragmentUrl {
 
     /// When the URL stops working (its `expire` parameter, Unix seconds).
     pub fn expires_at(&self) -> Option<u64> {
-        let url = url::Url::parse(self.base()).ok()?;
+        let url = reqwest::Url::parse(self.base()).ok()?;
         let (_, value) = url.query_pairs().find(|(key, _)| key == "expire")?;
         value.parse().ok()
     }

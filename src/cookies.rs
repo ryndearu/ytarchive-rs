@@ -67,8 +67,8 @@ fn sanitize_value(name: &str, value: &[u8]) -> String {
 }
 
 /// URL the cookie belongs to, for inserting into a cookie jar.
-pub fn cookie_url(cookie: &NetscapeCookie) -> Option<url::Url> {
-    url::Url::parse(&format!("https://{}{}", cookie.domain.trim_start_matches('.'), cookie.path)).ok()
+pub fn cookie_url(cookie: &NetscapeCookie) -> Option<reqwest::Url> {
+    reqwest::Url::parse(&format!("https://{}{}", cookie.domain.trim_start_matches('.'), cookie.path)).ok()
 }
 
 /// Renders the cookie as a `Set-Cookie` header value.
