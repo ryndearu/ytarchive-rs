@@ -163,7 +163,8 @@ async fn a_killed_download_keeps_the_head() {
     assert!(task.await.unwrap_err().is_cancelled(), "the download ended before the kill");
     let kept = crate::download::read_kept(&dir, 140, 0o644).unwrap();
     assert_eq!(kept.head, Some(200));
-    std::fs::remove_dir_all(&dir).unwrap();
+    // A blocking write that outlives the abort can still be adding files here.
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]

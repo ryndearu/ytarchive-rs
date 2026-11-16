@@ -221,13 +221,15 @@ pub async fn execute(program: &str, args: &[String]) -> i32 {
 mod tests {
     use super::*;
 
-    fn dir() -> PathBuf {
-        std::env::temp_dir().join(format!("ytarchive-rs-mux-{}", std::process::id()))
+    /// One folder per test with no shared parent, so removing it leaves nothing
+    /// behind and can't touch a test running in parallel.
+    fn dir(test: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("ytarchive-rs-mux-{}-{test}", std::process::id()))
     }
 
     #[test]
     fn audio_and_video_mp4_with_thumbnail_and_metadata() {
-        let out_dir = dir();
+        let out_dir = dir("mp4");
         let meta: MetaInfo = [("title".to_string(), "T".to_string()), ("date".into(), String::new())].into();
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
@@ -248,7 +250,7 @@ mod tests {
 
     #[test]
     fn mkv_attaches_thumbnail() {
-        let out_dir = dir();
+        let out_dir = dir("mkv");
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
             video: Some(Path::new("v.ts")),
@@ -267,7 +269,7 @@ mod tests {
 
     #[test]
     fn audio_only_is_m4a() {
-        let out_dir = dir();
+        let out_dir = dir("m4a");
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
             video: None,
@@ -283,7 +285,7 @@ mod tests {
 
     #[test]
     fn avoids_existing_output() {
-        let out_dir = dir().join("exists");
+        let out_dir = dir("exists");
         std::fs::create_dir_all(&out_dir).unwrap();
         std::fs::write(out_dir.join("out.mp4"), b"").unwrap();
         assert_eq!(unused_output(&out_dir, "out", "mp4"), out_dir.join("out-1.mp4"));
@@ -292,7 +294,7 @@ mod tests {
 
     #[test]
     fn output_name_is_picked_again_before_muxing() {
-        let out_dir = dir().join("taken-later");
+        let out_dir = dir("taken-later");
         std::fs::create_dir_all(&out_dir).unwrap();
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
