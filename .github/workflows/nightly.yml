@@ -1,11 +1,8 @@
 name: Nightly
 
-# Weekly pre-release from main (Fridays 00:00 UTC, or by hand). Skipped when
-# main hasn't changed since the last nightly, or when every new commit is a docs commit ("docs: ..."). The previous nightly pre-release (and its tag) is replaced, and the
-# description lists the commits since the last manual v* release.
+# Replaces the nightly pre-release with a build of main and the commits since
+# the last v* release.
 on:
-  schedule:
-    - cron: "0 0 * * 5"
   workflow_dispatch:
 
 permissions:
@@ -17,93 +14,32 @@ concurrency:
 
 env:
   TAG: nightly
-  # Run JavaScript actions on Node 24.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.check.outputs.changed }}
-      sha: ${{ steps.check.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: main
-          fetch-depth: 0
-      - id: check
-        shell: bash
-        run: |
-          sha=$(git rev-parse HEAD)
-          prev=$(git ls-remote --tags origin "refs/tags/$TAG" | cut -f1)
-          # Debug output for the docs-only skip (a docs-only run built anyway
-          # on 2026-11-08); remove once the cause is found.
-          echo "main: $sha"
-          echo "last nightly tag: ${prev:-<none>}"
-          git ls-remote --tags origin "refs/tags/$TAG*"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          changed=true
-          if [ "$sha" = "$prev" ]; then
-            echo "main ($sha) is unchanged since the last nightly; skipping."
-            changed=false
-          elif [ -n "$prev" ] && git cat-file -e "$prev^{commit}" 2>/dev/null; then
-            echo "Commits since the last nightly:"
-            git log --format='  %h %s' "$prev..$sha"
-            # Skip when every new commit is docs-only ("docs: ..." titles).
-            code=$(git log --format=%s "$prev..$sha" | grep -cv '^docs[:(/]' || true)
-            echo "Non-docs commits: [$code]"
-            if [ "$code" -eq 0 ]; then
-              echo "Only docs commits since the last nightly; skipping."
-              changed=false
-            fi
-          else
-            echo "The last nightly's commit isn't in main's history (or there is none); building."
-          fi
-          echo "changed=$changed"
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: check
-    if: needs.check.outputs.changed == 'true'
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/build.yml
-    with:
-      channel: nightly
-      all_targets: false
-      ref: ${{ needs.check.outputs.sha }}
 
   publish:
-    needs: [check, build]
+    needs: build
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      SHA: ${{ needs.check.outputs.sha }}
+      SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.check.outputs.sha }}
           fetch-depth: 0
 
       - name: Write release notes
         shell: bash
         run: |
-          # Latest manual release tag reachable from this commit, if any.
-          last=$(git describe --tags --abbrev=0 --match 'v*' "$SHA" 2>/dev/null || true)
           # Same string build.rs stamps for nightly builds.
           version="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)+${SHA:0:7} ($(git log -1 --format=%cs "$SHA"))"
-          # Commit hashes as links; GitHub doesn't link them in release notes.
-          commits="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit"
           {
-            echo "Automated nightly build of [\`${SHA:0:7}\`]($commits/$SHA): \`ytarchive $version\`."
+            echo "Automated nightly build of [\`${SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SHA): \`ytarchive $version\`."
             echo
-            if [ -n "$last" ]; then
-              echo "## Changes since $last"
-              range="$last..$SHA"
-            else
-              echo "## Changes (no release yet)"
-              range="$SHA"
-            fi
-            echo
-            git log --no-merges --format="- [\`%h\`]($commits/%H) %s" $range
+            bash .github/changelog.sh "$SHA" "$SHA"
           } > notes.md
           cat notes.md
 
@@ -117,8 +53,6 @@ jobs:
         shell: bash
         run: |
           gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
-          # Make sure the old tag is gone even if the release wasn't.
-          git push origin ":refs/tags/$TAG" 2>/dev/null || true
           gh release create "$TAG" dist/* \
             --prerelease \
             --target "$SHA" \

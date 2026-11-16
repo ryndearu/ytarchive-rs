@@ -1,9 +1,7 @@
 name: Release
 
-# Manual releases: push a tag like v0.1.0 to build every platform and publish
-# a normal (non-pre) GitHub release whose notes are a collapsible changelog
-# since the previous v* tag. The assets are
-# zips (ytarchive_<os>_<arch>.zip) holding the executable.
+# A pushed v* tag builds every platform and publishes the release, with a
+# changelog since the previous v* tag.
 on:
   push:
     tags: ["v*"]
@@ -11,25 +9,17 @@ on:
 permissions:
   contents: write
 
-env:
-  # Run JavaScript actions on Node 24.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build:
     uses: ./.github/workflows/build.yml
-    with:
-      channel: release
-      version: ${{ github.ref_name }}
 
   publish:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      # For the build provenance attestation.
-      id-token: write
-      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+      SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -37,13 +27,7 @@ jobs:
 
       - name: Write release notes
         shell: bash
-        env:
-          TAG: ${{ github.ref_name }}
-          SHA: ${{ github.sha }}
         run: |
-          # Previous manual release tag, so the changelog covers everything since it.
-          last=$(git describe --tags --abbrev=0 --match 'v*' --exclude "$TAG" "$SHA" 2>/dev/null || true)
-          commits="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit"
           {
             dl="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG"
             echo "## Downloads"
@@ -56,24 +40,7 @@ jobs:
             echo "| Linux | [\`ytarchive_linux_x64.zip\`]($dl/ytarchive_linux_x64.zip) | [\`ytarchive_linux_arm64.zip\`]($dl/ytarchive_linux_arm64.zip) |"
             echo "| macOS | [\`ytarchive_macos_x64.zip\`]($dl/ytarchive_macos_x64.zip) (Intel) | [\`ytarchive_macos_arm64.zip\`]($dl/ytarchive_macos_arm64.zip) (Apple Silicon) |"
             echo
-            echo "Requires [yt-dlp](https://github.com/yt-dlp/yt-dlp) (the nightly channel is recommended: \`yt-dlp --update-to nightly\`) and [ffmpeg](https://ffmpeg.org/download.html) on \`PATH\` or next to the executable."
-            echo
-            echo "To check a download: compare it with [\`SHA256SUMS\`]($dl/SHA256SUMS), or run \`gh attestation verify <zip> --repo $GITHUB_REPOSITORY\`."
-            echo
-            echo "<details>"
-            echo "<summary><h3>Changelog</h3></summary>"
-            echo
-            if [ -n "$last" ]; then
-              echo "**Full changelog**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$last...$TAG"
-              echo
-              range="$last..$SHA"
-            else
-              range="$SHA"
-            fi
-            # Same list as the nightly notes: every non-merge commit, hash linked.
-            git log --no-merges --format="- [\`%h\`]($commits/%H) %s" $range
-            echo
-            echo "</details>"
+            bash .github/changelog.sh "$SHA" "$TAG" "$TAG"
           } > notes.md
           cat notes.md
 
@@ -82,14 +49,6 @@ jobs:
           pattern: dist-*
           merge-multiple: true
           path: dist
-      - name: Checksums
-        run: cd dist && sha256sum *.zip > SHA256SUMS && cat SHA256SUMS
-      - uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: dist/*.zip
-      - uses: softprops/action-gh-release@v3
-        with:
-          files: dist/*
-          body_path: notes.md
-          prerelease: false
-          make_latest: true
+
+      - name: Publish
+        run: gh release create "$TAG" dist/* --verify-tag --latest --title "$TAG" --notes-file notes.md

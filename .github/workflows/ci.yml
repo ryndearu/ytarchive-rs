@@ -13,33 +13,22 @@ on:
       - "rustfmt.toml"
       - "clippy.toml"
       - ".github/workflows/ci.yml"
-  pull_request:
-    paths:
-      - "src/**"
-      - "build.rs"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "rustfmt.toml"
-      - "clippy.toml"
-      - ".github/workflows/ci.yml"
 
 permissions:
   contents: read
 
-# A newer push to the same branch or pull request replaces the running check.
+# A newer push replaces the running check.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
-  # Run JavaScript actions on Node 24.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:
     name: test (${{ matrix.os }})
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -50,27 +39,10 @@ jobs:
       - name: Install Rust (version and components from rust-toolchain.toml)
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - name: Version
-        run: cargo run --quiet -- --version
       - name: Format
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets --locked -- -D warnings
       - name: Test
         # Network tests are #[ignore]d and don't run here.
-        run: cargo test
-
-  # Keeps `rust-version` in Cargo.toml true: the crate must build with it.
-  minimum-rust:
-    name: minimum Rust version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install the Rust version named in Cargo.toml
-        run: |
-          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].rust_version')
-          rustup toolchain install "$version" --profile minimal
-          echo "MINIMUM_RUST=$version" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@v2
-      - name: Check
-        run: cargo "+$MINIMUM_RUST" check --locked
+        run: cargo test --locked

@@ -1,32 +1,30 @@
 name: Audit
 
-# Checks the dependencies in Cargo.lock against the RustSec advisory database:
-# weekly (new advisories appear without any change here), and whenever the
-# dependencies change.
+# Checks the dependencies in Cargo.lock with cargo-deny (deny.toml): weekly (new
+# advisories appear without any change here), and whenever the dependencies
+# change.
 on:
   schedule:
     - cron: "0 0 * * 1"
   push:
     branches: [main]
-    paths: ["Cargo.toml", "Cargo.lock", ".github/workflows/audit.yml"]
-  pull_request:
-    paths: ["Cargo.toml", "Cargo.lock"]
+    paths: ["Cargo.toml", "Cargo.lock", "deny.toml", ".github/workflows/audit.yml"]
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  # Run JavaScript actions on Node 24.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # A prebuilt binary; building cargo-audit from source took three minutes.
-      - name: Install cargo-audit
+      # A prebuilt binary; building from source takes minutes.
+      - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-audit
-      - name: Audit
-        run: cargo audit
+          tool: cargo-deny
+      # A vulnerable dependency, a license not in deny.toml, or a source other
+      # than crates.io fails.
+      - name: Deny
+        run: cargo deny --locked check -W unmaintained -W unsound
