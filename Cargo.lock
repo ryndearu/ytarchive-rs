@@ -2483,7 +2483,7 @@ dependencies = [
 
 [[package]]
 name = "ytarchive"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "bytes",
  "chrono",
