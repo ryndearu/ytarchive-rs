@@ -172,34 +172,29 @@ pub fn command_line(program: &str, args: &[String]) -> String {
     std::iter::once(program).chain(args.iter().map(String::as_str)).map(quote).collect::<Vec<_>>().join(" ")
 }
 
-/// Whether `program` can be run: a path that exists, a name on PATH, or (as
-/// Windows users often do) a file next to the ytarchive executable.
+/// Whether `program` can be run: a path that exists, a file next to the
+/// ytarchive executable, or a name on PATH.
 pub fn program_exists(program: &str) -> bool {
-    let path = Path::new(program);
-    if path.components().count() > 1 {
-        return path.is_file() || cfg!(windows) && path.with_extension("exe").is_file();
-    }
-    let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
-    let path_dirs =
-        std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>()).unwrap_or_default();
-    exe_dir.into_iter().chain(path_dirs).any(|dir| {
-        let candidate = dir.join(program);
-        candidate.is_file() || cfg!(windows) && candidate.with_extension("exe").is_file()
-    }) || path.is_file()
+    crate::util::resolve_program(program).is_some()
 }
 
 /// Runs ffmpeg, passing its stderr (progress stats) through. Returns the exit
 /// code, or -1 if it couldn't be run.
 pub async fn execute(program: &str, args: &[String]) -> i32 {
     log_debug!("Executing command: {}", command_line(program, args));
-    let mut child =
-        match tokio::process::Command::new(program).args(args).stdin(Stdio::null()).stderr(Stdio::piped()).spawn() {
-            Ok(child) => child,
-            Err(error) => {
-                log_error!("{error}");
-                return -1;
-            }
-        };
+    let executable = crate::util::resolve_program(program).unwrap_or_else(|| PathBuf::from(program));
+    let mut child = match tokio::process::Command::new(&executable)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(error) => {
+            log_error!("{error}");
+            return -1;
+        }
+    };
     if let Some(mut err) = child.stderr.take() {
         let mut buf = [0u8; 2048];
         while let Ok(count) = err.read(&mut buf).await {

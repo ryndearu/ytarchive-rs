@@ -139,6 +139,58 @@ pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> 
     res
 }
 
+/// Checks whether `path` is a regular file (and executable on Unix).
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
+fn find_executable(candidate: std::path::PathBuf) -> Option<std::path::PathBuf> {
+    if is_executable_file(&candidate) {
+        return Some(candidate);
+    }
+    #[cfg(windows)]
+    {
+        let mut with_exe = candidate.into_os_string();
+        with_exe.push(".exe");
+        let exe_path = std::path::PathBuf::from(with_exe);
+        if is_executable_file(&exe_path) {
+            return Some(exe_path);
+        }
+    }
+    None
+}
+
+/// Resolves `program` as a path (if it contains a separator), else next to the
+/// current executable, else on `PATH`. Does not fall back to the working
+/// directory for bare names.
+pub fn resolve_program(program: &str) -> Option<std::path::PathBuf> {
+    if program.is_empty() {
+        return None;
+    }
+    let path = Path::new(program);
+    if path.components().count() > 1 {
+        return find_executable(path.to_path_buf());
+    }
+    let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
+    let path_dirs =
+        std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>()).unwrap_or_default();
+    exe_dir.into_iter().chain(path_dirs).find_map(|dir| find_executable(dir.join(program)))
+}
+
 /// Moves `src` to `dst`, copying across filesystems if rename fails.
 /// A missing `src` is not an error (nothing to move).
 pub fn try_move(src: &Path, dst: &Path) -> std::io::Result<()> {
