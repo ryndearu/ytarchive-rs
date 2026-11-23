@@ -1,21 +1,26 @@
 //! Interactive stdin prompts. Ctrl-C while waiting for input exits immediately,
 //! as in Go.
 
-use std::io::{BufRead, Write};
+use std::io::{self, BufRead, Write};
+
+use tokio::task::spawn_blocking;
+
+use crate::interrupt::enter_prompt;
+use crate::log_debug;
 
 /// Prints `prompt` and reads one trimmed line from stdin (empty when stdin
 /// is closed or unreadable).
 pub async fn get_user_input(prompt: &str) -> String {
     print!("{prompt}");
-    if let Err(error) = std::io::stdout().flush() {
-        crate::log_debug!("Could not show the prompt: {error}");
+    if let Err(error) = io::stdout().flush() {
+        log_debug!("Could not show the prompt: {error}");
     }
 
-    let _prompt = crate::interrupt::enter_prompt();
-    tokio::task::spawn_blocking(|| {
+    let _prompt = enter_prompt();
+    spawn_blocking(|| {
         let mut text = String::new();
-        if let Err(error) = std::io::stdin().lock().read_line(&mut text) {
-            crate::log_debug!("Could not read the answer: {error}");
+        if let Err(error) = io::stdin().lock().read_line(&mut text) {
+            log_debug!("Could not read the answer: {error}");
         }
         text.trim().to_string()
     })

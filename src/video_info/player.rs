@@ -3,7 +3,10 @@
 
 use std::time::Duration;
 
+use chrono::Utc;
+
 use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY, sleep_until_unix};
+use crate::error::Error;
 use crate::stream_meta::local_timestamp;
 use crate::types::player_response::{PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE};
 use crate::types::{Action, DEFAULT_POLL_SECS, PlayerResponse};
@@ -22,10 +25,10 @@ pub enum Outcome {
     NotUsable,
 }
 
-fn is_transient_http(error: &crate::error::Error) -> bool {
+fn is_transient_http(error: &Error) -> bool {
     match error {
-        crate::error::Error::Http(_) | crate::error::Error::Io(_) => true,
-        crate::error::Error::HttpStatus { status, .. } => *status == 429 || *status >= 500,
+        Error::Http(_) | Error::Io(_) => true,
+        Error::HttpStatus { status, .. } => *status == 429 || *status >= 500,
         _ => false,
     }
 }
@@ -69,7 +72,7 @@ impl Extractor {
                         Err(error) => (Err(error.to_string()), false),
                     }
                 }
-                Err(crate::error::Error::Cancelled) => return Outcome::NotUsable,
+                Err(Error::Cancelled) => return Outcome::NotUsable,
                 Err(error) => {
                     let transient = is_transient_http(&error);
                     (Err(error.to_string()), transient)
@@ -247,7 +250,7 @@ impl Extractor {
                         continue;
                     };
 
-                    let until = scheduled - chrono::Utc::now().timestamp();
+                    let until = scheduled - Utc::now().timestamp();
                     if until > 0 {
                         if !first_wait {
                             log_general!("Stream rescheduled.");

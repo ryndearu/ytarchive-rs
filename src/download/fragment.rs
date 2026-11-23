@@ -6,6 +6,7 @@ use std::time::Duration;
 use reqwest::StatusCode;
 use reqwest::header::{CONTENT_TYPE, ORIGIN, REFERER};
 
+use crate::error::Error;
 use crate::session::Session;
 use crate::types::{FragData, FragThreadState, Fragment, FragmentUrl, StreamProgress};
 use crate::util::write_file_with_mode;
@@ -197,7 +198,7 @@ pub(super) enum FragOutcome {
     Downloaded(Fragment),
     Missing,
     Stopped,
-    StorageError(crate::error::Error),
+    StorageError(Error),
 }
 
 /// Downloads `state.seq`. With `frag_file`, the data goes to that file instead
