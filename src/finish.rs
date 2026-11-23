@@ -135,6 +135,14 @@ impl Finish<'_> {
         1
     }
 
+    /// Stops on `SIGTERM` without running interactive prompts: discards pending
+    /// SQLite exports and leaves temporary and state files to resume later.
+    pub fn on_terminate(&mut self) -> i32 {
+        self.pending_exports.clear();
+        log_warn!("Termination signal received. Files were left in {} to resume later.", self.plan.temp_dir.display());
+        143
+    }
+
     /// Handles a user interrupt. Returns `Some(exit code)` if done, `None`
     /// if the user chose to merge what was downloaded.
     pub async fn on_cancel(&mut self) -> Option<i32> {
@@ -386,6 +394,23 @@ mod tests {
         assert!(!plan.final_path(".f140.ts").exists());
         assert!(!plan.temp_dir.exists());
         assert!(!state_file.exists());
+        std::fs::remove_dir_all(&plan.final_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn terminate_keeps_temp_files_and_state_files() {
+        let (plan, state_file) = downloaded("terminate");
+        let pending = PendingExport::for_test(&plan.temp(".f140.sqlite"), plan.temp(".f140.ts.exported")).await;
+        let opts = Options::default();
+        let mut finish = finish_of(&opts, &plan, &state_file);
+        finish.pending_exports.push(pending);
+
+        assert_eq!(finish.on_terminate(), 143);
+        assert!(plan.temp_dir.exists());
+        assert_eq!(std::fs::read(plan.temp(".f140.ts")).unwrap(), b"audio");
+        assert!(state_file.exists());
+        assert!(!plan.temp(".f140.ts.exported").exists());
+        assert!(!plan.final_path(".f140.ts").exists());
         std::fs::remove_dir_all(&plan.final_dir).unwrap();
     }
 }

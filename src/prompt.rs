@@ -11,22 +11,16 @@ pub async fn get_user_input(prompt: &str) -> String {
         crate::log_debug!("Could not show the prompt: {error}");
     }
 
-    let read = tokio::task::spawn_blocking(|| {
+    let _prompt = crate::interrupt::enter_prompt();
+    tokio::task::spawn_blocking(|| {
         let mut text = String::new();
         if let Err(error) = std::io::stdin().lock().read_line(&mut text) {
             crate::log_debug!("Could not read the answer: {error}");
         }
         text.trim().to_string()
-    });
-    tokio::select! {
-        line = read => line.unwrap_or_default(),
-        _ = crate::interrupt::next() => {
-            println!("\nExiting...");
-            crate::platform::restore();
-            crate::ytdlp_cookies::remove();
-            std::process::exit(1);
-        }
-    }
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// `prompt [y/N]: ` — anything starting with `y` is yes.
