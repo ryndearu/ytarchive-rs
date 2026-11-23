@@ -68,6 +68,21 @@ async fn serve_observed(
     on_forbidden: Option<OnForbidden>,
     on_request: Option<OnRequest>,
 ) -> String {
+    serve_with_status(head, fail, "500 Internal Server Error", forbidden, on_forbidden, on_request).await
+}
+
+async fn serve_status(head: u64, fail: Vec<u64>, fail_status: &'static str, on_request: Option<OnRequest>) -> String {
+    serve_with_status(head, fail, fail_status, u64::MAX, None, on_request).await
+}
+
+async fn serve_with_status(
+    head: u64,
+    fail: Vec<u64>,
+    fail_status: &'static str,
+    forbidden: u64,
+    on_forbidden: Option<OnForbidden>,
+    on_request: Option<OnRequest>,
+) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let fail = Arc::new(fail);
@@ -104,7 +119,7 @@ async fn serve_observed(
                     }
                     ("403 Forbidden", Vec::new())
                 } else if fail.contains(&seq) {
-                    ("500 Internal Server Error", Vec::new())
+                    (fail_status, Vec::new())
                 } else if seq > head {
                     ("404 Not Found", Vec::new())
                 } else {
