@@ -145,24 +145,9 @@ impl Session {
         self.set_finished(DataType::Video);
     }
 
-    /// Re-runs extraction to update live status and URLs. Skipped if another
-    /// refresh is in progress. Returns whether new URLs were applied.
-    pub async fn refresh_info(&self) -> bool {
-        #[cfg(test)]
-        if let Some(hook) = &self.on_refresh {
-            if let Some(url) = hook() {
-                self.set_url(DataType::Audio, Some(url));
-                *lock(&self.last_url_refresh) = Instant::now();
-                return true;
-            }
-            return false;
-        }
-        let Some(mutex) = &self.extractor else {
-            return false;
-        };
-        let Ok(mut extractor) = mutex.try_lock() else {
-            return false;
-        };
+    /// Re-runs extraction to update live status and URLs. Returns whether new
+    /// URLs were applied.
+    async fn run_refresh(&self, extractor: &mut Extractor) -> bool {
         let sel = extractor.get_video_info().await;
         self.live.store(extractor.live, Ordering::Relaxed);
         self.unavailable.store(extractor.unavailable, Ordering::Relaxed);
@@ -179,12 +164,32 @@ impl Session {
         }
     }
 
-    /// Refreshes unless another worker already replaced `current`.
-    /// Returns whether `data_type` now has a different URL than `current`.
+    /// Refreshes unless another worker already replaced `current`. Waits for
+    /// an in-flight refresh rather than skipping and burning retries on the
+    /// old URL. Returns whether `data_type` now has a different URL.
     pub async fn refresh_url_if_unchanged(&self, data_type: DataType, current: &FragmentUrl) -> bool {
+        if self.url(data_type).as_ref() != Some(current) {
+            return self.url(data_type).is_some();
+        }
+        #[cfg(test)]
+        if let Some(hook) = &self.on_refresh {
+            if let Some(url) = hook() {
+                self.set_url(data_type, Some(url));
+                *lock(&self.last_url_refresh) = Instant::now();
+            }
+            return self.url(data_type).as_ref().is_some_and(|updated| updated != current);
+        }
+        let Some(mutex) = &self.extractor else {
+            return false;
+        };
+        let mut extractor = tokio::select! {
+            biased;
+            _ = self.cancel.cancelled() => return false,
+            guard = mutex.lock() => guard,
+        };
         if self.url(data_type).as_ref() == Some(current) {
             log_debug!("{}: Attempting to retrieve a new download URL", data_type.as_str());
-            self.refresh_info().await;
+            self.run_refresh(&mut extractor).await;
         }
         self.url(data_type).as_ref().is_some_and(|updated| updated != current)
     }
