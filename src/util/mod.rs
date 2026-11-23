@@ -4,9 +4,12 @@
 
 pub mod filename;
 
-use std::path::Path;
+use std::env;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio_util::sync::CancellationToken;
 
@@ -139,9 +142,8 @@ pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> 
     res
 }
 
-/// Checks whether `path` is a regular file (and executable on Unix).
 fn is_executable_file(path: &Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
+    let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
     if !metadata.is_file() {
@@ -158,7 +160,7 @@ fn is_executable_file(path: &Path) -> bool {
     }
 }
 
-fn find_executable(candidate: std::path::PathBuf) -> Option<std::path::PathBuf> {
+fn find_executable(candidate: PathBuf) -> Option<PathBuf> {
     if is_executable_file(&candidate) {
         return Some(candidate);
     }
@@ -166,7 +168,7 @@ fn find_executable(candidate: std::path::PathBuf) -> Option<std::path::PathBuf> 
     {
         let mut with_exe = candidate.into_os_string();
         with_exe.push(".exe");
-        let exe_path = std::path::PathBuf::from(with_exe);
+        let exe_path = PathBuf::from(with_exe);
         if is_executable_file(&exe_path) {
             return Some(exe_path);
         }
@@ -177,7 +179,7 @@ fn find_executable(candidate: std::path::PathBuf) -> Option<std::path::PathBuf> 
 /// Resolves `program` as a path (if it contains a separator), else next to the
 /// current executable, else on `PATH`. Does not fall back to the working
 /// directory for bare names.
-pub fn resolve_program(program: &str) -> Option<std::path::PathBuf> {
+pub fn resolve_program(program: &str) -> Option<PathBuf> {
     if program.is_empty() {
         return None;
     }
@@ -185,15 +187,14 @@ pub fn resolve_program(program: &str) -> Option<std::path::PathBuf> {
     if path.components().count() > 1 {
         return find_executable(path.to_path_buf());
     }
-    let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
-    let path_dirs =
-        std::env::var_os("PATH").map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>()).unwrap_or_default();
+    let exe_dir = env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
+    let path_dirs = env::var_os("PATH").map(|paths| env::split_paths(&paths).collect::<Vec<_>>()).unwrap_or_default();
     exe_dir.into_iter().chain(path_dirs).find_map(|dir| find_executable(dir.join(program)))
 }
 
 /// Moves `src` to `dst`, copying across filesystems if rename fails.
 /// A missing `src` is not an error (nothing to move).
-pub fn try_move(src: &Path, dst: &Path) -> std::io::Result<()> {
+pub fn try_move(src: &Path, dst: &Path) -> io::Result<()> {
     if !src.exists() {
         return Ok(());
     }
@@ -201,12 +202,12 @@ pub fn try_move(src: &Path, dst: &Path) -> std::io::Result<()> {
         return Ok(());
     }
     crate::log_info!("Moving file {} to {}", src.display(), dst.display());
-    if std::fs::rename(src, dst).is_ok() {
+    if fs::rename(src, dst).is_ok() {
         return Ok(());
     }
     crate::log_warn!("Rename failed; copying {} instead", src.display());
-    std::fs::copy(src, dst)
-        .and_then(|_| std::fs::remove_file(src))
+    fs::copy(src, dst)
+        .and_then(|_| fs::remove_file(src))
         .inspect_err(|error| crate::log_warn!("Error moving file {}: {error}", src.display()))
 }
 
@@ -216,18 +217,17 @@ pub fn try_delete(path: &Path) {
         return;
     }
     crate::log_info!("Deleting file {}", path.display());
-    if let Err(error) = std::fs::remove_file(path)
-        && error.kind() != std::io::ErrorKind::NotFound
+    if let Err(error) = fs::remove_file(path)
+        && error.kind() != io::ErrorKind::NotFound
     {
         crate::log_warn!("Error deleting file {}: {error}", path.display());
     }
 }
 
 /// Creates a new uniquely named directory `{parent}/{prefix}{random}`.
-pub fn create_temp_dir(parent: &Path, prefix: &str, mode: u32) -> std::io::Result<std::path::PathBuf> {
-    let seed =
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |duration| duration.as_nanos())
-            ^ u128::from(std::process::id());
+pub fn create_temp_dir(parent: &Path, prefix: &str, mode: u32) -> io::Result<PathBuf> {
+    let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |duration| duration.as_nanos())
+        ^ u128::from(std::process::id());
     for attempt in 0..100u128 {
         let dir = parent.join(format!("{prefix}{:x}", (seed.wrapping_add(attempt)) & 0xffff_ffff));
         match std::fs::create_dir(&dir) {

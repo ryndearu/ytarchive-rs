@@ -2,7 +2,10 @@
 
 use std::sync::OnceLock;
 
+use rusqlite::Connection;
+
 use super::*;
+use crate::error::Error;
 
 fn sqlite_opts(threads: usize) -> Options {
     Options { storage: crate::types::StorageMode::Sqlite, ..opts(threads, true) }
@@ -205,7 +208,7 @@ async fn no_recovery_without_the_flag() {
 async fn sqlite_storage_error_creates_no_ts_file() {
     let dir = temp_dir("sqlite-storage-err");
     let database_path = dir.join("out.f140.sqlite");
-    let conn = rusqlite::Connection::open(&database_path).unwrap();
+    let conn = Connection::open(&database_path).unwrap();
     conn.execute_batch(
         "CREATE TABLE segments (seq INTEGER PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL);
          CREATE TRIGGER fail_insert BEFORE INSERT ON segments BEGIN
@@ -219,7 +222,7 @@ async fn sqlite_storage_error_creates_no_ts_file() {
     let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
     let (stream_params, _rx) = params(&dir, 5, DownloadState::default());
     let err = download_stream(session, stream_params).await.unwrap_err();
-    assert!(matches!(err, crate::error::Error::Sqlite(_)), "{err}");
+    assert!(matches!(err, Error::Sqlite(_)), "{err}");
     assert!(!dir.join("out.f140.ts").exists(), "partial .ts must not be exported on storage error");
     std::fs::remove_dir_all(&dir).unwrap();
 }
