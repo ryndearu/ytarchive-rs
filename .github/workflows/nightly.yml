@@ -1,7 +1,7 @@
 name: Nightly
 
-# Replaces the nightly pre-release with a build of main and the commits since
-# the last v* release.
+# Builds main, stages the new zips and SHA256SUMS as a draft release, then
+# replaces the nightly pre-release so its publish timestamp refreshes.
 on:
   workflow_dispatch:
 
@@ -37,7 +37,7 @@ jobs:
           # Same string build.rs stamps for nightly builds.
           version="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)+${SHA:0:7} ($(git log -1 --format=%cs "$SHA"))"
           {
-            echo "Automated nightly build of [\`${SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SHA): \`ytarchive $version\`."
+            echo "Automated nightly build of [\`${SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SHA): \`ytarchive $version\`. Checksums are in \`SHA256SUMS\`."
             echo
             bash .github/changelog.sh "$SHA" "$SHA"
           } > notes.md
@@ -49,12 +49,47 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: Replace nightly pre-release
+      - name: Generate checksums
+        shell: bash
+        run: (cd dist && sha256sum *.zip > SHA256SUMS)
+
+      - name: Publish nightly pre-release
         shell: bash
         run: |
-          gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
-          gh release create "$TAG" dist/* \
+          title="Nightly $(date -u +%Y-%m-%d) (${SHA:0:7})"
+          draft_tag="nightly-draft-${GITHUB_RUN_ID}"
+          cleanup_draft() {
+            local id
+            id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" \
+              --jq ".[] | select(.draft and .tag_name == \"$draft_tag\") | .id" | head -n1) || true
+            if [ -n "$id" ]; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_draft ERR
+
+          # Stage the new release and upload all assets as a draft first so a
+          # failed upload never deletes the existing nightly pre-release.
+          gh release create "$draft_tag" dist/* \
+            --draft \
             --prerelease \
             --target "$SHA" \
-            --title "Nightly $(date -u +%Y-%m-%d) (${SHA:0:7})" \
+            --title "$title" \
             --notes-file notes.md
+
+          draft_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" \
+            --jq ".[] | select(.draft and .tag_name == \"$draft_tag\") | .id" | head -n1)
+          test -n "$draft_id"
+
+          git tag -f "$TAG" "$SHA"
+          git push origin "refs/tags/$TAG" --force
+
+          # Delete the old release object (keeping the updated tag) and publish
+          # the staged draft so GitHub refreshes published_at.
+          trap - ERR
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$draft_id" \
+            -f tag_name="$TAG" \
+            -f target_commitish="$SHA" \
+            -F draft=false \
+            -F prerelease=true
