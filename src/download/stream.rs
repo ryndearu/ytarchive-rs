@@ -165,8 +165,9 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     let straight_to_recovery = recovering && session.is_unavailable();
     let threads = if straight_to_recovery { 0 } else { session.opts.threads.max(1) };
     let (sender, mut receiver) = mpsc::channel::<Msg>(threads.max(1) * 2);
-    // SQLite stores fragments as they arrive, so nothing waits in temp files.
-    let frag_prefix = (session.opts.frag_files && !sink.is_db()).then(|| params.frag_prefix.clone());
+    // SQLite stores fragments as they arrive, and a single worker downloads in
+    // order, so neither needs temp files for out-of-order buffering.
+    let frag_prefix = (session.opts.frag_files && threads > 1 && !sink.is_db()).then(|| params.frag_prefix.clone());
     let mut workers = Vec::with_capacity(threads);
     for index in 1..=threads {
         workers.push(tokio::spawn(worker(
