@@ -171,19 +171,36 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
     };
 
     let mut probe_url = None;
+    let mut exact_itags = std::collections::HashSet::new();
+    let mut fallback_target = 0u32;
     for format in raw.formats.unwrap_or_default() {
         let Some(itag) = format.itag() else { continue };
-        if info.target_duration == 0
-            && let Some(target) = format.target_duration.filter(|seconds| *seconds > 0.0)
-        {
-            info.target_duration = target.round() as u32;
-        }
+        let duration = format.target_duration.filter(|seconds| *seconds > 0.0).map(|seconds| seconds.round() as u32);
         if !is_adaptive_format(&format) {
+            if fallback_target == 0
+                && let Some(target) = duration
+            {
+                fallback_target = target;
+            }
             continue;
         }
+        if info.target_duration == 0
+            && let Some(target) = duration
+        {
+            info.target_duration = target;
+        }
+        let exact = !format.format_id.contains('-');
         let url = format.url.unwrap_or_default();
         probe_url.get_or_insert_with(|| url.clone());
-        info.urls.insert(itag, FragmentUrl::with_sq_param(&url));
+        if exact {
+            exact_itags.insert(itag);
+            info.urls.insert(itag, FragmentUrl::with_sq_param(&url));
+        } else if !exact_itags.contains(&itag) {
+            info.urls.insert(itag, FragmentUrl::with_sq_param(&url));
+        }
+    }
+    if info.target_duration == 0 {
+        info.target_duration = fallback_target;
     }
     (info, probe_url)
 }
@@ -288,6 +305,33 @@ mod tests {
         assert_eq!(itags, [140, 299]);
         assert_eq!(info.urls[&140].for_seq(3), "https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=3");
         assert_eq!(probe.as_deref(), Some("https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=9"));
+    }
+
+    #[test]
+    fn prefers_exact_format_id_and_adaptive_target_duration() {
+        let raw = parse_output(
+            r#"{"id":"x","formats":[
+                {"format_id":"95","url":"https://manifest.googlevideo.com/x.m3u8","protocol":"m3u8_native","manifest_url":"https://m/x.m3u8","target_duration":2.0},
+                {"format_id":"140-drc","url":"https://drc.googlevideo.com/videoplayback?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null,"target_duration":5.0},
+                {"format_id":"140","url":"https://orig.googlevideo.com/videoplayback?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null,"target_duration":null},
+                {"format_id":"140-1","url":"https://alt.googlevideo.com/videoplayback?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null,"target_duration":null}
+            ]}"#,
+        )
+        .unwrap();
+        let (info, _) = to_extraction(raw);
+        assert_eq!(info.target_duration, 5);
+        assert_eq!(info.urls[&140].for_seq(1), "https://orig.googlevideo.com/videoplayback?itag=140&noclen=1&sq=1");
+
+        // When no exact format ID exists, pick the last (highest-preference) suffixed variant.
+        let suffixed = parse_output(
+            r#"{"id":"x","formats":[
+                {"format_id":"140-0","url":"https://dub.googlevideo.com/videoplayback?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null},
+                {"format_id":"140-1","url":"https://main.googlevideo.com/videoplayback?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null}
+            ]}"#,
+        )
+        .unwrap();
+        let (info, _) = to_extraction(suffixed);
+        assert_eq!(info.urls[&140].for_seq(1), "https://main.googlevideo.com/videoplayback?itag=140&noclen=1&sq=1");
     }
 
     #[test]
