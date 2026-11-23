@@ -35,32 +35,44 @@ fn parse_unsigned(value: &str) -> Option<Duration> {
         .or_else(|| parse_time_string(value))
 }
 
-/// Resolves `--live-from` (`now`, `-DURATION`, or `DURATION`/time string)
-/// against the current stream position.
-pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Result<LiveFrom> {
-    let target = u64::from(target_duration.max(1));
-    if value.trim().eq_ignore_ascii_case("now") {
-        return Ok(LiveFrom { start_sq: last_sq, message: "Starting download from current time".into() });
+fn parse_live_from(value: &str) -> Result<Option<(bool, Duration)>> {
+    let trimmed = value.trim();
+    if trimmed.eq_ignore_ascii_case("now") {
+        return Ok(None);
     }
-
-    let (negative, body) = match value.trim().strip_prefix('-') {
+    let (negative, body) = match trimmed.strip_prefix('-') {
         Some(rest) => (true, rest),
-        None => (false, value.trim()),
+        None => (false, trimmed),
     };
     let dur = parse_unsigned(body).ok_or_else(|| {
         Error::InvalidArg(format!("--live-from: unable to parse '{value}' as either a duration or a time string"))
     })?;
+    if negative && dur.as_secs() > LIVE_MAXIMUM_SEEKABLE_SECS {
+        return Err(Error::InvalidArg(format!(
+            "invalid duration specified '{value}' (maximum video seek time is {} days)",
+            LIVE_MAXIMUM_SEEKABLE_SECS / 86_400
+        )));
+    }
+    Ok(Some((negative, dur)))
+}
+
+/// Validates `--live-from` syntax and the 7-day seek bound for negative offsets.
+pub fn validate_live_from(value: &str) -> Result<()> {
+    parse_live_from(value).map(|_| ())
+}
+
+/// Resolves `--live-from` (`now`, `-DURATION`, or `DURATION`/time string)
+/// against the current stream position.
+pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Result<LiveFrom> {
+    let target = u64::from(target_duration.max(1));
+    let Some((negative, dur)) = parse_live_from(value)? else {
+        return Ok(LiveFrom { start_sq: last_sq, message: "Starting download from current time".into() });
+    };
     let frags = frags_for(dur.as_secs(), target_duration);
     let rounded_secs = frags * target;
     let live_for = || seconds_to_duration_and_time_str(last_sq * target);
 
     if negative {
-        if dur.as_secs() > LIVE_MAXIMUM_SEEKABLE_SECS {
-            return Err(Error::InvalidArg(format!(
-                "invalid duration specified '{value}' (maximum video seek time is {} days)",
-                LIVE_MAXIMUM_SEEKABLE_SECS / 86_400
-            )));
-        }
         if frags > last_sq {
             return Err(Error::InvalidArg(format!(
                 "invalid duration specified; the stream has not been live for that long [live for {}]",

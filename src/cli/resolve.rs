@@ -267,6 +267,9 @@ impl Cli {
 
         let start_delay =
             self.start_delay.as_deref().map(|text| parse_duration_or_time("--start-delay", text)).transpose()?;
+        if let Some(live_from) = self.live_from.as_deref() {
+            crate::live_from::validate_live_from(live_from)?;
+        }
         let capture_duration = self
             .capture_duration
             .as_deref()

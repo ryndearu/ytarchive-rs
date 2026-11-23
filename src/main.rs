@@ -57,9 +57,15 @@ async fn main() -> ExitCode {
     }
 
     // Validate the output template early, as Go does, before any network work.
-    if let Err(error) = util::format_python_map(&options.output_format, &types::new_format_info()) {
+    let known_keys = types::new_format_info();
+    if let Err(error) = util::format_python_map(&options.output_format, &known_keys) {
         log_error!("{error}");
         return ExitCode::FAILURE;
+    }
+    for (key, value) in &options.metadata_overrides {
+        if let Err(error) = util::format_python_map(value, &known_keys) {
+            log_warn!("--metadata {key}: {error}; value will be kept literally");
+        }
     }
 
     let cookie_set = match options.cookies_file.clone() {
