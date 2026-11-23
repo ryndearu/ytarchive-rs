@@ -113,7 +113,7 @@ fn select_streams(sel: &crate::types::FormatSelection) -> Vec<(DataType, u32)> {
 }
 
 async fn download(
-    opts: Arc<Options>,
+    mut opts: Arc<Options>,
     http: Http,
     cancel: CancellationToken,
     mut prepared: Prepared,
@@ -129,7 +129,12 @@ async fn download(
     };
     let final_dir = ensure_dir(dir, opts.dir_mode, "final file");
     if let Some(temp_dir) = &opts.temp_dir {
-        ensure_dir(temp_dir.clone(), opts.dir_mode, "temporary");
+        let resolved = ensure_dir(temp_dir.clone(), opts.dir_mode, "temporary");
+        if resolved != *temp_dir {
+            let mut updated = (*opts).clone();
+            updated.temp_dir = Some(resolved);
+            opts = Arc::new(updated);
+        }
     }
 
     let mut streams = select_streams(&prepared.sel);
