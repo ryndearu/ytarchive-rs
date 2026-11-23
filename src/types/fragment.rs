@@ -86,6 +86,8 @@ pub struct FragThreadState {
     /// Rounds of tries used up on a live stream while other fragments kept
     /// downloading.
     pub stuck_rounds: u32,
+    /// URL refreshes attempted for this fragment after hitting the retry limit.
+    pub url_refreshes: u32,
 }
 
 impl FragThreadState {
@@ -104,6 +106,7 @@ impl FragThreadState {
             downloaded_at_start: 0,
             downloaded_at_round: 0,
             stuck_rounds: 0,
+            url_refreshes: 0,
         }
     }
 
@@ -120,6 +123,7 @@ impl FragThreadState {
         self.downloaded_at_start = downloaded;
         self.downloaded_at_round = downloaded;
         self.stuck_rounds = 0;
+        self.url_refreshes = 0;
     }
 }
 

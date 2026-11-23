@@ -117,15 +117,16 @@ pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState
 }
 
 /// After a failure that used up the try limit, refresh URLs (unless the
-/// limit is 0, i.e. unlimited).
-async fn retry_fragment_url(session: &Session, state: &FragThreadState, url: &FragmentUrl) {
+/// limit is 0, i.e. unlimited). Returns whether a new URL is now active.
+async fn retry_fragment_url(session: &Session, state: &FragThreadState, url: &FragmentUrl) -> bool {
     if session.is_finished(state.data_type) || session.is_stopping() {
-        return;
+        return false;
     }
     let max = session.opts.frag_max_tries;
     if max > 0 && state.tries >= max {
-        session.refresh_url_if_unchanged(state.data_type, url).await;
+        return session.refresh_url_if_unchanged(state.data_type, url).await;
     }
+    false
 }
 
 fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &reqwest::Response) {
@@ -137,12 +138,8 @@ fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &
     } else {
         state.backoff_step = 0;
     }
-    if status == StatusCode::FORBIDDEN {
-        state.is_403 = true;
-    } else if status == StatusCode::NOT_FOUND
-        && !session.is_live()
-        && state.max_seq.is_some_and(|max| state.seq + 2 > max)
-    {
+    state.is_403 = status == StatusCode::FORBIDDEN;
+    if status == StatusCode::NOT_FOUND && !session.is_live() && state.max_seq.is_some_and(|max| state.seq + 2 > max) {
         log_debug!(
             "{}: Stream has ended and fragment within the last two not found, probably not actually created",
             state.name
@@ -154,6 +151,7 @@ fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &
 fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &dyn std::fmt::Display) {
     log_debug!("{}: Error with fragment {}: {err}", state.name, state.seq);
     state.backoff_step += 1;
+    state.is_403 = false;
     if !session.is_live() && state.max_seq.is_some_and(|max| state.seq + 2 >= max) {
         log_debug!(
             "{}: Stream has ended and fragment number is within two of the known max, probably not actually created",
@@ -227,7 +225,10 @@ pub(super) async fn download_fragment(
                 match resp.bytes().await {
                     Err(error) => handle_download_error(session, state, &without_query(error)),
                     // Success with no data: the fragment isn't ready yet.
-                    Ok(body) if body.is_empty() => state.backoff_step = 0,
+                    Ok(body) if body.is_empty() => {
+                        state.backoff_step = 0;
+                        state.is_403 = false;
+                    }
                     Ok(body) => {
                         if !mime.ends_with("/mp4") && !mime.ends_with("/webm") {
                             log_trace!("{}: fragment {} has unknown MIME type '{mime}'", state.name, state.seq);
@@ -268,7 +269,18 @@ pub(super) async fn download_fragment(
         }
 
         state.tries += 1;
-        retry_fragment_url(session, state, &url).await;
+        let was_403 = state.is_403;
+        let refreshed = retry_fragment_url(session, state, &url).await;
+        if was_403 && refreshed && state.url_refreshes < 2 {
+            state.url_refreshes += 1;
+            state.tries = 0;
+            state.is_403 = false;
+            state.backoff_step = 0;
+            if !sleep_or_stop(session, state).await {
+                return FragOutcome::Stopped;
+            }
+            continue;
+        }
         if session.is_stopping() {
             return FragOutcome::Stopped;
         }

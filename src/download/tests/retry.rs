@@ -2,7 +2,7 @@
 //! off, and giving up on a fragment that is stuck on a live stream.
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use super::super::fragment::{continue_fragment_download, retry_delay, without_query};
 use super::*;
@@ -201,4 +201,61 @@ async fn logged_request_errors_leave_out_the_signature_and_ip() {
     let logged = without_query(error).to_string();
     assert!(logged.contains("/videoplayback"), "{logged}");
     assert!(!logged.contains("SECRET") && !logged.contains("203.0.113.9"), "{logged}");
+}
+
+#[tokio::test]
+async fn refreshed_url_is_retried_after_403_on_ended_stream() {
+    let expired_url = serve_until(5, vec![], 0, None).await;
+    let fresh_url = serve(5, vec![]).await;
+    let dir = temp_dir("refresh-403-ended");
+    let session = Session::for_test_with_refresh(
+        opts(1, false),
+        Some(FragmentUrl::with_sq_param(&expired_url)),
+        false,
+        Arc::new({
+            let fresh = FragmentUrl::with_sq_param(&fresh_url);
+            move || Some(fresh.clone())
+        }),
+    );
+    let (mut stream_params, _rx) = params(&dir, 5, DownloadState::default());
+    stream_params.retry_sleep = Duration::from_millis(1);
+    let out = download_stream(session, stream_params).await.unwrap();
+
+    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(out.state.fragments, 5);
+    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn non_403_near_head_does_not_get_extra_refresh_rounds() {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let on_request: OnRequest = Arc::new({
+        let attempts = attempts.clone();
+        move |sequence| {
+            if sequence == 4 {
+                attempts.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+    let server_url = serve_status(5, vec![4], "503 Service Unavailable", Some(on_request)).await;
+    let dir = temp_dir("refresh-503-ended");
+    let refresh_id = AtomicUsize::new(0);
+    let session = Session::for_test_with_refresh(
+        opts(1, false),
+        Some(FragmentUrl::with_sq_param(&server_url)),
+        false,
+        Arc::new(move || {
+            let generation = refresh_id.fetch_add(1, Ordering::SeqCst) + 1;
+            Some(FragmentUrl::with_sq_param(&format!("{server_url}&refresh={generation}")))
+        }),
+    );
+    let (mut stream_params, _rx) = params(&dir, 5, DownloadState::default());
+    stream_params.retry_sleep = Duration::from_millis(1);
+    let out = download_stream(session, stream_params).await.unwrap();
+
+    assert_eq!(out.state.fragments, 4);
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    std::fs::remove_dir_all(&dir).unwrap();
 }

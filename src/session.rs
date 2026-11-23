@@ -19,6 +19,9 @@ const REFRESH_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 /// another full interval, by which time the URLs would have expired.
 const FAILED_REFRESH_RETRY: Duration = Duration::from_secs(5 * 60);
 
+#[cfg(test)]
+type RefreshHook = Arc<dyn Fn() -> Option<FragmentUrl> + Send + Sync>;
+
 pub struct Session {
     pub opts: Arc<Options>,
     pub http: Http,
@@ -36,6 +39,8 @@ pub struct Session {
     known: PerType<Mutex<Vec<FragmentUrl>>>,
     finished: PerType<AtomicBool>,
     last_url_refresh: Mutex<Instant>,
+    #[cfg(test)]
+    on_refresh: Option<RefreshHook>,
 }
 
 impl Session {
@@ -63,6 +68,8 @@ impl Session {
             known: PerType::default(),
             finished: PerType::default(),
             last_url_refresh: Mutex::new(Instant::now()),
+            #[cfg(test)]
+            on_refresh: None,
         };
         session.apply_selection(sel);
         Arc::new(session)
@@ -141,6 +148,15 @@ impl Session {
     /// Re-runs extraction to update live status and URLs. Skipped if another
     /// refresh is in progress. Returns whether new URLs were applied.
     pub async fn refresh_info(&self) -> bool {
+        #[cfg(test)]
+        if let Some(hook) = &self.on_refresh {
+            if let Some(url) = hook() {
+                self.set_url(DataType::Audio, Some(url));
+                *lock(&self.last_url_refresh) = Instant::now();
+                return true;
+            }
+            return false;
+        }
         let Some(mutex) = &self.extractor else {
             return false;
         };
@@ -164,11 +180,13 @@ impl Session {
     }
 
     /// Refreshes unless another worker already replaced `current`.
-    pub async fn refresh_url_if_unchanged(&self, data_type: DataType, current: &FragmentUrl) {
+    /// Returns whether `data_type` now has a different URL than `current`.
+    pub async fn refresh_url_if_unchanged(&self, data_type: DataType, current: &FragmentUrl) -> bool {
         if self.url(data_type).as_ref() == Some(current) {
             log_debug!("{}: Attempting to retrieve a new download URL", data_type.as_str());
             self.refresh_info().await;
         }
+        self.url(data_type).as_ref().is_some_and(|updated| updated != current)
     }
 
     /// Background task replacing URLs every 5 hours (before they expire)
@@ -246,6 +264,26 @@ impl Session {
     /// Session for tests: fixed URLs, no extractor.
     #[cfg(test)]
     pub fn for_test(opts: Options, audio: Option<FragmentUrl>, live: bool) -> Arc<Self> {
+        Self::for_test_inner(opts, audio, live, None)
+    }
+
+    #[cfg(test)]
+    pub fn for_test_with_refresh(
+        opts: Options,
+        audio: Option<FragmentUrl>,
+        live: bool,
+        on_refresh: RefreshHook,
+    ) -> Arc<Self> {
+        Self::for_test_inner(opts, audio, live, Some(on_refresh))
+    }
+
+    #[cfg(test)]
+    fn for_test_inner(
+        opts: Options,
+        audio: Option<FragmentUrl>,
+        live: bool,
+        on_refresh: Option<RefreshHook>,
+    ) -> Arc<Self> {
         let sel = FormatSelection {
             label: "audio_only".into(),
             codec: None,
@@ -254,6 +292,23 @@ impl Session {
             video_url: None,
         };
         let http = Http::new(&opts, Default::default()).unwrap();
-        Self::new(Arc::new(opts), http, CancellationToken::new(), None, &sel, live, 1)
+        let session = Self {
+            opts: Arc::new(opts),
+            http,
+            cancel: CancellationToken::new(),
+            extractor: None,
+            page_url: String::new(),
+            video_itag: sel.video_itag,
+            live: AtomicBool::new(live),
+            unavailable: AtomicBool::new(false),
+            target_duration: AtomicU32::new(1),
+            urls: PerType::default(),
+            known: PerType::default(),
+            finished: PerType::default(),
+            last_url_refresh: Mutex::new(Instant::now()),
+            on_refresh,
+        };
+        session.apply_selection(&sel);
+        Arc::new(session)
     }
 }
