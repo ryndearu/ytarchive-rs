@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use super::db_sink::{Saved, save_end, save_info, save_progress};
+use super::db_sink::{MetaUpdate, Saved, save_end_async, save_info_async};
 use super::recovery::{Span, recover, usable_until};
 use super::sink::remove_frag_file;
 use super::sink::{self, Event, PendingExport, Sink};
@@ -140,7 +140,7 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     let recovering = session.opts.recover_private && sink.is_db();
     let mut saved = Saved::default();
     if recovering && let Sink::Db(database, _) = &sink {
-        match save_info(&session, data_type, database, params.saved.as_deref()) {
+        match save_info_async(&session, data_type, database, params.saved.as_deref()).await {
             Ok(count) => saved.urls = count,
             Err(error) => log_warn!("{name}: Error saving the download info for later retries: {error}"),
         }
@@ -194,9 +194,24 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
                 break;
             }
         };
-        let events = match sink.push(seq, frag).await {
+        let (meta, next_saved) = if recovering && frag.is_some() {
+            let max_seq = lock(&dispatch).max_seq;
+            let urls = session.known_urls(data_type);
+            let url_count = urls.len();
+            let send_urls = if url_count != saved.urls { urls } else { Vec::new() };
+            let send_head = max_seq.filter(|_| saved.head != max_seq);
+            let next = (url_count, max_seq.or(saved.head));
+            (MetaUpdate { head: send_head, urls: send_urls }, Some(next))
+        } else {
+            (MetaUpdate::default(), None)
+        };
+        let events = match sink.push(seq, frag, meta).await {
             Ok(events) => {
                 lock(&dispatch).waiting_bytes = sink.waiting_bytes();
+                if let Some((url_count, head_seq)) = next_saved {
+                    saved.urls = url_count;
+                    saved.head = head_seq;
+                }
                 events
             }
             Err(error) => {
@@ -211,9 +226,6 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
                 Event::Wrote(bytes) => {
                     let max_seq = lock(&dispatch).max_seq;
                     record(&mut params, saver.as_ref(), max_seq, bytes);
-                    if recovering {
-                        save_progress(&session, data_type, &sink, max_seq, &mut saved);
-                    }
                 }
                 Event::Gap(gap) => {
                     if !sink.is_db() {
@@ -273,12 +285,12 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
                 }
             }
             head = Some(span.head);
-            match database.stored() {
+            match database.stored_async().await {
                 Ok(stored) => skipped = span.missing(&stored),
                 Err(error) => store_err = store_err.or(Some(error)),
             }
         }
-        if let Err(error) = save_end(&session, data_type, database, head) {
+        if let Err(error) = save_end_async(&session, data_type, database, head).await {
             log_warn!("{name}: Error saving the download info for later retries: {error}");
         }
         if !skipped.is_empty() {
