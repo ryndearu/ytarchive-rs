@@ -4,6 +4,7 @@ mod resume;
 mod retry;
 mod sqlite;
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,10 +12,14 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 
 use super::*;
+use crate::error::Error;
+use crate::http::Http;
 use crate::session::Session;
-use crate::types::{DataType, DownloadState, FragmentUrl, Options};
+use crate::types::{DataType, DownloadState, FragmentUrl, Options, ProgressInfo};
+use crate::{mp4_atoms, ytdlp};
 
 fn mp4_box(name: &str, payload: &[u8]) -> Vec<u8> {
     let mut bytes = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
@@ -142,17 +147,13 @@ async fn serve_with_status(
 fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ytarchive-rs-dl-{tag}-{}", std::process::id()));
     if dir.exists() {
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
-    std::fs::create_dir_all(&dir).unwrap();
+    fs::create_dir_all(&dir).unwrap();
     dir
 }
 
-fn params(
-    dir: &Path,
-    last_sq: u64,
-    state: DownloadState,
-) -> (StreamParams, mpsc::UnboundedReceiver<crate::types::ProgressInfo>) {
+fn params(dir: &Path, last_sq: u64, state: DownloadState) -> (StreamParams, mpsc::UnboundedReceiver<ProgressInfo>) {
     let (sender, receiver) = mpsc::unbounded_channel();
     (
         StreamParams {
@@ -174,7 +175,7 @@ fn params(
 }
 
 /// The fragment count of each progress message sent so far.
-fn progress_counts(receiver: &mut mpsc::UnboundedReceiver<crate::types::ProgressInfo>) -> Vec<u64> {
+fn progress_counts(receiver: &mut mpsc::UnboundedReceiver<ProgressInfo>) -> Vec<u64> {
     std::iter::from_fn(|| receiver.try_recv().ok()).map(|progress| progress.fragments).collect()
 }
 
@@ -193,7 +194,7 @@ async fn downloads_ended_stream_in_order() {
 
         // Not live: stops before the head sequence, as Go does.
         let want: Vec<u8> = (0..20).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-        assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+        assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
         assert_eq!(out.state.fragments, 20);
         assert_eq!(out.state.size, want.len() as u64);
         assert!(out.skipped.is_empty());
@@ -206,13 +207,13 @@ async fn downloads_ended_stream_in_order() {
         // State file reflects the final state; no fragment files left behind.
         let saved = load_state(&dir.join("out.f140.state")).unwrap();
         assert_eq!(saved.fragments, 20);
-        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+        let leftovers: Vec<_> = fs::read_dir(&dir)
             .unwrap()
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.file_name().to_string_lossy().contains(".frag"))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
 
@@ -226,8 +227,8 @@ async fn skips_permanently_failing_fragment() {
     assert_eq!(out.skipped, [3]);
     let want: Vec<u8> =
         (0..15).filter(|sequence| *sequence != 3).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -238,8 +239,8 @@ async fn unopenable_storage_is_reported_as_such() {
     let (mut stream_params, _rx) = params(&dir, 5, DownloadState::default());
     stream_params.data_file = dir.join("missing").join("out.f140.ts");
     let err = download_stream(session, stream_params).await.unwrap_err();
-    assert!(matches!(err, crate::error::Error::OpenStorage(_)), "{err}");
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(matches!(err, Error::OpenStorage(_)), "{err}");
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 /// `/dev/full` takes no data, like a full disk; only Linux has it.
@@ -256,12 +257,12 @@ async fn a_fragment_that_does_not_reach_a_full_disk_is_not_counted() {
     stream_params.data_file = PathBuf::from("/dev/full");
     let err = download_stream(session.clone(), stream_params).await.unwrap_err();
 
-    assert!(matches!(err, crate::error::Error::Io(_)), "{err}");
+    assert!(matches!(err, Error::Io(_)), "{err}");
     assert!(session.is_stopping());
     assert!(receiver.try_recv().is_err(), "progress was reported for an unwritten fragment");
     let saved = load_state(&dir.join("out.f140.state")).unwrap();
     assert_eq!((saved.fragments, saved.size), (0, 0));
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Hits YouTube: downloads 3 real audio fragments from a 24/7 stream.
@@ -273,16 +274,11 @@ async fn live_fragments() {
     options.ytdlp_path = "yt-dlp".into();
     options.ytdlp_opts =
         std::env::var("YTDLP_TEST_OPTS").unwrap_or_default().split_whitespace().map(String::from).collect();
-    let http = crate::http::Http::new(&options, Default::default()).unwrap();
-    let info = crate::ytdlp::extract(
-        &http,
-        &options,
-        "https://www.youtube.com/@LofiGirl/live",
-        true,
-        &tokio_util::sync::CancellationToken::new(),
-    )
-    .await
-    .unwrap();
+    let http = Http::new(&options, Default::default()).unwrap();
+    let info =
+        ytdlp::extract(&http, &options, "https://www.youtube.com/@LofiGirl/live", true, &CancellationToken::new())
+            .await
+            .unwrap();
     let last = info.last_sq.unwrap();
 
     let dir = temp_dir("live");
@@ -293,12 +289,12 @@ async fn live_fragments() {
     stream_params.retry_sleep = Duration::from_secs(1);
     let out = download_stream(session, stream_params).await.unwrap();
     assert_eq!(out.state.fragments, 3);
-    let data = std::fs::read(dir.join("out.f140.ts")).unwrap();
+    let data = fs::read(dir.join("out.f140.ts")).unwrap();
     assert_eq!(&data[4..8], b"ftyp", "first fragment keeps ftyp");
-    let names: Vec<_> = crate::mp4_atoms::atoms(&data).iter().map(|atom| atom.0.to_string()).collect();
+    let names: Vec<_> = mp4_atoms::atoms(&data).iter().map(|atom| atom.0.to_string()).collect();
     assert!(!names.contains(&"sidx".to_string()), "{names:?}");
     assert_eq!(names.iter().filter(|name| *name == "ftyp").count(), 1, "{names:?}");
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -312,7 +308,7 @@ async fn capture_duration_and_start_sq() {
     stream_params.capture_duration = Some(Duration::from_secs(5));
     let out = download_stream(session, stream_params).await.unwrap();
     let want: Vec<u8> = (50..55).flat_map(|sequence| expected(sequence, sequence == 50)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.start_frag, 50);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }

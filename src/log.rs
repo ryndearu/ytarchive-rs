@@ -2,6 +2,7 @@
 //! `2006/01/02 15:04:05 LEVEL: message`.
 
 use std::env;
+use std::fmt::Arguments;
 use std::io::{self, IsTerminal};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -127,7 +128,7 @@ fn format_line_styled(at: LogLevel, general: bool, msg: &str, color_on: bool, cl
 }
 
 #[doc(hidden)]
-pub fn write(at: LogLevel, general: bool, args: std::fmt::Arguments<'_>) {
+pub fn write(at: LogLevel, general: bool, args: Arguments<'_>) {
     if !enabled(at) {
         return;
     }

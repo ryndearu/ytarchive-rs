@@ -4,7 +4,7 @@
 //! stored. At the end the table is exported in order to the `.ts` file.
 
 use std::collections::HashSet;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, params};
 use tokio::task::spawn_blocking;
 
-use super::sink::{Event, fragment_bytes};
+use super::sink::{Event, fragment_bytes, remove_frag_file};
 use crate::error::Result;
 use crate::mp4_atoms::strip_for_concat;
 use crate::session::Session;
@@ -169,7 +169,7 @@ impl DbSink {
             return Ok(vec![Event::Gap(seq)]);
         };
         let data = fragment_bytes(&frag.data).await;
-        super::sink::remove_frag_file(&frag.data).await;
+        remove_frag_file(&frag.data).await;
         let data = data?;
         let stored = data.len() as u64;
         let mime_type = frag.mime_type;
@@ -294,7 +294,7 @@ pub struct KeptStream {
 /// a later run needs.
 pub fn read_kept(temp_dir: &Path, itag: u32, mode: u32) -> Option<KeptStream> {
     let suffix = format!(".f{itag}.sqlite");
-    let path = std::fs::read_dir(temp_dir)
+    let path = fs::read_dir(temp_dir)
         .ok()?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
@@ -310,6 +310,11 @@ pub fn read_kept(temp_dir: &Path, itag: u32, mode: u32) -> Option<KeptStream> {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::process;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
     use super::*;
     use crate::types::FragData;
 
@@ -324,8 +329,8 @@ mod tests {
 
     #[tokio::test]
     async fn stores_out_of_order_and_exports_in_order() {
-        let dir = std::env::temp_dir().join(format!("ytarchive-rs-db-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("ytarchive-rs-db-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
         let database_path = db_path(&dir.join("x.f140.ts"));
         assert!(database_path.ends_with("x.f140.sqlite"));
 
@@ -345,7 +350,7 @@ mod tests {
 
         let out = dir.join("x.f140.ts");
         assert_eq!(sink.export(&out, 0o644).unwrap(), (3, 9));
-        assert_eq!(std::fs::read(&out).unwrap(), b"<1><2><3>");
+        assert_eq!(fs::read(&out).unwrap(), b"<1><2><3>");
 
         let first = FragmentUrl::with_sq_param("https://a/videoplayback?itag=140");
         let second = FragmentUrl::with_sq_param("https://b/videoplayback?itag=140");
@@ -358,7 +363,7 @@ mod tests {
         assert_eq!(sink.meta("head").unwrap().as_deref(), Some("10"));
         // Windows can't delete the database while the connection is open.
         drop(sink);
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Another thread holds the database, as a slow insert would. On the
@@ -366,18 +371,18 @@ mod tests {
     /// insert waits elsewhere.
     #[tokio::test]
     async fn insert_leaves_the_runtime_thread_free() {
-        let dir = std::env::temp_dir().join(format!("ytarchive-rs-db-free-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("ytarchive-rs-db-free-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
         let mut sink = DbSink::open(&dir.join("x.f140.sqlite"), 0o644).unwrap();
 
-        let (held_sender, held_receiver) = std::sync::mpsc::channel();
-        let (release_sender, release_receiver) = std::sync::mpsc::channel::<()>();
+        let (held_sender, held_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel::<()>();
         let holder = std::thread::spawn({
             let conn = sink.conn.clone();
             move || {
                 let guard = lock(&conn);
                 held_sender.send(()).unwrap();
-                let released = release_receiver.recv_timeout(std::time::Duration::from_secs(5)).is_ok();
+                let released = release_receiver.recv_timeout(Duration::from_secs(5)).is_ok();
                 drop(guard);
                 released
             }
@@ -390,6 +395,6 @@ mod tests {
         assert!(holder.join().unwrap(), "the insert held the runtime thread until the database was free");
         assert_eq!(sink.stored().unwrap(), HashSet::from([1]));
         drop(sink);
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

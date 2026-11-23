@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::Path;
 
 use super::*;
@@ -8,12 +9,12 @@ use crate::mux::MuxInput;
 fn downloaded(name: &str) -> (OutputPlan, PathBuf) {
     let final_dir = std::env::temp_dir().join(format!("ytarchive-rs-finish-{name}-{}", std::process::id()));
     let temp_dir = final_dir.join("vid__1a2b");
-    std::fs::create_dir_all(&temp_dir).unwrap();
+    fs::create_dir_all(&temp_dir).unwrap();
     let plan = OutputPlan { final_dir: final_dir.clone(), file_name: "out".into(), temp_dir };
     let state_file = final_dir.join("vid.f140.state");
-    std::fs::write(&state_file, b"{}").unwrap();
-    std::fs::write(plan.temp(".f140.ts"), b"audio").unwrap();
-    std::fs::write(plan.temp(".jpg"), b"thumbnail").unwrap();
+    fs::write(&state_file, b"{}").unwrap();
+    fs::write(plan.temp(".f140.ts"), b"audio").unwrap();
+    fs::write(plan.temp(".jpg"), b"thumbnail").unwrap();
     (plan, state_file)
 }
 
@@ -58,12 +59,12 @@ async fn cancel_keeping_files_moves_them_and_cleans_up() {
     let mut finish = finish_of(&opts, &plan, &state_file);
 
     assert_eq!(finish.on_cancel().await, Some(2));
-    assert_eq!(std::fs::read(plan.final_path(".f140.ts")).unwrap(), b"audio");
-    assert_eq!(std::fs::read(plan.final_path(".jpg")).unwrap(), b"thumbnail");
+    assert_eq!(fs::read(plan.final_path(".f140.ts")).unwrap(), b"audio");
+    assert_eq!(fs::read(plan.final_path(".jpg")).unwrap(), b"thumbnail");
     assert!(!plan.final_path(".f299.ts").exists());
     assert!(!plan.temp_dir.exists());
     assert!(!state_file.exists());
-    std::fs::remove_dir_all(&plan.final_dir).unwrap();
+    fs::remove_dir_all(&plan.final_dir).unwrap();
 }
 
 /// A storage error after data was stored leaves the data and its state
@@ -75,20 +76,20 @@ fn storage_error_keeps_what_can_be_resumed() {
     let mut finish = finish_of(&opts, &plan, &state_file);
 
     assert_eq!(finish.on_storage_error(true), 1);
-    assert_eq!(std::fs::read(plan.temp(".f140.ts")).unwrap(), b"audio");
+    assert_eq!(fs::read(plan.temp(".f140.ts")).unwrap(), b"audio");
     assert!(state_file.exists());
     assert!(!plan.final_path(".f140.ts").exists());
 
     assert_eq!(finish.on_storage_error(false), 1);
     assert!(!plan.temp_dir.exists());
     assert!(!state_file.exists());
-    std::fs::remove_dir_all(&plan.final_dir).unwrap();
+    fs::remove_dir_all(&plan.final_dir).unwrap();
 }
 
 #[tokio::test]
 async fn cancel_discard_skips_pending_sqlite_export() {
     let (plan, state_file) = downloaded("cancel-discard-db");
-    std::fs::remove_file(plan.temp(".f140.ts")).unwrap();
+    fs::remove_file(plan.temp(".f140.ts")).unwrap();
     let pending = PendingExport::for_test(&plan.temp(".f140.sqlite"), plan.temp(".f140.ts")).await;
     let opts = Options {
         merge_on_cancel: Action::DoNot,
@@ -104,7 +105,7 @@ async fn cancel_discard_skips_pending_sqlite_export() {
     assert!(!plan.final_path(".f140.ts").exists());
     assert!(!plan.temp_dir.exists());
     assert!(!state_file.exists());
-    std::fs::remove_dir_all(&plan.final_dir).unwrap();
+    fs::remove_dir_all(&plan.final_dir).unwrap();
 }
 
 #[tokio::test]
@@ -117,9 +118,9 @@ async fn terminate_keeps_temp_files_and_state_files() {
 
     assert_eq!(finish.on_terminate(), 143);
     assert!(plan.temp_dir.exists());
-    assert_eq!(std::fs::read(plan.temp(".f140.ts")).unwrap(), b"audio");
+    assert_eq!(fs::read(plan.temp(".f140.ts")).unwrap(), b"audio");
     assert!(state_file.exists());
     assert!(!plan.temp(".f140.ts.exported").exists());
     assert!(!plan.final_path(".f140.ts").exists());
-    std::fs::remove_dir_all(&plan.final_dir).unwrap();
+    fs::remove_dir_all(&plan.final_dir).unwrap();
 }

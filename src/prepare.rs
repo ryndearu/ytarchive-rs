@@ -9,6 +9,7 @@
 //! the same command again finds it through the state files and retries only
 //! the missing fragments, while the URLs still work.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -142,7 +143,7 @@ async fn gvideo_selection(opts: &Options, input_itag: u32, input_url: FragmentUr
 /// Itags with a `{video_id}.f{itag}.state` file in `dir`.
 fn state_itags(dir: &Path, video_id: &str) -> Vec<u32> {
     let prefix = format!("{video_id}.f");
-    let Ok(entries) = std::fs::read_dir(if dir.as_os_str().is_empty() { Path::new(".") } else { dir }) else {
+    let Ok(entries) = fs::read_dir(if dir.as_os_str().is_empty() { Path::new(".") } else { dir }) else {
         return Vec::new();
     };
     let mut itags: Vec<u32> = entries
@@ -223,14 +224,14 @@ mod tests {
     fn finds_state_files_of_the_video() {
         let dir = std::env::temp_dir().join(format!("ytarchive-rs-kept-{}", std::process::id()));
         if dir.exists() {
-            std::fs::remove_dir_all(&dir).unwrap();
+            fs::remove_dir_all(&dir).unwrap();
         }
-        std::fs::create_dir_all(&dir).unwrap();
+        fs::create_dir_all(&dir).unwrap();
         for name in ["abc.f299.state", "abc.f140.state", "abcd.f1.state", "abc.f140.state.bak", "abc.fx.state"] {
-            std::fs::write(dir.join(name), b"{}").unwrap();
+            fs::write(dir.join(name), b"{}").unwrap();
         }
         assert_eq!(state_itags(&dir, "abc"), [140, 299]);
         assert!(state_itags(&dir, "zzz").is_empty());
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

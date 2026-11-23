@@ -1,19 +1,21 @@
 //! Resuming `.ts` downloads from a state file.
 
+use std::fs;
+
 use super::*;
 
 #[tokio::test]
 async fn keeps_data_that_has_no_usable_state() {
     let url = serve(3, vec![]).await;
     let dir = temp_dir("keep-old");
-    std::fs::write(dir.join("out.f140.ts"), b"earlier download").unwrap();
+    fs::write(dir.join("out.f140.ts"), b"earlier download").unwrap();
     let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
     let (stream_params, _receiver) = params(&dir, 3, DownloadState::default());
     let out = download_stream(session, stream_params).await.unwrap();
 
     assert_eq!(out.state.fragments, 3);
-    assert_eq!(std::fs::read(dir.join("out.f140.ts.old")).unwrap(), b"earlier download");
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fs::read(dir.join("out.f140.ts.old")).unwrap(), b"earlier download");
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -24,17 +26,17 @@ async fn resumes_from_saved_state() {
     // Saved state covers 4 fragments; extra garbage after it must be dropped.
     let mut on_disk = first.clone();
     on_disk.extend_from_slice(b"partial-garbage");
-    std::fs::write(dir.join("out.f140.ts"), &on_disk).unwrap();
+    fs::write(dir.join("out.f140.ts"), &on_disk).unwrap();
     let state = DownloadState { start_frag: 0, fragments: 4, size: first.len() as u64, ..Default::default() };
 
     let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
     let (stream_params, mut receiver) = params(&dir, 10, state);
     let out = download_stream(session, stream_params).await.unwrap();
     let want: Vec<u8> = (0..10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 10);
     assert_eq!(progress_counts(&mut receiver), [4, 1, 1, 1, 1, 1, 1]);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -46,12 +48,12 @@ async fn resume_with_missing_file_starts_over() {
     let (stream_params, mut receiver) = params(&dir, 5, state);
     let out = download_stream(session, stream_params).await.unwrap();
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 5);
     // The 3 fragments in the state are gone with the file, so the progress
     // line must not count them.
     assert_eq!(progress_counts(&mut receiver), [1; 5]);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -86,6 +88,6 @@ async fn resume_after_skipped_fragment_does_not_duplicate() {
 
     let want: Vec<u8> =
         (0..8).filter(|sequence| *sequence != 2).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
 }

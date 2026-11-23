@@ -1,8 +1,11 @@
 //! Retrying fragments: streams that end or expire mid-download, backing
 //! off, and giving up on a fragment that is stuck on a live stream.
 
+use std::fs;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+use tokio::time::{sleep, timeout};
 
 use super::super::fragment::{continue_fragment_download, retry_delay, without_query};
 use super::*;
@@ -18,17 +21,17 @@ async fn a_stream_that_ends_mid_download_is_finished() {
     tokio::spawn({
         let session = session.clone();
         async move {
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            sleep(Duration::from_millis(150)).await;
             session.set_live(false);
         }
     });
     let out = download_stream(session, stream_params).await.unwrap();
 
     let want: Vec<u8> = (0..=10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 11);
     assert!(out.skipped.is_empty(), "{:?}", out.skipped);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -50,10 +53,10 @@ async fn expired_urls_on_an_ended_stream_keep_the_partial_file() {
     let out = download_stream(session, stream_params).await.unwrap();
 
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 5);
     assert_eq!(load_state(&dir.join("out.f140.state")).unwrap().fragments, 5);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -70,20 +73,20 @@ async fn a_stream_that_ends_while_its_fragments_fail_keeps_the_partial_file() {
     tokio::spawn({
         let session = session.clone();
         async move {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            sleep(Duration::from_millis(50)).await;
             session.set_live(false);
         }
     });
     let download = download_stream(session, stream_params);
-    let out = tokio::time::timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
+    let out = timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
 
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 5);
     // 10 and 11 are within two of the head: taken as never created.
     assert_eq!(out.skipped, [5, 6, 7, 8, 9]);
     assert_eq!(load_state(&dir.join("out.f140.state")).unwrap().fragments, 5);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 /// A live fragment whose tries (2 in these tests) have just run out.
@@ -130,11 +133,11 @@ async fn stuck_fragments_do_not_keep_a_capture_from_finishing() {
     stream_params.capture_duration = Some(Duration::from_secs(60));
     stream_params.retry_sleep = Duration::from_millis(1);
     let download = download_stream(session, stream_params);
-    let out = tokio::time::timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
+    let out = timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
 
     assert_eq!(out.skipped, [50, 55]);
     assert_eq!(out.state.fragments, 58);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -169,8 +172,8 @@ async fn fragments_waiting_in_memory_are_limited() {
     assert_eq!(out.skipped, [3]);
     let want: Vec<u8> =
         (0..60).filter(|sequence| *sequence != 3).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -222,10 +225,10 @@ async fn refreshed_url_is_retried_after_403_on_ended_stream() {
     let out = download_stream(session, stream_params).await.unwrap();
 
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 5);
     assert!(out.skipped.is_empty(), "{:?}", out.skipped);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -257,5 +260,5 @@ async fn non_403_near_head_does_not_get_extra_refresh_rounds() {
 
     assert_eq!(out.state.fragments, 4);
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }

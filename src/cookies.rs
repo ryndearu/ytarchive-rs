@@ -2,6 +2,9 @@
 //! (Go's SAPISIDHASH auth was only used by its unreachable InnerTube
 //! request, so it isn't ported.)
 
+use std::net::IpAddr;
+use std::str;
+
 use crate::log_warn;
 use crate::types::{CookieSet, NetscapeCookie};
 
@@ -78,7 +81,7 @@ pub fn to_set_cookie(cookie: &NetscapeCookie) -> String {
     let mut text = format!("{}={}; Path={}", cookie.name, cookie.value, cookie.path);
     // Go always set the domain, which makes it a domain cookie unless the
     // domain is an IP address.
-    if cookie.domain.parse::<std::net::IpAddr>().is_err() {
+    if cookie.domain.parse::<IpAddr>().is_err() {
         text.push_str("; Domain=");
         text.push_str(cookie.domain.trim_start_matches('.'));
     }

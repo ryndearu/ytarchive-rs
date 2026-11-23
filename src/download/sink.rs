@@ -1,7 +1,7 @@
 //! Where downloaded fragments are stored: the in-order `.ts` writer
 //! (default) or the SQLite store (`--sqlite`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::io::{self, SeekFrom};
 use std::mem;
@@ -163,7 +163,7 @@ pub enum Sink {
 pub struct Opened {
     pub sink: Sink,
     pub cur: u64,
-    pub skip: std::collections::HashSet<u64>,
+    pub skip: HashSet<u64>,
     /// State after reconciling with what's on disk.
     pub state: DownloadState,
 }

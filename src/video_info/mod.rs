@@ -16,7 +16,8 @@ use crate::input_url::InputUrl;
 use crate::prompt::get_user_input;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_player_response, local_timestamp};
 use crate::types::{
-    Action, DEFAULT_POLL_SECS, FormatInfo, FormatSelection, MetaInfo, Options, VideoCodec, new_format_info,
+    Action, DEFAULT_POLL_SECS, DEFAULT_TARGET_DURATION_SECS, FormatInfo, FormatSelection, MetaInfo, Options,
+    VideoCodec, new_format_info,
 };
 use crate::util::sleep_or_cancel;
 use crate::{log_debug, log_error, log_general, ytdlp};
@@ -90,7 +91,7 @@ impl Extractor {
             live: false,
             unavailable: false,
             last_updated: None,
-            target_duration: crate::types::DEFAULT_TARGET_DURATION_SECS,
+            target_duration: DEFAULT_TARGET_DURATION_SECS,
             last_sq: None,
             format_info: new_format_info(),
             metadata: default_metadata(&opts.metadata_overrides),

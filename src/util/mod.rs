@@ -8,6 +8,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -84,11 +85,11 @@ pub fn seconds_to_duration_and_time_str(seconds: u64) -> String {
 }
 
 /// Applies a unix permission mode. No-op on other platforms.
-pub fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+pub fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))
     }
     #[cfg(not(unix))]
     {
@@ -116,7 +117,7 @@ pub async fn write_file_with_mode(path: &Path, data: &[u8], mode: u32) -> Result
     .await;
     if res.is_err()
         && let Err(error) = tokio::fs::remove_file(path).await
-        && error.kind() != std::io::ErrorKind::NotFound
+        && error.kind() != io::ErrorKind::NotFound
     {
         crate::log_debug!("Could not delete the partial file {}: {error}", path.display());
     }
@@ -126,16 +127,16 @@ pub async fn write_file_with_mode(path: &Path, data: &[u8], mode: u32) -> Result
 /// Replaces `path` with `data` in one step (a temporary file renamed over
 /// it), so a crash mid-write leaves the old contents instead of a partial
 /// file.
-pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
+pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
     let mut temp_name = path.as_os_str().to_os_string();
     temp_name.push(".tmp");
-    let temp_path = std::path::PathBuf::from(temp_name);
-    let res = std::fs::write(&temp_path, data)
+    let temp_path = PathBuf::from(temp_name);
+    let res = fs::write(&temp_path, data)
         .and_then(|()| set_mode(&temp_path, mode))
-        .and_then(|()| std::fs::rename(&temp_path, path));
+        .and_then(|()| fs::rename(&temp_path, path));
     if res.is_err()
-        && let Err(error) = std::fs::remove_file(&temp_path)
-        && error.kind() != std::io::ErrorKind::NotFound
+        && let Err(error) = fs::remove_file(&temp_path)
+        && error.kind() != io::ErrorKind::NotFound
     {
         crate::log_debug!("Could not delete the partial file {}: {error}", temp_path.display());
     }
@@ -234,19 +235,19 @@ pub fn try_delete(path: &Path) {
 /// Creates a new uniquely named directory `{parent}/{prefix}{random}`.
 pub fn create_temp_dir(parent: &Path, prefix: &str, mode: u32) -> io::Result<PathBuf> {
     let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |duration| duration.as_nanos())
-        ^ u128::from(std::process::id());
+        ^ u128::from(process::id());
     for attempt in 0..100u128 {
         let dir = parent.join(format!("{prefix}{:x}", (seed.wrapping_add(attempt)) & 0xffff_ffff));
-        match std::fs::create_dir(&dir) {
+        match fs::create_dir(&dir) {
             Ok(()) => {
                 apply_mode(&dir, mode);
                 return Ok(dir);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
     }
-    Err(std::io::Error::other("could not create a unique temporary directory"))
+    Err(io::Error::other("could not create a unique temporary directory"))
 }
 
 #[cfg(test)]
@@ -255,56 +256,56 @@ mod tests {
 
     #[tokio::test]
     async fn writes_with_mode() {
-        let dir = std::env::temp_dir().join(format!("ytarchive-rs-fs-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("ytarchive-rs-fs-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
         let file = dir.join("x.bin");
         write_file_with_mode(&file, b"hello", 0o600).await.unwrap();
-        assert_eq!(std::fs::read(&file).unwrap(), b"hello");
+        assert_eq!(fs::read(&file).unwrap(), b"hello");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
         }
-        std::fs::remove_dir_all(&dir).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn atomic_write_replaces_and_leaves_no_temp_file() {
-        let dir = std::env::temp_dir().join(format!("ytarchive-rs-atomic-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("ytarchive-rs-atomic-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
         let file = dir.join("x.state");
         write_atomic(&file, b"old", 0o644).unwrap();
         write_atomic(&file, b"new", 0o644).unwrap();
-        assert_eq!(std::fs::read(&file).unwrap(), b"new");
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        assert_eq!(fs::read(&file).unwrap(), b"new");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             write_atomic(&file, b"newer", 0o600).unwrap();
-            assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+            assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
         }
 
         // A failed write keeps the old contents and leaves no temp file.
         let blocked = dir.join("y.state");
-        std::fs::create_dir(dir.join("y.state.tmp")).unwrap();
-        std::fs::write(&blocked, b"old").unwrap();
+        fs::create_dir(dir.join("y.state.tmp")).unwrap();
+        fs::write(&blocked, b"old").unwrap();
         assert!(write_atomic(&blocked, b"new", 0o644).is_err());
-        assert_eq!(std::fs::read(&blocked).unwrap(), b"old");
-        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(fs::read(&blocked).unwrap(), b"old");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn move_replaces_the_destination_and_skips_a_missing_source() {
-        let dir = std::env::temp_dir().join(format!("ytarchive-rs-move-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = env::temp_dir().join(format!("ytarchive-rs-move-{}", process::id()));
+        fs::create_dir_all(&dir).unwrap();
         let (source, destination) = (dir.join("a.ts"), dir.join("b.ts"));
-        std::fs::write(&source, b"data").unwrap();
-        std::fs::write(&destination, b"stale").unwrap();
+        fs::write(&source, b"data").unwrap();
+        fs::write(&destination, b"stale").unwrap();
         try_move(&source, &destination).unwrap();
         assert!(!source.exists());
-        assert_eq!(std::fs::read(&destination).unwrap(), b"data");
+        assert_eq!(fs::read(&destination).unwrap(), b"data");
         try_move(&source, &destination).unwrap();
-        assert_eq!(std::fs::read(&destination).unwrap(), b"data");
-        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"data");
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

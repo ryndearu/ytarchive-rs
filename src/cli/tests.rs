@@ -5,7 +5,7 @@ use clap::Parser;
 
 use super::*;
 use crate::error::Result;
-use crate::types::{Action, IpVersion, LogLevel, Options, StorageMode, VideoCodec};
+use crate::types::{Action, DEFAULT_FILENAME_FORMAT, IpVersion, LogLevel, Options, StorageMode, VideoCodec};
 
 fn os_args(args: &[&str]) -> Vec<OsString> {
     args.iter().map(OsString::from).collect()
@@ -46,7 +46,7 @@ fn defaults() {
     assert_eq!(options.frag_max_tries, 10);
     assert_eq!(options.file_mode, 0o644);
     assert_eq!(options.dir_mode, 0o755);
-    assert_eq!(options.output_format, crate::types::DEFAULT_FILENAME_FORMAT);
+    assert_eq!(options.output_format, DEFAULT_FILENAME_FORMAT);
     assert_eq!(options.log_level, LogLevel::Warning);
     assert_eq!(options.wait, Action::Ask);
     assert!(options.frag_files);

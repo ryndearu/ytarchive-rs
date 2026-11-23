@@ -1,10 +1,11 @@
 //! Saves a stream's resume state on a blocking thread, so a slow disk doesn't
 //! hold up the download.
 
+use std::io;
 use std::path::PathBuf;
 
 use tokio::sync::watch;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, spawn_blocking};
 
 use crate::log_warn;
 use crate::types::DownloadState;
@@ -24,12 +25,12 @@ impl StateSaver {
         let task = tokio::spawn(async move {
             while receiver.changed().await.is_ok() {
                 let Some(data) = receiver.borrow_and_update().clone() else { continue };
-                let written = tokio::task::spawn_blocking({
+                let written = spawn_blocking({
                     let path = path.clone();
                     move || write_atomic(&path, &data, mode)
                 })
                 .await
-                .unwrap_or_else(|error| Err(std::io::Error::other(error)));
+                .unwrap_or_else(|error| Err(io::Error::other(error)));
                 if let Err(error) = written {
                     log_warn!("Error when saving state: {error}");
                 }
