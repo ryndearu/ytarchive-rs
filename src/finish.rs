@@ -170,7 +170,10 @@ impl Finish<'_> {
             }
             let ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description]).await;
             self.cleanup_temp(ok);
-            self.delete_state_files();
+            if ok {
+                self.delete_state_files();
+            }
+            return Some(if ok { 2 } else { 1 });
         } else {
             self.pending_exports.clear();
             if !save_state {
@@ -187,9 +190,6 @@ impl Finish<'_> {
             return self.on_storage_error(true);
         }
         let options = self.opts;
-        if self.retry_until().is_none() {
-            self.delete_state_files();
-        }
         log_general!("Download Finished");
 
         if let (Some(audio), Some(value)) = (self.audio_frags, self.video_frags)
@@ -202,6 +202,9 @@ impl Finish<'_> {
         let mux_file = Some(self.mux_file.clone());
         let moves_ok =
             self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]).await;
+        if self.retry_until().is_none() && moves_ok {
+            self.delete_state_files();
+        }
 
         // Go kept the output name it chose before the download started.
         let mux = self.mux.with_unused_output();
@@ -250,7 +253,11 @@ impl Finish<'_> {
 
         log_general!("Muxing final file...");
         let mut code = mux::execute(&options.ffmpeg_path, &mux.args).await;
-        if code != 0 {
+        if code == 0 {
+            // ffmpeg creates the final files with the default mode, so apply
+            // --file-permissions afterwards. Go never did.
+            apply_mode(&mux.output, options.file_mode);
+        } else {
             log_error!("ffmpeg returned code {code}. Something must have gone wrong with ffmpeg.");
             log_error!("The .ts files will not be deleted in case the final file is broken.");
             log_error!("The ffmpeg command was written to {}", self.mux_file.dest.display());
@@ -258,7 +265,9 @@ impl Finish<'_> {
         if let Some(audio_mux) = &audio_mux {
             log_general!("Creating separate audio file...");
             let audio_code = mux::execute(&options.ffmpeg_path, &audio_mux.args).await;
-            if audio_code != 0 {
+            if audio_code == 0 {
+                apply_mode(&audio_mux.output, options.file_mode);
+            } else {
                 code = audio_code;
                 log_error!("ffmpeg returned code {audio_code} for the separate audio file.");
                 log_error!("The .ts files will not be deleted in case the final file is broken.");
@@ -269,14 +278,11 @@ impl Finish<'_> {
         if code != 0 {
             return code;
         }
+        if !moves_ok {
+            return 1;
+        }
         for file in &to_delete {
             try_delete(file);
-        }
-        // ffmpeg creates the final files with the default mode, so apply
-        // --file-permissions afterwards. Go never did.
-        let outputs = std::iter::once(&mux).chain(&audio_mux);
-        for out in outputs.map(|command| &command.output) {
-            apply_mode(out, options.file_mode);
         }
         log_general!("Final file: {}", mux.output.display());
         if let Some(audio_mux) = &audio_mux {
