@@ -15,6 +15,31 @@ enum Step {
     Fail,
 }
 
+fn is_transient_error(error: &Error) -> bool {
+    match error {
+        Error::Http(_) | Error::Io(_) => true,
+        Error::HttpStatus { status, .. } => *status == 429 || *status >= 500,
+        Error::Ytdlp(message) => {
+            let lower = message.to_ascii_lowercase();
+            [
+                "timed out",
+                "unable to download webpage",
+                "failed to resolve",
+                "temporary failure in name resolution",
+                "connection refused",
+                "connection reset",
+                "network is unreachable",
+                "no route to host",
+                "http error 5",
+                "http error 429",
+            ]
+            .iter()
+            .any(|needle| lower.contains(needle))
+        }
+        _ => false,
+    }
+}
+
 impl Extractor {
     /// Marks the stream unavailable if a download is running; logs either way.
     fn fail_info<T>(&mut self, message: &str) -> Option<T> {
@@ -73,9 +98,13 @@ impl Extractor {
                 Err(error) => {
                     self.last_updated = Some(Instant::now());
                     if !self.cancel.is_cancelled() {
-                        log_debug!("yt-dlp extraction failed: {error}");
-                        self.live = false;
-                        self.unavailable = true;
+                        if is_transient_error(&error) {
+                            log_warn!("Temporary yt-dlp extraction failure: {error}");
+                        } else {
+                            log_debug!("yt-dlp extraction failed: {error}");
+                            self.live = false;
+                            self.unavailable = true;
+                        }
                     }
                     return None;
                 }

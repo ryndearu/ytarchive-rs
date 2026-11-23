@@ -148,7 +148,7 @@ impl Extractor {
                 self.unavailable = true;
                 return None;
             }
-            player::Outcome::NotUsable => return None,
+            player::Outcome::TransientError | player::Outcome::NotUsable => return None,
         };
 
         let details = &player_response.microformat.player_microformat_renderer.live_broadcast_details;
