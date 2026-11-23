@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::error::{Error, Result};
 use crate::http::Http;
 use crate::types::{
-    FragmentUrl, LiveStatus, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo,
+    FragmentUrl, IpVersion, LiveStatus, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo,
 };
 use crate::{log_debug, log_trace, log_warn};
 
@@ -35,6 +35,11 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
     if let Some(url) = &opts.proxy {
         args.push("--proxy".into());
         args.push(url.to_string());
+    }
+    match opts.ip_version {
+        IpVersion::Any => {}
+        IpVersion::V4 => args.push("--force-ipv4".into()),
+        IpVersion::V6 => args.push("--force-ipv6".into()),
     }
     if ignore_no_formats {
         args.push("--ignore-no-formats-error".into());
@@ -249,6 +254,10 @@ mod tests {
         assert!(!build_args(&Options::default(), "u", false).contains(&"--ignore-no-formats-error".to_string()));
         let repaired = Options { ytdlp_cookies_file: Some("fixed.txt".into()), ..opts };
         assert_eq!(&build_args(&repaired, "u", false)[3..5], ["--cookies", "fixed.txt"]);
+        let v4 = Options { ip_version: IpVersion::V4, ..Options::default() };
+        assert!(build_args(&v4, "u", false).contains(&"--force-ipv4".to_string()));
+        let v6 = Options { ip_version: IpVersion::V6, ..Options::default() };
+        assert!(build_args(&v6, "u", false).contains(&"--force-ipv6".to_string()));
     }
 
     #[test]
