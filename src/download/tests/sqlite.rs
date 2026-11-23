@@ -226,3 +226,29 @@ async fn sqlite_storage_error_creates_no_ts_file() {
     assert!(!dir.join("out.f140.ts").exists(), "partial .ts must not be exported on storage error");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn push_with_meta_batches_and_skips_empty_updates() {
+    use super::super::db_sink::{DbSink, MetaUpdate};
+    use crate::types::{FragData, Fragment};
+
+    let dir = temp_dir("push-with-meta");
+    let mut sink = DbSink::open(&dir.join("out.f140.sqlite"), 0o644).unwrap();
+    let url = FragmentUrl::with_sq_param("https://r1/videoplayback?itag=140");
+    let frag = |seq: u64| Fragment {
+        seq,
+        x_head_seqnum: None,
+        data: FragData::Memory(bytes::Bytes::from_static(b"data")),
+        mime_type: "video/webm".into(),
+    };
+
+    sink.push_with_meta(1, Some(frag(1)), MetaUpdate { head: Some(42), urls: vec![url.clone()] }).await.unwrap();
+    assert_eq!(sink.meta("head").unwrap().as_deref(), Some("42"));
+    assert_eq!(sink.urls().unwrap(), std::slice::from_ref(&url));
+
+    sink.push_with_meta(2, Some(frag(2)), MetaUpdate::default()).await.unwrap();
+    assert_eq!(sink.meta("head").unwrap().as_deref(), Some("42"));
+    assert_eq!(sink.urls().unwrap(), [url]);
+    drop(sink);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

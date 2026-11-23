@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::{Connection, params};
 
-use super::sink::{Event, Sink, fragment_bytes};
+use super::sink::{Event, fragment_bytes};
 use crate::error::Result;
 use crate::mp4_atoms::strip_for_concat;
 use crate::session::Session;
@@ -18,14 +18,56 @@ use crate::types::{DataType, Fragment, FragmentUrl, SavedDownload};
 use crate::util::{apply_mode, lock};
 
 pub struct DbSink {
-    /// Shared so an insert can run on a blocking thread (see `push`).
+    /// Shared so database operations can run on a blocking thread.
     conn: Arc<Mutex<Connection>>,
     path: PathBuf,
+}
+
+/// Metadata updates committed alongside a fragment insert inside `push_with_meta`.
+#[derive(Default)]
+pub struct MetaUpdate {
+    pub head: Option<u64>,
+    pub urls: Vec<FragmentUrl>,
 }
 
 /// `x.f140.ts` -> `x.f140.sqlite`
 pub fn db_path(data_file: &Path) -> PathBuf {
     data_file.with_extension("sqlite")
+}
+
+async fn run_blocking<T: Send + 'static>(
+    conn: &Arc<Mutex<Connection>>,
+    func: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let conn = conn.clone();
+    tokio::task::spawn_blocking(move || func(&mut lock(&conn))).await.map_err(std::io::Error::other)?
+}
+
+fn stored_with(conn: &Connection) -> Result<HashSet<u64>> {
+    let mut stmt = conn.prepare("SELECT seq FROM segments")?;
+    let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
+    Ok(rows.map(|row| row.map(|sequence| sequence as u64)).collect::<rusqlite::Result<_>>()?)
+}
+
+fn totals_with(conn: &Connection) -> Result<(u64, u64)> {
+    Ok(conn.query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |row| {
+        Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
+    })?)
+}
+
+fn save_urls_with(conn: &Connection, urls: &[FragmentUrl]) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO urls (prefix, suffix) VALUES (?1, ?2)")?;
+    for url in urls {
+        let (prefix, suffix) = url.parts();
+        stmt.execute(params![prefix, suffix])?;
+    }
+    Ok(())
+}
+
+fn urls_with(conn: &Connection) -> Result<Vec<FragmentUrl>> {
+    let mut stmt = conn.prepare("SELECT prefix, suffix FROM urls ORDER BY rowid")?;
+    let rows = stmt.query_map([], |row| Ok(FragmentUrl::from_parts(row.get(0)?, row.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 impl DbSink {
@@ -61,37 +103,36 @@ impl DbSink {
         Ok(Self { conn: Arc::new(Mutex::new(conn)), path: path.to_path_buf() })
     }
 
+    pub async fn open_async(path: PathBuf, mode: u32) -> Result<Self> {
+        tokio::task::spawn_blocking(move || Self::open(&path, mode)).await.map_err(std::io::Error::other)?
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
 
     /// Sequence numbers already stored.
+    #[cfg(test)]
     pub fn stored(&self) -> Result<HashSet<u64>> {
-        let conn = lock(&self.conn);
-        let mut stmt = conn.prepare("SELECT seq FROM segments")?;
-        let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
-        Ok(rows.map(|row| row.map(|sequence| sequence as u64)).collect::<rusqlite::Result<_>>()?)
+        stored_with(&lock(&self.conn))
+    }
+
+    pub async fn stored_async(&self) -> Result<HashSet<u64>> {
+        run_blocking(&self.conn, |conn| stored_with(conn)).await
     }
 
     /// Adds download URLs (already stored ones are ignored).
+    #[cfg(test)]
     pub fn save_urls(&self, urls: &[FragmentUrl]) -> Result<()> {
-        let conn = lock(&self.conn);
-        let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO urls (prefix, suffix) VALUES (?1, ?2)")?;
-        for url in urls {
-            let (prefix, suffix) = url.parts();
-            stmt.execute(params![prefix, suffix])?;
-        }
-        Ok(())
+        Ok(save_urls_with(&lock(&self.conn), urls)?)
     }
 
     /// Stored download URLs, oldest first.
     pub fn urls(&self) -> Result<Vec<FragmentUrl>> {
-        let conn = lock(&self.conn);
-        let mut stmt = conn.prepare("SELECT prefix, suffix FROM urls ORDER BY rowid")?;
-        let rows = stmt.query_map([], |row| Ok(FragmentUrl::from_parts(row.get(0)?, row.get(1)?)))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        urls_with(&lock(&self.conn))
     }
 
+    #[cfg(test)]
     pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
         lock(&self.conn).execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value])?;
         Ok(())
@@ -108,13 +149,20 @@ impl DbSink {
     }
 
     /// (fragment count, total bytes) stored.
+    #[cfg(test)]
     pub fn totals(&self) -> Result<(u64, u64)> {
-        Ok(lock(&self.conn).query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |row| {
-            Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
-        })?)
+        totals_with(&lock(&self.conn))
+    }
+
+    pub async fn totals_async(&self) -> Result<(u64, u64)> {
+        run_blocking(&self.conn, |conn| totals_with(conn)).await
     }
 
     pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> Result<Vec<Event>> {
+        self.push_with_meta(seq, frag, MetaUpdate::default()).await
+    }
+
+    pub async fn push_with_meta(&mut self, seq: u64, frag: Option<Fragment>, meta: MetaUpdate) -> Result<Vec<Event>> {
         let Some(frag) = frag else {
             return Ok(vec![Event::Gap(seq)]);
         };
@@ -123,20 +171,34 @@ impl DbSink {
         let data = data?;
         let stored = data.len() as u64;
         let mime_type = frag.mime_type;
-        // An insert that also checkpoints the log can take seconds on a slow
-        // disk; on a runtime thread it would hold up the other stream's
-        // download.
-        tokio::task::spawn_blocking({
-            let conn = self.conn.clone();
-            move || {
-                let conn = lock(&conn);
+        // Commits segment and any head/URL metadata together on a blocking thread
+        // so WAL checkpoints never stall async tasks.
+        run_blocking(&self.conn, move |conn| {
+            if meta.head.is_none() && meta.urls.is_empty() {
                 let mut insert =
                     conn.prepare_cached("INSERT OR REPLACE INTO segments (seq, mime, data) VALUES (?1, ?2, ?3)")?;
-                insert.execute(params![seq as i64, mime_type, &data[..]])
+                insert.execute(params![seq as i64, mime_type, &data[..]])?;
+            } else {
+                let tx = conn.transaction()?;
+                {
+                    let mut insert =
+                        tx.prepare_cached("INSERT OR REPLACE INTO segments (seq, mime, data) VALUES (?1, ?2, ?3)")?;
+                    insert.execute(params![seq as i64, mime_type, &data[..]])?;
+                    if !meta.urls.is_empty() {
+                        save_urls_with(&tx, &meta.urls)?;
+                    }
+                    if let Some(head_seq) = meta.head {
+                        tx.execute(
+                            "INSERT OR REPLACE INTO meta (key, value) VALUES ('head', ?1)",
+                            params![head_seq.to_string()],
+                        )?;
+                    }
+                }
+                tx.commit()?;
             }
+            Ok(())
         })
-        .await
-        .map_err(std::io::Error::other)??;
+        .await?;
         Ok(vec![Event::Wrote(stored)])
     }
 
@@ -165,54 +227,56 @@ impl DbSink {
 /// Stores what a later run needs to retry missing fragments, and adds the
 /// URLs saved by an earlier run to the ones recovery can use. Returns how
 /// many URLs are saved.
-pub(super) fn save_info(
+pub(super) async fn save_info_async(
     session: &Session,
     data_type: DataType,
     database: &DbSink,
     saved: Option<&SavedDownload>,
 ) -> Result<usize> {
-    for url in database.urls()? {
+    for url in run_blocking(&database.conn, |conn| urls_with(conn)).await? {
         session.remember(data_type, &url);
     }
     let urls = session.known_urls(data_type);
-    database.save_urls(&urls)?;
-    if let Some(info) = saved {
-        database.set_meta("download", &serde_json::to_string(info)?)?;
-    }
-    Ok(urls.len())
+    let count = urls.len();
+    let download_json = saved.map(serde_json::to_string).transpose()?;
+    run_blocking(&database.conn, move |conn| {
+        let tx = conn.transaction()?;
+        save_urls_with(&tx, &urls)?;
+        if let Some(json) = download_json {
+            tx.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('download', ?1)", params![json])?;
+        }
+        tx.commit()?;
+        Ok(())
+    })
+    .await?;
+    Ok(count)
 }
 
-/// What `save_progress` has already written, so it writes only changes.
+/// What `push_with_meta` has already written, so only changes are persisted.
 #[derive(Default)]
 pub(super) struct Saved {
     pub urls: usize,
     pub head: Option<u64>,
 }
 
-/// Saves URLs added by a refresh and the newest known fragment since the
-/// last call. The head is saved as it moves, not only by `save_end`, so a
-/// download that is killed (taskkill, a closed console) still has it.
-pub(super) fn save_progress(session: &Session, data_type: DataType, sink: &Sink, head: Option<u64>, saved: &mut Saved) {
-    let Sink::Db(database, _) = sink else { return };
-    let urls = session.known_urls(data_type);
-    if urls.len() != saved.urls && database.save_urls(&urls).is_ok() {
-        saved.urls = urls.len();
-    }
-    if let Some(head_seq) = head
-        && saved.head != head
-        && database.set_meta("head", &head_seq.to_string()).is_ok()
-    {
-        saved.head = head;
-    }
-}
-
 /// At the end of a download: the URLs and the newest known fragment.
-pub(super) fn save_end(session: &Session, data_type: DataType, database: &DbSink, head: Option<u64>) -> Result<()> {
-    database.save_urls(&session.known_urls(data_type))?;
-    match head {
-        Some(head) => database.set_meta("head", &head.to_string()),
-        None => Ok(()),
-    }
+pub(super) async fn save_end_async(
+    session: &Session,
+    data_type: DataType,
+    database: &DbSink,
+    head: Option<u64>,
+) -> Result<()> {
+    let urls = session.known_urls(data_type);
+    run_blocking(&database.conn, move |conn| {
+        let tx = conn.transaction()?;
+        save_urls_with(&tx, &urls)?;
+        if let Some(head_seq) = head {
+            tx.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('head', ?1)", params![head_seq.to_string()])?;
+        }
+        tx.commit()?;
+        Ok(())
+    })
+    .await
 }
 
 /// One stream of a kept download.

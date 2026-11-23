@@ -11,7 +11,7 @@ use bytes::Bytes;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::task::spawn_blocking;
 
-use super::db_sink::{DbSink, db_path};
+use super::db_sink::{DbSink, MetaUpdate, db_path};
 use crate::error::Result;
 use crate::mp4_atoms::strip_for_concat;
 use crate::types::{DownloadState, FragData, Fragment};
@@ -191,9 +191,9 @@ pub async fn open(
         log_info!("{name}: Resuming {} {how}, as it was started", data_file.display());
     }
     if use_db {
-        let sink = DbSink::open(&database_path, mode)?;
-        let skip = sink.stored()?;
-        let (fragments, size) = sink.totals()?;
+        let sink = DbSink::open_async(database_path, mode).await?;
+        let skip = sink.stored_async().await?;
+        let (fragments, size) = sink.totals_async().await?;
         let cur = if fragments > 0 && state.fragments > 0 {
             log_info!("{name}: Resuming from {}: {fragments} fragment(s) stored", sink.path().display());
             state.start_frag
@@ -305,10 +305,10 @@ impl Sink {
         }
     }
 
-    pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> Result<Vec<Event>> {
+    pub async fn push(&mut self, seq: u64, frag: Option<Fragment>, meta: MetaUpdate) -> Result<Vec<Event>> {
         match self {
             Sink::Ts(ts_sink) => Ok(ts_sink.push(seq, frag).await?),
-            Sink::Db(database, _) => database.push(seq, frag).await,
+            Sink::Db(database, _) => database.push_with_meta(seq, frag, meta).await,
         }
     }
 

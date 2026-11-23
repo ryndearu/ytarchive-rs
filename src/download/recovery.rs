@@ -136,7 +136,7 @@ pub async fn recover(
     let threads = session.opts.threads.max(1);
     let (mut round, mut idle) = (0usize, 0u32);
     loop {
-        let stored = database.stored()?;
+        let stored = database.stored_async().await?;
         let missing = span.missing(&stored);
         if missing.is_empty() {
             if round > 0 {
