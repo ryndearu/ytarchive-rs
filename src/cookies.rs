@@ -2,6 +2,8 @@
 //! (Go's SAPISIDHASH auth was only used by its unreachable InnerTube
 //! request, so it isn't ported.)
 
+use std::str;
+
 use crate::log_warn;
 use crate::types::{CookieSet, NetscapeCookie};
 
@@ -54,11 +56,8 @@ pub fn parse_netscape(data: &[u8]) -> CookieSet {
     CookieSet { cookies }
 }
 
-/// Parses Netscape cookie expiry timestamps (integer or fractional Unix
-/// seconds). Sub-second positive values (`0 < t < 1`) clamp to `Some(1)`
-/// (expired in 1970) rather than promoting them to indefinite session cookies.
 fn parse_expiry(raw: &[u8]) -> Option<i64> {
-    let text = std::str::from_utf8(raw).ok()?.trim();
+    let text = str::from_utf8(raw).ok()?.trim();
     if let Ok(secs) = text.parse::<i64>() {
         return (secs > 0).then_some(secs);
     }
@@ -70,6 +69,7 @@ fn parse_expiry(raw: &[u8]) -> Option<i64> {
     if secs > 0 {
         Some(secs)
     } else if secs == 0 && frac.bytes().any(|byte| byte != b'0') {
+        // Treat 0 < t < 1 as already expired rather than a session cookie.
         Some(1)
     } else {
         None

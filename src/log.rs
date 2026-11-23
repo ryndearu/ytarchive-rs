@@ -1,7 +1,8 @@
 //! Leveled, colored logging to stderr, matching Go ytarchive's output format:
 //! `2006/01/02 15:04:05 LEVEL: message`.
 
-use std::io::IsTerminal;
+use std::env;
+use std::io::{self, IsTerminal};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
@@ -69,12 +70,12 @@ static NEWLINES: AtomicBool = AtomicBool::new(false);
 
 fn is_tty() -> bool {
     static TTY: OnceLock<bool> = OnceLock::new();
-    *TTY.get_or_init(|| std::io::stderr().is_terminal())
+    *TTY.get_or_init(|| io::stderr().is_terminal())
 }
 
 fn use_color() -> bool {
     static COLOR: OnceLock<bool> = OnceLock::new();
-    *COLOR.get_or_init(|| is_tty() && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()))
+    *COLOR.get_or_init(|| is_tty() && env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()))
 }
 
 pub fn set_newlines(on: bool) {

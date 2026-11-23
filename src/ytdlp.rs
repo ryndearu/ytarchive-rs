@@ -1,5 +1,6 @@
 //! Stream info extraction by running yt-dlp and parsing its `--print` JSON.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -171,7 +172,7 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
     };
 
     let mut probe_url = None;
-    let mut exact_itags = std::collections::HashSet::new();
+    let mut exact_itags = HashSet::new();
     let mut fallback_target = 0u32;
     for format in raw.formats.unwrap_or_default() {
         let Some(itag) = format.itag() else { continue };
@@ -322,7 +323,6 @@ mod tests {
         assert_eq!(info.target_duration, 5);
         assert_eq!(info.urls[&140].for_seq(1), "https://orig.googlevideo.com/videoplayback?itag=140&noclen=1&sq=1");
 
-        // When no exact format ID exists, pick the last (highest-preference) suffixed variant.
         let suffixed = parse_output(
             r#"{"id":"x","formats":[
                 {"format_id":"140-0","url":"https://dub.googlevideo.com/videoplayback?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null},

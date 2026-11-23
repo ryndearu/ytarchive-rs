@@ -2,20 +2,23 @@
 //! resolving them into `Options`.
 
 use std::ffi::OsString;
+use std::mem;
 use std::time::Duration;
 
 use clap::CommandFactory;
+use reqwest::Url;
 
 use super::Cli;
 use crate::duration::parse_duration_or_time;
 use crate::error::{Error, Result};
+use crate::live_from::validate_live_from;
 use crate::types::{
     Action, DEFAULT_MONITOR_SECS, DEFAULT_POLL_SECS, IpVersion, LogLevel, MINIMUM_MONITOR_SECS, Options, StorageMode,
     VideoCodec, complete_codec_order,
 };
 
 fn is_googlevideo(url: &str) -> bool {
-    reqwest::Url::parse(url)
+    Url::parse(url)
         .ok()
         .and_then(|parsed| parsed.host_str().map(|host| host.ends_with(".googlevideo.com")))
         .unwrap_or(false)
@@ -67,7 +70,7 @@ fn split_ytdlp_opts(input: &str) -> Result<Vec<String>> {
             match character {
                 value if value.is_whitespace() => {
                     if in_token {
-                        out.push(std::mem::take(&mut current));
+                        out.push(mem::take(&mut current));
                         in_token = false;
                     }
                 }
@@ -268,7 +271,7 @@ impl Cli {
         let start_delay =
             self.start_delay.as_deref().map(|text| parse_duration_or_time("--start-delay", text)).transpose()?;
         if let Some(live_from) = self.live_from.as_deref() {
-            crate::live_from::validate_live_from(live_from)?;
+            validate_live_from(live_from)?;
         }
         let capture_duration = self
             .capture_duration
