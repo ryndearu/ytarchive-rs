@@ -1,8 +1,10 @@
 //! Fragment-level data passed between download workers and the writer.
 
-use bytes::Bytes;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use bytes::Bytes;
+use reqwest::Url;
 
 /// Which half of the stream a worker is handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -166,7 +168,7 @@ impl FragmentUrl {
     }
 
     pub fn host(&self) -> Option<String> {
-        reqwest::Url::parse(self.base()).ok().and_then(|url| url.host_str().map(str::to_string))
+        Url::parse(self.base()).ok().and_then(|url| url.host_str().map(str::to_string))
     }
 
     /// googlevideo URLs meant for fragmented download carry `noclen`
@@ -177,7 +179,7 @@ impl FragmentUrl {
 
     /// When the URL stops working (its `expire` parameter, Unix seconds).
     pub fn expires_at(&self) -> Option<u64> {
-        let url = reqwest::Url::parse(self.base()).ok()?;
+        let url = Url::parse(self.base()).ok()?;
         let (_, value) = url.query_pairs().find(|(key, _)| key == "expire")?;
         value.parse().ok()
     }
