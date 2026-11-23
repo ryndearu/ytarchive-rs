@@ -4,9 +4,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use tokio::io::AsyncReadExt;
+use tokio::process::Command;
 
-use crate::types::MetaInfo;
+use crate::log;
+use crate::types::{LogLevel, MetaInfo};
 use crate::util::resolve_program;
 use crate::{log_debug, log_error};
 
@@ -184,28 +185,8 @@ pub fn program_exists(program: &str) -> bool {
 pub async fn execute(program: &str, args: &[String]) -> i32 {
     log_debug!("Executing command: {}", command_line(program, args));
     let executable = resolve_program(program).unwrap_or_else(|| PathBuf::from(program));
-    let mut child = match tokio::process::Command::new(&executable)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(error) => {
-            log_error!("{error}");
-            return -1;
-        }
-    };
-    if let Some(mut err) = child.stderr.take() {
-        let mut buf = [0u8; 2048];
-        while let Ok(count) = err.read(&mut buf).await {
-            if count == 0 {
-                break;
-            }
-            eprint!("{}", String::from_utf8_lossy(buf.get(..count).unwrap_or(&buf)));
-        }
-    }
-    match child.wait().await {
+    let stderr = if log::level() <= LogLevel::Quiet { Stdio::null() } else { Stdio::inherit() };
+    match Command::new(&executable).args(args).stdin(Stdio::null()).stderr(stderr).status().await {
         Ok(status) => status.code().unwrap_or(-1),
         Err(error) => {
             log_error!("{error}");
