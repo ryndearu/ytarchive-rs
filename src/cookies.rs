@@ -3,6 +3,7 @@
 //! request, so it isn't ported.)
 
 use std::net::IpAddr;
+use std::str;
 
 use crate::log_warn;
 use crate::types::{CookieSet, NetscapeCookie};
@@ -57,7 +58,7 @@ pub fn parse_netscape(data: &[u8]) -> CookieSet {
 }
 
 fn parse_expiry(raw: &[u8]) -> Option<i64> {
-    let text = std::str::from_utf8(raw).ok()?.trim();
+    let text = str::from_utf8(raw).ok()?.trim();
     if let Ok(secs) = text.parse::<i64>() {
         return (secs > 0).then_some(secs);
     }

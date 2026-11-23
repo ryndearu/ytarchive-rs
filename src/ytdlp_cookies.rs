@@ -10,14 +10,15 @@
 //! back to it.
 
 use std::borrow::Cow;
+use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
+use std::process;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::{env, process};
 
 use crate::log_warn;
 use crate::util::lock;

@@ -4,6 +4,7 @@
 //! `signal.Reset`. Prompts exit immediately on the first signal.
 
 use std::io;
+use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::Duration;
@@ -103,7 +104,7 @@ impl Interrupt {
                         eprintln!("\nExiting...");
                         platform::restore();
                         ytdlp_cookies::remove();
-                        std::process::exit(exit_code);
+                        process::exit(exit_code);
                     }
                     eprintln!();
                     if code == 143 {

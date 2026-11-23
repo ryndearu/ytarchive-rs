@@ -3,6 +3,7 @@
 //! SemVer build metadata (`+`), so the build still compares equal to its
 //! version; the date is the commit's, so rebuilds give the same string.
 
+use std::env;
 use std::path::Path;
 use std::process::Command;
 
@@ -23,7 +24,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=YTARCHIVE_VERSION");
 
     let date = git(&["log", "-1", "--format=%cs"]).unwrap_or_else(|| "unknown date".into());
-    let full = match std::env::var("YTARCHIVE_VERSION").ok().filter(|tag| !tag.trim().is_empty()) {
+    let full = match env::var("YTARCHIVE_VERSION").ok().filter(|tag| !tag.trim().is_empty()) {
         Some(tag) => format!("{tag} ({date})"),
         None => {
             let commit = git(&["rev-parse", "--short=7", "HEAD"]).unwrap_or_else(|| "unknown".into());

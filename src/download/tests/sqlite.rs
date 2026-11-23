@@ -1,6 +1,7 @@
 //! SQLite storage and private-stream recovery tests.
 
 use std::fs;
+use std::slice;
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -245,7 +246,7 @@ async fn push_with_meta_batches_and_skips_empty_updates() {
 
     sink.push_with_meta(1, Some(frag(1)), MetaUpdate { head: Some(42), urls: vec![url.clone()] }).await.unwrap();
     assert_eq!(sink.meta("head").unwrap().as_deref(), Some("42"));
-    assert_eq!(sink.urls().unwrap(), std::slice::from_ref(&url));
+    assert_eq!(sink.urls().unwrap(), slice::from_ref(&url));
 
     sink.push_with_meta(2, Some(frag(2)), MetaUpdate::default()).await.unwrap();
     assert_eq!(sink.meta("head").unwrap().as_deref(), Some("42"));

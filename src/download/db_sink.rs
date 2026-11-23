@@ -310,9 +310,10 @@ pub fn read_kept(temp_dir: &Path, itag: u32, mode: u32) -> Option<KeptStream> {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+    use std::process;
     use std::sync::mpsc;
     use std::time::Duration;
-    use std::{env, process};
 
     use super::*;
     use crate::types::FragData;

@@ -1,5 +1,7 @@
+use std::env;
+use std::fs;
 use std::path;
-use std::{env, fs, process};
+use std::process;
 
 use super::*;
 use crate::types::new_format_info;

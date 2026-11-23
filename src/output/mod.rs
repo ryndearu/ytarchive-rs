@@ -1,7 +1,7 @@
 //! Output file naming, final/temporary directories, and resume state files.
 
 use std::fs;
-use std::path::{self, Component, Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::download::load_state;
 use crate::error::{Error, Result};
@@ -140,7 +140,7 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
     if dir.as_os_str().is_empty() {
         dir = PathBuf::from(".");
     }
-    path::absolute(&dir).unwrap_or(dir)
+    std::path::absolute(&dir).unwrap_or(dir)
 }
 
 /// UTF-16 units left for the base name so that `{dir}\{name}{suffix}` fits
@@ -148,7 +148,7 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
 fn windows_name_room(opts: &Options, final_dir: &Path, video_id: &str) -> usize {
     let units = |path: &Path| path.as_os_str().to_string_lossy().encode_utf16().count();
     let temp_parent = match &opts.temp_dir {
-        Some(path) => path::absolute(path).unwrap_or_else(|_| path.clone()),
+        Some(path) => std::path::absolute(path).unwrap_or_else(|_| path.clone()),
         None => final_dir.to_path_buf(),
     };
     let temp_dir = units(&temp_parent) + 1 + video_id.len() + 2 + TEMP_DIR_RANDOM;
