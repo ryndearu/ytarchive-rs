@@ -242,6 +242,52 @@ async fn keep_existing_data(data_file: &Path, name: &str) {
     }
 }
 
+/// A SQLite database ready to export to `.ts`, deferred past Ctrl-C prompts.
+pub struct PendingExport {
+    database: DbSink,
+    out: PathBuf,
+    name: String,
+    mode: u32,
+}
+
+impl std::fmt::Debug for PendingExport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("PendingExport").field("out", &self.out).finish_non_exhaustive()
+    }
+}
+
+impl PendingExport {
+    #[cfg(test)]
+    pub async fn for_test(database_path: &Path, out: PathBuf) -> Self {
+        let mut database = DbSink::open(database_path, 0o644).unwrap();
+        let frag = Fragment {
+            seq: 0,
+            x_head_seqnum: None,
+            data: FragData::Memory(Bytes::from_static(b"frag")),
+            mime_type: "video/webm".into(),
+        };
+        database.push(0, Some(frag)).await.unwrap();
+        Self { database, out, name: "audio".into(), mode: 0o644 }
+    }
+
+    pub async fn export(self) -> Result<()> {
+        let database_path = self.database.path().to_path_buf();
+        let target = self.out.clone();
+        let mode = self.mode;
+        let database = self.database;
+        // The export copies the whole stream; on a runtime thread it
+        // would hold up the other stream's download.
+        let exported = tokio::task::spawn_blocking(move || database.export(&target, mode))
+            .await
+            .unwrap_or_else(|error| Err(std::io::Error::other(error).into()));
+        let (count, bytes) = exported.inspect_err(|error| {
+            log_warn!("{}: Failed to export {} to {}: {error}", self.name, database_path.display(), self.out.display());
+        })?;
+        log_debug!("{}: Exported {count} fragment(s), {bytes} bytes to {}", self.name, self.out.display());
+        Ok(())
+    }
+}
+
 impl Sink {
     pub fn is_db(&self) -> bool {
         matches!(self, Sink::Db(..))
@@ -263,29 +309,37 @@ impl Sink {
         }
     }
 
-    /// Finalizes storage; for SQLite, exports the `.ts` file.
-    pub async fn finish(self, name: &str, mode: u32) -> Result<()> {
+    /// Finalizes storage; for SQLite when `defer_db` is set (Ctrl-C), returns
+    /// a `PendingExport` without running the full export until needed.
+    pub async fn into_pending_or_finish(self, name: &str, mode: u32, defer_db: bool) -> Result<Option<PendingExport>> {
         match self {
             Sink::Ts(ts_sink) => {
                 let leftover = ts_sink.finish().await?;
                 if leftover > 0 {
                     log_debug!("{name}: {leftover} downloaded fragment(s) after a gap were not written");
                 }
+                Ok(None)
             }
             Sink::Db(database, out) => {
-                let database_path = database.path().to_path_buf();
-                let target = out.clone();
-                // The export copies the whole stream; on a runtime thread it
-                // would hold up the other stream's download.
-                let exported = tokio::task::spawn_blocking(move || database.export(&target, mode))
-                    .await
-                    .unwrap_or_else(|error| Err(std::io::Error::other(error).into()));
-                let (count, bytes) = exported.inspect_err(|error| {
-                    log_warn!("{name}: Failed to export {} to {}: {error}", database_path.display(), out.display());
-                })?;
-                log_debug!("{name}: Exported {count} fragment(s), {bytes} bytes to {}", out.display());
+                let pending = PendingExport { database, out, name: name.to_string(), mode };
+                if defer_db {
+                    return Ok(Some(pending));
+                }
+                pending.export().await?;
+                Ok(None)
             }
         }
-        Ok(())
+    }
+
+    /// Cleans up buffered fragment files on abort without exporting SQLite.
+    pub async fn abort(self) {
+        if let Sink::Ts(mut ts_sink) = self {
+            for fragment in std::mem::take(&mut ts_sink.pending).into_values().flatten() {
+                remove_frag_file(&fragment.data).await;
+            }
+            if let Err(error) = ts_sink.file.flush().await {
+                log_debug!("Could not flush {} after storage error: {error}", ts_sink.path.display());
+            }
+        }
     }
 }

@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use super::db_sink::{Saved, save_end, save_info, save_progress};
 use super::recovery::{Span, recover, usable_until};
 use super::sink::remove_frag_file;
-use super::sink::{self, Event, Sink};
+use super::sink::{self, Event, PendingExport, Sink};
 use super::state_saver::StateSaver;
 use super::worker::{Dispatch, Msg, worker};
 use crate::error::{Error, Result};
@@ -57,6 +57,8 @@ pub struct StreamOutcome {
     /// database has a download URL that hasn't expired): until when, in
     /// Unix seconds (`u64::MAX` if the URLs don't say).
     pub retry_until: Option<u64>,
+    /// Deferred SQLite export when interrupted so cancel prompts run first.
+    pub pending_export: Option<PendingExport>,
 }
 
 /// Where a fresh download starts: `--live-from`/`--start-delay`, else the
@@ -278,13 +280,14 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     if let Some(saver) = saver {
         saver.finish().await;
     }
-    sink.finish(&name, mode).await?;
     if let Some(error) = store_err {
+        sink.abort().await;
         return Err(error);
     }
+    let pending_export = sink.into_pending_or_finish(&name, mode, session.is_stopping()).await?;
     skipped.sort_unstable();
     log_debug!("{name} thread closing");
-    Ok(StreamOutcome { state: params.state, skipped, retry_until })
+    Ok(StreamOutcome { state: params.state, skipped, retry_until, pending_export })
 }
 
 /// Loads a saved state file, if present and valid.

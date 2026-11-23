@@ -200,3 +200,26 @@ async fn no_recovery_without_the_flag() {
     assert!(crate::download::read_kept(&dir, 140, 0o644).is_none());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn sqlite_storage_error_creates_no_ts_file() {
+    let dir = temp_dir("sqlite-storage-err");
+    let database_path = dir.join("out.f140.sqlite");
+    let conn = rusqlite::Connection::open(&database_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE segments (seq INTEGER PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL);
+         CREATE TRIGGER fail_insert BEFORE INSERT ON segments BEGIN
+             SELECT RAISE(ABORT, 'disk error');
+         END;",
+    )
+    .unwrap();
+    drop(conn);
+
+    let url = serve(5, vec![]).await;
+    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (stream_params, _rx) = params(&dir, 5, DownloadState::default());
+    let err = download_stream(session, stream_params).await.unwrap_err();
+    assert!(matches!(err, crate::error::Error::Sqlite(_)), "{err}");
+    assert!(!dir.join("out.f140.ts").exists(), "partial .ts must not be exported on storage error");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

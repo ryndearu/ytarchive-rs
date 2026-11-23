@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use crate::download::local_time;
+use crate::download::{PendingExport, local_time};
 use crate::mux::{self, MuxCommand};
 use crate::output::OutputPlan;
 use crate::prompt::get_yes_no;
@@ -37,6 +37,8 @@ pub struct Finish<'a> {
     /// this time (Unix seconds, `u64::MAX` if unknown): keep the temp dir
     /// with the database, and the state files that lead to it.
     pub keep_for_retry: Option<u64>,
+    /// Deferred SQLite exports when interrupted so cancel prompts run first.
+    pub pending_exports: Vec<PendingExport>,
 }
 
 async fn decide(action: Action, question: &str) -> bool {
@@ -48,6 +50,16 @@ async fn decide(action: Action, question: &str) -> bool {
 }
 
 impl Finish<'_> {
+    async fn export_pending(&mut self) -> bool {
+        for pending in std::mem::take(&mut self.pending_exports) {
+            if let Err(error) = pending.export().await {
+                log_error!("Failed to export downloaded data: {error}");
+                return false;
+            }
+        }
+        true
+    }
+
     async fn move_all(&self, items: &[&Option<Moved>]) -> bool {
         let mut ok = true;
         for moved in items.iter().copied().flatten() {
@@ -108,7 +120,8 @@ impl Finish<'_> {
     /// state. With nothing downloaded (now or by an earlier run) the files are
     /// removed, otherwise left for resuming once the cause is fixed. Returns
     /// the exit code.
-    pub fn on_storage_error(&self, had_data: bool) -> i32 {
+    pub fn on_storage_error(&mut self, had_data: bool) -> i32 {
+        self.pending_exports.clear();
         if had_data {
             log_error!(
                 "Not merging because a download's data couldn't be stored. The files were left in {} to resume later.",
@@ -124,7 +137,7 @@ impl Finish<'_> {
 
     /// Handles a user interrupt. Returns `Some(exit code)` if done, `None`
     /// if the user chose to merge what was downloaded.
-    pub async fn on_cancel(&self) -> Option<i32> {
+    pub async fn on_cancel(&mut self) -> Option<i32> {
         let options = self.opts;
         if decide(
             options.merge_on_cancel,
@@ -140,18 +153,31 @@ impl Finish<'_> {
                 .await;
 
         if save_files {
+            if !self.export_pending().await {
+                log_error!(
+                    "Not deleting temporary files because exporting failed. The files were left in {} to resume later.",
+                    self.plan.temp_dir.display()
+                );
+                return Some(1);
+            }
             let ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description]).await;
             self.cleanup_temp(ok);
             self.delete_state_files();
-        } else if !save_state {
-            self.plan.remove_temp_dir(self.video_id);
-            self.delete_state_files();
+        } else {
+            self.pending_exports.clear();
+            if !save_state {
+                self.plan.remove_temp_dir(self.video_id);
+                self.delete_state_files();
+            }
         }
         Some(2)
     }
 
     /// Moves files into place and muxes. Returns the exit code.
-    pub async fn finish(&self) -> i32 {
+    pub async fn finish(&mut self) -> i32 {
+        if !self.export_pending().await {
+            return self.on_storage_error(true);
+        }
         let options = self.opts;
         if self.retry_until().is_none() {
             self.delete_state_files();
@@ -300,6 +326,7 @@ mod tests {
             audio_frags: Some(1),
             video_frags: None,
             keep_for_retry: None,
+            pending_exports: Vec::new(),
         }
     }
 
@@ -310,7 +337,7 @@ mod tests {
     async fn cancel_keeping_files_moves_them_and_cleans_up() {
         let (plan, state_file) = downloaded("cancel");
         let opts = Options { merge_on_cancel: Action::DoNot, save_files_on_cancel: Action::Do, ..Default::default() };
-        let finish = finish_of(&opts, &plan, &state_file);
+        let mut finish = finish_of(&opts, &plan, &state_file);
 
         assert_eq!(finish.on_cancel().await, Some(2));
         assert_eq!(std::fs::read(plan.final_path(".f140.ts")).unwrap(), b"audio");
@@ -327,7 +354,7 @@ mod tests {
     fn storage_error_keeps_what_can_be_resumed() {
         let (plan, state_file) = downloaded("storage");
         let opts = Options::default();
-        let finish = finish_of(&opts, &plan, &state_file);
+        let mut finish = finish_of(&opts, &plan, &state_file);
 
         assert_eq!(finish.on_storage_error(true), 1);
         assert_eq!(std::fs::read(plan.temp(".f140.ts")).unwrap(), b"audio");
@@ -335,6 +362,28 @@ mod tests {
         assert!(!plan.final_path(".f140.ts").exists());
 
         assert_eq!(finish.on_storage_error(false), 1);
+        assert!(!plan.temp_dir.exists());
+        assert!(!state_file.exists());
+        std::fs::remove_dir_all(&plan.final_dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancel_discard_skips_pending_sqlite_export() {
+        let (plan, state_file) = downloaded("cancel-discard-db");
+        std::fs::remove_file(plan.temp(".f140.ts")).unwrap();
+        let pending = PendingExport::for_test(&plan.temp(".f140.sqlite"), plan.temp(".f140.ts")).await;
+        let opts = Options {
+            merge_on_cancel: Action::DoNot,
+            save_files_on_cancel: Action::DoNot,
+            save_state_on_cancel: Action::DoNot,
+            ..Default::default()
+        };
+        let mut finish = finish_of(&opts, &plan, &state_file);
+        finish.pending_exports.push(pending);
+
+        assert_eq!(finish.on_cancel().await, Some(2));
+        assert!(!plan.temp(".f140.ts").exists(), "discarded cancel must not export .ts");
+        assert!(!plan.final_path(".f140.ts").exists());
         assert!(!plan.temp_dir.exists());
         assert!(!state_file.exists());
         std::fs::remove_dir_all(&plan.final_dir).unwrap();
