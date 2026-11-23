@@ -67,7 +67,7 @@ impl TsSink {
                 // Drop anything written after the last saved state.
                 file.set_len(state.size).await?;
                 file.seek(SeekFrom::End(0)).await?;
-                let cur = state.start_frag + state.fragments;
+                let cur = state.start_frag + state.fragments + state.skipped;
                 log_info!("{name}: Resuming download from sequence {cur}");
                 Ok(Some((Self::new(file, path, cur, state.start_frag), cur)))
             }

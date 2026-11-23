@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use super::fragment::download_fragment;
+use super::fragment::{FragOutcome, download_fragment};
 use crate::log_debug;
 use crate::session::Session;
 use crate::types::{DataType, FragThreadState, Fragment, StreamProgress};
@@ -132,11 +132,20 @@ pub(super) async fn worker(
         };
         state.reset_for(seq, max, downloaded);
         let frag_file = frag_prefix.as_ref().map(|path| PathBuf::from(format!("{}.frag{seq}.ts", path.display())));
-        let frag = download_fragment(&session, &mut state, frag_file, &|| lock(&dispatch).progress()).await;
-        lock(&dispatch).complete(frag.is_some(), frag.as_ref().and_then(|fragment| fragment.x_head_seqnum));
-        let msg = match frag {
-            Some(fragment) => Msg::Done(fragment),
-            None => Msg::Missing(seq),
+        let outcome = download_fragment(&session, &mut state, frag_file, &|| lock(&dispatch).progress()).await;
+        let msg = match outcome {
+            FragOutcome::Downloaded(fragment) => {
+                lock(&dispatch).complete(true, fragment.x_head_seqnum);
+                Msg::Done(fragment)
+            }
+            FragOutcome::Missing => {
+                lock(&dispatch).complete(false, None);
+                Msg::Missing(seq)
+            }
+            FragOutcome::Stopped => {
+                lock(&dispatch).complete(false, None);
+                break;
+            }
         };
         if sender.send(msg).await.is_err() {
             break;

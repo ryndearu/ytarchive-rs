@@ -206,6 +206,12 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
                     }
                 }
                 Event::Gap(gap) => {
+                    if !sink.is_db() {
+                        params.state.skipped += 1;
+                        if let Some(saver) = &saver {
+                            saver.save(&params.state);
+                        }
+                    }
                     // Fragments near the head of an ended stream often never
                     // existed; only report real gaps (the same distance as
                     // `behind_head` in `continue_fragment_download`).
