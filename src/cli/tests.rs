@@ -137,6 +137,8 @@ fn validation_errors() {
     assert!(opts(&["y", "--metadata", "novalue", "u"]).is_err());
     assert!(opts(&["y", "--ytdlp-info", "--members-only", "u"]).is_err());
     assert!(opts(&["y", "--capture-duration", "nope", "u"]).is_err());
+    assert!(opts(&["y", "--live-from", "garbage", "u"]).is_err());
+    assert!(opts(&["y", "--live-from", "-8d", "u"]).is_err());
     assert!(opts(&["y", "--ytdlp-opts", "--cookies \"unclosed", "u"]).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "--proxy", "ftp://x"])).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "-fp", "999"])).is_err());
