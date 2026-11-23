@@ -146,7 +146,9 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         }
     }
 
-    let end_seq = params.capture_duration.map(|duration| cur + duration.as_secs().div_ceil(u64::from(target)));
+    let end_seq = params
+        .capture_duration
+        .map(|duration| params.state.start_frag + duration.as_secs().div_ceil(u64::from(target)));
     let dispatch = Arc::new(Mutex::new(Dispatch {
         next: cur,
         max_seq: params.last_sq,
