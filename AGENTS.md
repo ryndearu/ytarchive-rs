@@ -27,8 +27,9 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - No `unsafe` unless truly necessary; prefer a maintained safe wrapper crate. Lifting `#![forbid(unsafe_code)]` in `main.rs` needs a good reason and a `// SAFETY:` comment on every `unsafe` block.
 - Outside tests: no `unwrap()`/`expect()` (use `?`), no unchecked indexing or slicing, and no `let _ =` on a `Result` (handle or log it). Clippy enforces this (`[lints.clippy]` in `Cargo.toml`; `clippy.toml` exempts tests). Use `util::lock` for mutexes and `util::apply_mode` for permissions that may fail.
 - Names are full words (`sequence`, not `sq`), closure parameters included.
+- Import with `use` (std, external crates, then `crate::`) instead of writing out paths: `Duration::from_secs(5)`, not `std::time::Duration::from_secs(5)`. A single call may stay inline when the short name is unclear (`std::env::temp_dir()`).
 - Clone for an async block inside the block passed to the spawn, under the same name: `tokio::spawn({ let session = session.clone(); async move { … } })`.
-- Comments explain a non-obvious *why*, especially where behavior differs from Go; none that summarize code or divide it into sections.
+- Comments explain a non-obvious *why*, especially where behavior differs from Go; none that summarize code or divide it into sections. Keep comments stating a contract the code doesn't show (when data is copied, what `None` means, why a value is clamped).
 - Cookies are read twice on purpose: `cookies.rs` follows Go for ytarchive's own requests; `ytdlp_cookies.rs` mirrors yt-dlp's loader only to decide whether yt-dlp needs a repaired copy. Keep them separate.
 
 ## Testing
@@ -79,11 +80,14 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 - One commit per completed step, each building on its own and updating the docs it affects (`README.md`, `docs/CHANGES_FROM_GO.md`, `docs/NOT_TESTED.md`, this file). In a large docs update, attach each docs change to its commit; only the rest goes into a separate `docs:` commit.
 - Commit and push only when asked, and pause after each step for review.
 - Never force-push or rewrite pushed history; unpushed commits may be reorganized. Never commit secrets.
+- Fold a fix into the unpushed commit it fixes instead of adding a follow-up commit.
+- Before pushing, check each message against its diff; drop lines that no longer match (e.g. "Document in …" for a file the commit doesn't touch).
+- Do everything a handoff asks, including PR descriptions and questions for the user, not only the code.
 
 ## Releases and CI
 
-- **Releases** are manual: push a `v*` tag, and `release.yml` builds x64 and arm64 for every OS.
+- **Releases** are manual: push a `v*` tag, and `release.yml` runs `ci.yml` as its `test` job before building x64 and arm64 for every OS and uploading `SHA256SUMS` alongside the zips.
 - **Nightly** (`nightly.yml`) runs only by hand, on `main`, builds Windows x64, Linux x64, and macOS arm64, and replaces the `nightly` pre-release. Choose the targets in `build.yml`'s target list, not with a matrix `exclude`: an `include` entry brings an excluded combination back.
 - Both list the commits since the last `v*` tag with `.github/changelog.sh`, and build with `build.yml`: one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only the executable. Every target builds natively (arm64 Linux on GitHub's arm64 runner). A `v*` tag selects every target and sets `YTARCHIVE_VERSION` for `build.rs` (which then leaves the commit out of the version); the commit and date come from git.
-- **CI** (`ci.yml`) runs only for pushes that touch the code or what builds and checks it; add any new such file to its `paths`. Tests run on Windows x64, Linux x64, and macOS arm64; the other three targets are built only by releases.
+- **CI** (`ci.yml`) runs on pushes and pull requests to `main` touching the code or what builds and checks it, as well as via `workflow_call` from `release.yml`; add any new such file to its `paths`. Tests run on Windows x64, Linux x64, and macOS arm64; the other three targets are built only by releases.
 - **Audit** (`audit.yml`) runs cargo-deny (`deny.toml`): a vulnerable dependency, a license not on its list, or a source other than crates.io fails ("unmaintained" and "unsound" only warn). Add new permissive licenses to the list.
