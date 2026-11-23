@@ -62,7 +62,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - Finding a kept `--recover-private` database skips folders named like one (`*.f{itag}.sqlite`).
 - **`--separate-audio`** writes the extra file only when both audio and video downloaded (Go also duplicated audio-only downloads). `.ffmpeg.txt` holds both commands, for `--write-mux-file`, `--save` on cancel, name changes, and mux failures. Go wrote only the main command.
 - **A failed write to a temporary fragment file is a storage error:** the download stops, keeps its state, and isn't merged. Go counted it as a failed try, dropped the fragment once its tries ran out, and merged the rest.
-- **A panic in a stream's download task keeps the data.** Nothing is merged, and state files stay for resuming. Go has no `recover`, so a panic ended the program.
+- **A panic in a stream's download task or a fragment worker keeps the data.** Nothing is merged, and state files stay for resuming. With several threads at the live edge, the other workers wait for the lost fragment, so the download stops only when interrupted. Go has no `recover`, so a panic ended the program.
 
 ### Files and cleanup
 

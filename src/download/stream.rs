@@ -1,6 +1,7 @@
 //! Downloading one stream (audio or video): parallel fragment workers feeding
 //! a storage sink, with resumable state.
 
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -274,8 +275,11 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         }
     }
     for worker in workers {
+        // A panicked worker may have lost a fragment, so the download must not
+        // be merged as if it were complete.
         if let Err(error) = worker.await {
-            log_warn!("{name}: A download worker stopped unexpectedly: {error}");
+            log_error!("{name}: A download worker stopped unexpectedly: {error}");
+            store_err.get_or_insert_with(|| Error::Io(io::Error::other(format!("download worker failed: {error}"))));
         }
     }
 
