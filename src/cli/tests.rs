@@ -137,6 +137,7 @@ fn validation_errors() {
     assert!(opts(&["y", "--metadata", "novalue", "u"]).is_err());
     assert!(opts(&["y", "--ytdlp-info", "--members-only", "u"]).is_err());
     assert!(opts(&["y", "--capture-duration", "nope", "u"]).is_err());
+    assert!(opts(&["y", "--ytdlp-opts", "--cookies \"unclosed", "u"]).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "--proxy", "ftp://x"])).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "-fp", "999"])).is_err());
 }
@@ -170,6 +171,14 @@ fn misc_resolution() {
     assert_eq!(options.save_state_on_cancel, Action::DoNot);
     let options = opts(&["y", "--save-state", "u"]).unwrap();
     assert_eq!(options.save_state_on_cancel, Action::Do);
+}
+
+#[test]
+fn ytdlp_opts_parses_quotes_and_windows_backslashes() {
+    let options =
+        opts(&["y", "--ytdlp-opts", r#"--cookies "C:\My Folder\cookies.txt" --extractor-args 'youtube:a b' """#, "u"])
+            .unwrap();
+    assert_eq!(options.ytdlp_opts, ["--cookies", r"C:\My Folder\cookies.txt", "--extractor-args", "youtube:a b", ""]);
 }
 
 #[test]
