@@ -68,6 +68,7 @@ async fn main() -> ExitCode {
         }
     }
 
+    let _cookies = ytdlp_cookies::guard();
     let cookie_set = match options.cookies_file.clone() {
         Some(path) => match std::fs::read(&path) {
             Ok(data) => {
@@ -96,7 +97,5 @@ async fn main() -> ExitCode {
 
     log_debug!("{options:#?}");
     let interrupt = interrupt::Interrupt::install();
-    let code = monitor::start(Arc::new(options), http, interrupt).await;
-    ytdlp_cookies::remove();
-    code
+    monitor::start(Arc::new(options), http, interrupt).await
 }
