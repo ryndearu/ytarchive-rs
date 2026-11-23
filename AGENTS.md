@@ -82,8 +82,8 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 
 ## Releases and CI
 
-- **Releases** are manual: push a `v*` tag, and `release.yml` builds x64 and arm64 for every OS.
+- **Releases** are manual: push a `v*` tag, and `release.yml` runs `ci.yml` as its `test` job before building x64 and arm64 for every OS and uploading `SHA256SUMS` alongside the zips.
 - **Nightly** (`nightly.yml`) runs only by hand, on `main`, builds Windows x64, Linux x64, and macOS arm64, and replaces the `nightly` pre-release. Choose the targets in `build.yml`'s target list, not with a matrix `exclude`: an `include` entry brings an excluded combination back.
 - Both list the commits since the last `v*` tag with `.github/changelog.sh`, and build with `build.yml`: one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only the executable. Every target builds natively (arm64 Linux on GitHub's arm64 runner). A `v*` tag selects every target and sets `YTARCHIVE_VERSION` for `build.rs` (which then leaves the commit out of the version); the commit and date come from git.
-- **CI** (`ci.yml`) runs only for pushes that touch the code or what builds and checks it; add any new such file to its `paths`. Tests run on Windows x64, Linux x64, and macOS arm64; the other three targets are built only by releases.
+- **CI** (`ci.yml`) runs on pushes and pull requests to `main` touching the code or what builds and checks it, as well as via `workflow_call` from `release.yml`; add any new such file to its `paths`. Tests run on Windows x64, Linux x64, and macOS arm64; the other three targets are built only by releases.
 - **Audit** (`audit.yml`) runs cargo-deny (`deny.toml`): a vulnerable dependency, a license not on its list, or a source other than crates.io fails ("unmaintained" and "unsound" only warn). Add new permissive licenses to the list.
