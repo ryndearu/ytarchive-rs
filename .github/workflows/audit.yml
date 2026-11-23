@@ -5,7 +5,7 @@ name: Audit
 # change.
 on:
   schedule:
-    - cron: "0 0 * * 1"
+    - cron: "23 17 * * 5" # Saturday 00:23 GMT+7
   push:
     branches: [main]
     paths: ["Cargo.toml", "Cargo.lock", "deny.toml", ".github/workflows/audit.yml"]
