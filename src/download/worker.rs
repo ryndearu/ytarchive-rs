@@ -95,6 +95,8 @@ pub(super) enum Msg {
     Done(Fragment),
     /// Given up on; the sink skips it instead of stalling forever.
     Missing(u64),
+    /// Writing a temp fragment file failed (e.g. disk full).
+    StorageError(u64, crate::error::Error),
 }
 
 pub(super) async fn worker(
@@ -133,21 +135,19 @@ pub(super) async fn worker(
         state.reset_for(seq, max, downloaded);
         let frag_file = frag_prefix.as_ref().map(|path| PathBuf::from(format!("{}.frag{seq}.ts", path.display())));
         let outcome = download_fragment(&session, &mut state, frag_file, &|| lock(&dispatch).progress()).await;
-        let msg = match outcome {
-            FragOutcome::Downloaded(fragment) => {
-                lock(&dispatch).complete(true, fragment.x_head_seqnum);
-                Msg::Done(fragment)
-            }
-            FragOutcome::Missing => {
-                lock(&dispatch).complete(false, None);
-                Msg::Missing(seq)
-            }
-            FragOutcome::Stopped => {
-                lock(&dispatch).complete(false, None);
-                break;
-            }
+        let (downloaded, head) = match &outcome {
+            FragOutcome::Downloaded(fragment) => (true, fragment.x_head_seqnum),
+            FragOutcome::Missing | FragOutcome::Stopped | FragOutcome::StorageError(..) => (false, None),
         };
-        if sender.send(msg).await.is_err() {
+        lock(&dispatch).complete(downloaded, head);
+        let is_storage_error = matches!(outcome, FragOutcome::StorageError(..));
+        let msg = match outcome {
+            FragOutcome::Downloaded(fragment) => Msg::Done(fragment),
+            FragOutcome::Missing => Msg::Missing(seq),
+            FragOutcome::Stopped => break,
+            FragOutcome::StorageError(error) => Msg::StorageError(seq, error),
+        };
+        if sender.send(msg).await.is_err() || is_storage_error {
             break;
         }
     }

@@ -197,6 +197,7 @@ pub(super) enum FragOutcome {
     Downloaded(Fragment),
     Missing,
     Stopped,
+    StorageError(crate::error::Error),
 }
 
 /// Downloads `state.seq`. With `frag_file`, the data goes to that file instead
@@ -243,17 +244,7 @@ pub(super) async fn download_fragment(
                                         state.name,
                                         state.seq
                                     );
-                                    state.tries += 1;
-                                    if session.is_stopping() {
-                                        return FragOutcome::Stopped;
-                                    }
-                                    if !continue_fragment_download(session, state, progress()) {
-                                        return FragOutcome::Missing;
-                                    }
-                                    if !sleep_or_stop(session, state).await {
-                                        return FragOutcome::Stopped;
-                                    }
-                                    continue;
+                                    return FragOutcome::StorageError(error);
                                 }
                             },
                         };
