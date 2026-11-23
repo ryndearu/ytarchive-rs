@@ -102,6 +102,16 @@ pub async fn run(
     RunResult { code, video_id, downloaded: true }
 }
 
+fn select_streams(sel: &crate::types::FormatSelection) -> Vec<(DataType, u32)> {
+    [
+        sel.audio_url.as_ref().map(|_| (DataType::Audio, AUDIO_ITAG)),
+        sel.video_url.as_ref().zip(sel.video_itag).map(|(_, itag)| (DataType::Video, itag)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
+}
+
 async fn download(
     opts: Arc<Options>,
     http: Http,
@@ -122,20 +132,14 @@ async fn download(
         ensure_dir(temp_dir.clone(), opts.dir_mode, "temporary");
     }
 
-    let streams: Vec<(DataType, u32)> = [
-        prepared.sel.audio_url.as_ref().map(|_| (DataType::Audio, AUDIO_ITAG)),
-        prepared.sel.video_url.as_ref().zip(prepared.sel.video_itag).map(|(_, itag)| (DataType::Video, itag)),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let mut streams = select_streams(&prepared.sel);
     if streams.is_empty() {
         log_error!("Neither audio nor video downloads were started.");
         return 1;
     }
     let itags: Vec<u32> = streams.iter().map(|stream| stream.1).collect();
-    let (mut states, prev_temp) = load_states(&opts, &prepared.video_id, &itags);
-    let resuming = states.iter().any(|state| state.fragments > 0);
+    let (mut states, mut prev_temp) = load_states(&opts, &prepared.video_id, &itags);
+    let mut resuming = states.iter().any(|state| state.fragments > 0);
 
     // --start-delay (ignored when resuming).
     let mut start_sq = live_from_sq;
@@ -160,6 +164,23 @@ async fn download(
                     Some(sel) => {
                         prepared.sel = sel;
                         prepared.live = extractor.live;
+                        if let Some(latest) = extractor.last_sq {
+                            prepared.last_sq = Some(latest);
+                        }
+                        if extractor.target_duration > 0 {
+                            prepared.target_duration = extractor.target_duration;
+                        }
+                        let updated = select_streams(&prepared.sel);
+                        if updated.is_empty() {
+                            log_error!("Neither audio nor video downloads were started.");
+                            return 1;
+                        }
+                        if updated != streams {
+                            streams = updated;
+                            let itags: Vec<u32> = streams.iter().map(|stream| stream.1).collect();
+                            (states, prev_temp) = load_states(&opts, &prepared.video_id, &itags);
+                            resuming = states.iter().any(|state| state.fragments > 0);
+                        }
                     }
                     None => {
                         log_error!("Got an error when re-grabbing video info after the delay period elapsed. Exiting.");
@@ -253,7 +274,6 @@ async fn download(
     });
     let refresher = session.spawn_periodic_refresh();
 
-    let resumed = states.iter().any(|state| state.fragments > 0);
     let (sender, receiver) = mpsc::unbounded_channel();
     let reporter = tokio::spawn(report_progress(receiver, opts.status_newlines));
 
@@ -348,7 +368,7 @@ async fn download(
         pending_exports,
     };
     if storage_failed {
-        let had_data = resumed
+        let had_data = resuming
             || stored_before_failing
             || [frags.audio, frags.video].iter().flatten().any(|fragments| *fragments > 0);
         return fin.on_storage_error(had_data);
