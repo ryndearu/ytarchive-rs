@@ -10,7 +10,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::download::{MEMORY_LIMIT, StreamParams, download_stream};
+use crate::download::{MEMORY_LIMIT, PendingExport, StreamParams, download_stream};
 use crate::finish::{Finish, Moved};
 use crate::http::Http;
 use crate::input_url::InputUrl;
@@ -274,6 +274,7 @@ async fn download(
     let mut storage_failed = false;
     let mut stored_before_failing = false;
     let mut retry_until: Option<u64> = None;
+    let mut pending_exports: Vec<PendingExport> = Vec::new();
     let mut state_files = Vec::new();
     for (task, (data_type, itag)) in tasks.into_iter().zip(&streams) {
         state_files.push(crate::output::state_file(&opts, &prepared.video_id, *itag));
@@ -290,6 +291,9 @@ async fn download(
                 *frags.get_mut(*data_type) = Some(out.state.fragments);
                 if let Some(time) = out.retry_until {
                     retry_until = Some(retry_until.map_or(time, |until| until.max(time)));
+                }
+                if let Some(export) = out.pending_export {
+                    pending_exports.push(export);
                 }
             }
             Ok(Err(error)) => {
@@ -310,7 +314,7 @@ async fn download(
     }
     eprintln!();
 
-    let fin = Finish {
+    let mut fin = Finish {
         opts: &opts,
         plan: &plan,
         video_id: &prepared.video_id,
@@ -325,6 +329,7 @@ async fn download(
         audio_frags: frags.audio,
         video_frags: frags.video,
         keep_for_retry: retry_until,
+        pending_exports,
     };
     if storage_failed {
         let had_data = resumed
