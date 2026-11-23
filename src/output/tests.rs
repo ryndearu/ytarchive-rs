@@ -48,6 +48,9 @@ fn leading_dash_and_empty_names() {
     assert!(final_location(&options, &format_info(".")).is_err());
     assert_eq!(final_location(&options, &format_info("aux")).unwrap().1, "_aux");
     assert_eq!(final_location(&options, &format_info("Why?")).unwrap().1, "Why_");
+    let long_dash = format!("-{}", "a".repeat(MAX_FILENAME_LEN));
+    let (_, long_name) = final_location(&options, &format_info(&long_dash)).unwrap();
+    assert!(long_name.starts_with("_-") && long_name.len() <= MAX_FILENAME_LEN, "{}", long_name.len());
 }
 
 #[test]
@@ -60,6 +63,9 @@ fn folder_names_are_windows_safe() {
     info.insert("channel".into(), "Mr. ".into());
     let (dir, _) = final_location(&options, &info).unwrap();
     assert!(dir.ends_with("out/Mr__"), "{}", dir.display());
+    info.insert("channel".into(), "..".into());
+    let (dir, _) = final_location(&options, &info).unwrap();
+    assert!(dir.ends_with("out/__"), "{}", dir.display());
     // `..` in the template itself is kept.
     let parent = opts("../%(title)s", true);
     let (dir, _) = final_location(&parent, &info).unwrap();

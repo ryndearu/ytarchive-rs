@@ -59,14 +59,18 @@ const WINDOWS_RESERVED: &[&str] = &[
     "LPT²", "LPT³",
 ];
 
+fn is_windows_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("");
+    WINDOWS_RESERVED.iter().any(|reserved| reserved.eq_ignore_ascii_case(stem.trim_end()))
+}
+
 /// Makes a single file or folder name valid on Windows (used with
 /// `--windows-filenames`): no trailing dots/spaces, and no reserved device
 /// names like `CON` or `nul.txt`.
 pub fn portable_file_name(name: &str) -> String {
     let trimmed = name.trim_end_matches(['.', ' ']);
     let mut out = format!("{trimmed}{}", "_".repeat(name.len() - trimmed.len()));
-    let stem = out.split('.').next().unwrap_or("");
-    if WINDOWS_RESERVED.iter().any(|reserved| reserved.eq_ignore_ascii_case(stem.trim_end())) {
+    if is_windows_reserved(&out) {
         out.insert(0, '_');
     }
     out
@@ -139,15 +143,21 @@ pub fn format_filename(
         .iter()
         .map(|(key, value)| {
             let blacklisted = FILENAME_FORMAT_BLACKLIST.iter().any(|blocked| blocked.eq_ignore_ascii_case(key.trim()));
-            let safe = if blacklisted { String::new() } else { sterilize_filename(value, style) };
+            let safe = if blacklisted {
+                String::new()
+            } else {
+                let cleaned = sterilize_filename(value, style);
+                if cleaned == ".." { "__".to_string() } else { cleaned }
+            };
             (key.clone(), safe)
         })
         .collect();
 
     let out = format_python_map(format, &fname_vals)?;
     let base = Path::new(&out).file_name().map_or("", |name| name.to_str().unwrap_or(""));
-    let mut over_bytes = base.len().saturating_sub(MAX_FILENAME_LEN);
-    let mut over_units = max_units.map_or(0, |limit| base.encode_utf16().count().saturating_sub(limit));
+    let extra = usize::from(base.starts_with('-') || (style.windows && is_windows_reserved(base)));
+    let mut over_bytes = (base.len() + extra).saturating_sub(MAX_FILENAME_LEN);
+    let mut over_units = max_units.map_or(0, |limit| (base.encode_utf16().count() + extra).saturating_sub(limit));
     if over_bytes == 0 && over_units == 0 {
         return Ok(out);
     }
