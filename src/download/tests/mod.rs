@@ -382,7 +382,8 @@ async fn live_fragments() {
     assert_eq!(out.state.fragments, 3);
     let data = std::fs::read(dir.join("out.f140.ts")).unwrap();
     assert_eq!(&data[4..8], b"ftyp", "first fragment keeps ftyp");
-    let names: Vec<_> = crate::mp4_atoms::atoms(&data).iter().map(|atom| atom.0.to_string()).collect();
+    let names: Vec<_> =
+        crate::mp4_atoms::atoms(&data).iter().map(|atom| String::from_utf8_lossy(&atom.0).into_owned()).collect();
     assert!(!names.contains(&"sidx".to_string()), "{names:?}");
     assert_eq!(names.iter().filter(|name| *name == "ftyp").count(), 1, "{names:?}");
     std::fs::remove_dir_all(&dir).unwrap();

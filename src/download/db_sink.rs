@@ -212,9 +212,9 @@ impl DbSink {
         let mut rows = stmt.query([])?;
         let (mut count, mut bytes) = (0u64, 0u64);
         while let Some(row) = rows.next()? {
-            let mime: String = row.get(0)?;
-            let raw: Vec<u8> = row.get(1)?;
-            let data = strip_for_concat(&raw, &mime, count == 0).unwrap_or(raw);
+            let mime = row.get_ref(0)?.as_str().map_err(rusqlite::Error::from)?;
+            let raw = row.get_ref(1)?.as_blob().map_err(rusqlite::Error::from)?;
+            let data = strip_for_concat(raw, mime, count == 0);
             file.write_all(&data)?;
             count += 1;
             bytes += data.len() as u64;

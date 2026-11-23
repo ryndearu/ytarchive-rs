@@ -13,7 +13,7 @@ use tokio::task::spawn_blocking;
 
 use super::db_sink::{DbSink, MetaUpdate, db_path};
 use crate::error::Result;
-use crate::mp4_atoms::strip_for_concat;
+use crate::mp4_atoms::strip_bytes;
 use crate::types::{DownloadState, FragData, Fragment};
 use crate::util::apply_mode;
 use crate::{log_debug, log_info, log_warn};
@@ -109,7 +109,7 @@ impl TsSink {
             let written = async {
                 let raw = fragment_bytes(&frag.data).await?;
                 let first = self.next_write == self.start_frag;
-                let data = strip_for_concat(&raw, &frag.mime_type, first).map_or(raw, Bytes::from);
+                let data = strip_bytes(raw, &frag.mime_type, first);
                 self.file.write_all(&data).await?;
                 // tokio writes in the background and reports a failure only
                 // on the next call; without this a fragment that never
