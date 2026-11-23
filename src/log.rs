@@ -1,6 +1,8 @@
 //! Leveled, colored logging to stderr, matching Go ytarchive's output format:
 //! `2006/01/02 15:04:05 LEVEL: message`.
 
+use std::io::IsTerminal;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use tokio::sync::mpsc;
@@ -51,7 +53,7 @@ pub async fn report_progress(mut receiver: mpsc::UnboundedReceiver<ProgressInfo>
     while let Some(progress) = receiver.recv().await {
         totals.add(&progress);
         if level() > LogLevel::Quiet {
-            if newlines {
+            if newlines || !is_tty() {
                 eprintln!("{}", totals.line(verbose));
             } else {
                 eprint!("\r{}\x1b[K", totals.line(verbose));
@@ -64,6 +66,16 @@ pub async fn report_progress(mut receiver: mpsc::UnboundedReceiver<ProgressInfo>
 static LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Warning as u8);
 /// When false (default), log lines start with `\r` to overwrite the status line.
 static NEWLINES: AtomicBool = AtomicBool::new(false);
+
+fn is_tty() -> bool {
+    static TTY: OnceLock<bool> = OnceLock::new();
+    *TTY.get_or_init(|| std::io::stderr().is_terminal())
+}
+
+fn use_color() -> bool {
+    static COLOR: OnceLock<bool> = OnceLock::new();
+    *COLOR.get_or_init(|| is_tty() && std::env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()))
+}
 
 pub fn set_newlines(on: bool) {
     NEWLINES.store(on, Ordering::Relaxed);
@@ -104,10 +116,12 @@ fn style(at: LogLevel, general: bool) -> (Option<&'static str>, &'static str) {
 }
 
 /// Builds the line without the timestamp; split out for testing.
-pub fn format_line(at: LogLevel, general: bool, msg: &str) -> String {
+fn format_line_styled(at: LogLevel, general: bool, msg: &str, color_on: bool, clear_line: bool) -> String {
+    let clear = if clear_line { "\x1b[K" } else { "" };
     match style(at, general) {
-        (Some(label), color) => format!("{label}: {color}{msg}\x1b[0m\x1b[K"),
-        (None, _) => msg.to_string(),
+        (Some(label), color) if color_on => format!("{label}: {color}{msg}\x1b[0m{clear}"),
+        (Some(label), _) => format!("{label}: {msg}{clear}"),
+        (None, _) => format!("{msg}{clear}"),
     }
 }
 
@@ -117,22 +131,23 @@ pub fn write(at: LogLevel, general: bool, args: std::fmt::Arguments<'_>) {
         return;
     }
     let timestamp = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
-    let line_start = if NEWLINES.load(Ordering::Relaxed) { "" } else { "\r" };
-    eprintln!("{line_start}{timestamp} {}", format_line(at, general, &args.to_string()));
+    let inline = is_tty() && !NEWLINES.load(Ordering::Relaxed);
+    let line_start = if inline { "\r" } else { "" };
+    eprintln!("{line_start}{timestamp} {}", format_line_styled(at, general, &args.to_string(), use_color(), inline));
 }
 
 /// Status line while polling for a stream. Rewrites the same line unless
-/// `newlines` (`--newline`) is set.
+/// `newlines` (`--newline`) is set or stderr is not a TTY.
 pub fn retry_status(retries: u32, total_waited_secs: u64, newlines: bool) {
     if level() <= LogLevel::Quiet {
         return;
     }
     let now = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
     let msg = format!("Retries: {retries} (Last retry: {now}), Total time waited: {total_waited_secs} seconds");
-    if newlines {
+    if newlines || !is_tty() {
         eprintln!("{msg}");
     } else {
-        eprint!("\r{msg}");
+        eprint!("\r{msg}\x1b[K");
     }
 }
 
@@ -160,4 +175,20 @@ macro_rules! log_debug {
 #[macro_export]
 macro_rules! log_trace {
     ($($arg:tt)*) => { $crate::log::write($crate::types::LogLevel::Trace, false, format_args!($($arg)*)) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_tty_and_plain_lines() {
+        assert_eq!(format_line_styled(LogLevel::Error, true, "hello", true, true), "hello\x1b[K");
+        assert_eq!(
+            format_line_styled(LogLevel::Warning, false, "careful", true, true),
+            "WARNING: \x1b[33mcareful\x1b[0m\x1b[K"
+        );
+        assert_eq!(format_line_styled(LogLevel::Warning, false, "careful", false, true), "WARNING: careful\x1b[K");
+        assert_eq!(format_line_styled(LogLevel::Warning, false, "careful", false, false), "WARNING: careful");
+    }
 }
