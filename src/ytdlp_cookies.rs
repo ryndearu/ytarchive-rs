@@ -139,27 +139,97 @@ pub fn repair(data: &[u8]) -> String {
     out
 }
 
+/// Guard that removes any temporary cookies file when dropped on exit.
+pub struct CookiesGuard;
+
+impl Drop for CookiesGuard {
+    fn drop(&mut self) {
+        remove();
+    }
+}
+
+pub fn guard() -> CookiesGuard {
+    CookiesGuard
+}
+
 /// If yt-dlp would refuse the cookies file, writes a repaired copy to the
 /// temp folder (readable only by the user) and returns its path.
 pub fn prepare(original: &Path, data: &[u8]) -> std::io::Result<Option<PathBuf>> {
     let Some(why) = problem(data) else {
         return Ok(None);
     };
-    let path = std::env::temp_dir().join(format!("ytarchive-cookies-{}.txt", std::process::id()));
-    // A copy left by an earlier process with the same id; `create_new` below
-    // reports the problem if it can't be replaced.
-    delete(&path);
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-    opts.open(&path)?.write_all(repair(data).as_bytes())?;
+    let pid = std::process::id();
+    let seed =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |duration| duration.as_nanos())
+            ^ u128::from(pid);
+    let temp_dir = std::env::temp_dir();
+    let repaired = repair(data);
+    let mut created = None;
+    for attempt in 0..100u128 {
+        let suffix = (seed.wrapping_add(attempt)) & 0xffff_ffff;
+        let path = temp_dir.join(format!("ytarchive-cookies-{pid}-{suffix:08x}.txt"));
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        match opts.open(&path) {
+            Ok(mut file) => {
+                let write_res = file.write_all(repaired.as_bytes());
+                drop(file);
+                if let Err(error) = write_res {
+                    delete(&path);
+                    return Err(error);
+                }
+                created = Some(path);
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    let path = created.ok_or_else(|| std::io::Error::other("could not create a unique temporary cookies file"))?;
     *lock(&ACTIVE) = Some(path.clone());
+    if let Some(cutoff) = std::time::SystemTime::now().checked_sub(std::time::Duration::from_secs(24 * 60 * 60)) {
+        cleanup_stale_cookie_files(&temp_dir, &path, cutoff);
+    }
     log_warn!(
         "yt-dlp can't read the cookies file {} ({why}); passing it a repaired copy. Cookies yt-dlp refreshes won't be saved back to the file for this run.",
         original.display()
     );
     Ok(Some(path))
+}
+
+fn cleanup_stale_cookie_files(dir: &Path, current: &Path, cutoff: std::time::SystemTime) {
+    #[cfg(unix)]
+    let owner_uid = std::fs::symlink_metadata(current).ok().map(|meta| std::os::unix::fs::MetadataExt::uid(&meta));
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if entry_path == current {
+            continue;
+        }
+        let Some(name) = entry_path.file_name().and_then(|file| file.to_str()) else {
+            continue;
+        };
+        if !(name.starts_with("ytarchive-cookies-") && name.ends_with(".txt")) {
+            continue;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(&entry_path) else {
+            continue;
+        };
+        if !meta.file_type().is_file() {
+            continue;
+        }
+        #[cfg(unix)]
+        if owner_uid != Some(std::os::unix::fs::MetadataExt::uid(&meta)) {
+            continue;
+        }
+        if meta.modified().is_ok_and(|mtime| mtime <= cutoff) {
+            delete(&entry_path);
+        }
+    }
 }
 
 /// Deletes the repaired copy, if any.
@@ -218,5 +288,29 @@ mod tests {
             fixed,
             "# Netscape HTTP Cookie File\n.y.com\tTRUE\t/\tTRUE\t0\tA\tbc\nyoutube.com\tFALSE\t/\tTRUE\t0\tB\td\n"
         );
+    }
+
+    #[test]
+    fn removes_only_stale_matching_cookie_files() {
+        let dir = std::env::temp_dir().join(format!("ytarchive-rs-cookie-clean-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let current = dir.join("ytarchive-cookies-1-current.txt");
+        let stale = dir.join("ytarchive-cookies-1-stale.txt");
+        let unrelated = dir.join("other.txt");
+        std::fs::write(&current, b"cur").unwrap();
+        std::fs::write(&stale, b"old").unwrap();
+        std::fs::write(&unrelated, b"keep").unwrap();
+
+        let minute = std::time::Duration::from_secs(60);
+        let past_cutoff = std::time::SystemTime::now() - minute;
+        cleanup_stale_cookie_files(&dir, &current, past_cutoff);
+        assert!(stale.exists());
+
+        let future_cutoff = std::time::SystemTime::now() + minute;
+        cleanup_stale_cookie_files(&dir, &current, future_cutoff);
+        assert!(current.exists());
+        assert!(!stale.exists());
+        assert!(unrelated.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
