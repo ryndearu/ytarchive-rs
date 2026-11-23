@@ -4,11 +4,13 @@
 //! stored. At the end the table is exported in order to the `.ts` file.
 
 use std::collections::HashSet;
-use std::io::Write;
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::{Connection, params};
+use tokio::task::spawn_blocking;
 
 use super::sink::{Event, fragment_bytes};
 use crate::error::Result;
@@ -40,7 +42,7 @@ async fn run_blocking<T: Send + 'static>(
     func: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
 ) -> Result<T> {
     let conn = conn.clone();
-    tokio::task::spawn_blocking(move || func(&mut lock(&conn))).await.map_err(std::io::Error::other)?
+    spawn_blocking(move || func(&mut lock(&conn))).await.map_err(io::Error::other)?
 }
 
 fn stored_with(conn: &Connection) -> Result<HashSet<u64>> {
@@ -104,7 +106,7 @@ impl DbSink {
     }
 
     pub async fn open_async(path: PathBuf, mode: u32) -> Result<Self> {
-        tokio::task::spawn_blocking(move || Self::open(&path, mode)).await.map_err(std::io::Error::other)?
+        spawn_blocking(move || Self::open(&path, mode)).await.map_err(io::Error::other)?
     }
 
     pub fn path(&self) -> &Path {
@@ -205,7 +207,7 @@ impl DbSink {
     /// Writes all stored fragments in order to `out` (replacing it). The
     /// first fragment keeps its `ftyp` box. Returns (fragments, bytes).
     pub fn export(&self, out: &Path, mode: u32) -> Result<(u64, u64)> {
-        let mut file = std::io::BufWriter::new(std::fs::File::create(out)?);
+        let mut file = BufWriter::new(File::create(out)?);
         apply_mode(out, mode);
         let conn = lock(&self.conn);
         let mut stmt = conn.prepare("SELECT mime, data FROM segments ORDER BY seq")?;

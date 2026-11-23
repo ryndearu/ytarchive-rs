@@ -1,8 +1,11 @@
 //! Fragment-level data passed between download workers and the writer.
 
-use bytes::Bytes;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use bytes::Bytes;
+use reqwest::Url;
+use reqwest::header::HeaderValue;
 
 /// Which half of the stream a worker is handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -135,7 +138,7 @@ pub struct FragmentUrl {
     prefix: String,
     suffix: String,
     host: Option<String>,
-    referer: Option<reqwest::header::HeaderValue>,
+    referer: Option<HeaderValue>,
     expires_at: Option<u64>,
 }
 
@@ -145,10 +148,9 @@ fn base_from_prefix(prefix: &str) -> &str {
 
 impl FragmentUrl {
     fn build(prefix: String, suffix: String) -> Self {
-        let parsed = reqwest::Url::parse(base_from_prefix(&prefix)).ok();
+        let parsed = Url::parse(base_from_prefix(&prefix)).ok();
         let host = parsed.as_ref().and_then(|url| url.host_str().map(str::to_string));
-        let referer =
-            host.as_deref().and_then(|value| reqwest::header::HeaderValue::from_str(&format!("https://{value}/")).ok());
+        let referer = host.as_deref().and_then(|value| HeaderValue::from_str(&format!("https://{value}/")).ok());
         let expires_at = parsed.as_ref().and_then(|url| {
             url.query_pairs().find(|(key, _)| key == "expire").and_then(|(_, value)| value.parse().ok())
         });
@@ -188,7 +190,7 @@ impl FragmentUrl {
         self.host.as_deref()
     }
 
-    pub fn referer(&self) -> Option<&reqwest::header::HeaderValue> {
+    pub fn referer(&self) -> Option<&HeaderValue> {
         self.referer.as_ref()
     }
 
