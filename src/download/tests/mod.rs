@@ -267,6 +267,42 @@ async fn skips_permanently_failing_fragment() {
 }
 
 #[tokio::test]
+async fn resume_after_skipped_fragment_does_not_duplicate() {
+    let dir = temp_dir("resume-skipped");
+
+    // First run: fragment 2 permanently fails and is skipped out of 0..6.
+    let url = serve(6, vec![2]).await;
+    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, _rx) = params(&dir, 6, DownloadState::default());
+    stream_params.retry_sleep = Duration::from_millis(1);
+    let first = download_stream(session, stream_params).await.unwrap();
+    assert_eq!(first.skipped, [2]);
+    assert_eq!(first.state.fragments, 5);
+    assert_eq!(first.state.skipped, 1);
+
+    let saved = load_state(&dir.join("out.f140.state")).unwrap();
+    assert_eq!(saved.skipped, 1);
+
+    // Go state files without `Skipped` must still deserialize with `skipped == 0`.
+    let legacy: DownloadState =
+        serde_json::from_str(r#"{"StartFrag":0,"Fragments":3,"Size":100,"TempDir":""}"#).unwrap();
+    assert_eq!(legacy.skipped, 0);
+
+    // Resume to head 8: must start at 6 (not 5) so fragment 5 isn't duplicated.
+    let url = serve(8, vec![]).await;
+    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, _rx) = params(&dir, 8, saved);
+    stream_params.retry_sleep = Duration::from_millis(1);
+    let second = download_stream(session, stream_params).await.unwrap();
+    assert_eq!(second.state.fragments, 7);
+
+    let want: Vec<u8> =
+        (0..8).filter(|sequence| *sequence != 2).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
 async fn unopenable_storage_is_reported_as_such() {
     // A data file in a folder that doesn't exist, like a name Windows rejects.
     let dir = temp_dir("no-storage");

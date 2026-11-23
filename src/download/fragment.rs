@@ -195,21 +195,28 @@ async fn sleep_or_stop(session: &Session, state: &FragThreadState) -> bool {
     crate::util::sleep_or_cancel(&session.cancel, retry_delay(state)).await
 }
 
+pub(super) enum FragOutcome {
+    Downloaded(Fragment),
+    Missing,
+    Stopped,
+}
+
 /// Downloads `state.seq`. With `frag_file`, the data goes to that file instead
-/// of memory. Returns `None` if the fragment was given up on or the download
-/// is stopping.
-pub async fn download_fragment(
+/// of memory.
+pub(super) async fn download_fragment(
     session: &Session,
     state: &mut FragThreadState,
     frag_file: Option<PathBuf>,
     progress: &(dyn Fn() -> StreamProgress + Sync),
-) -> Option<Fragment> {
+) -> FragOutcome {
     let max = session.opts.frag_max_tries;
     while max == 0 || state.tries < max {
         if session.is_stopping() {
-            return None;
+            return FragOutcome::Stopped;
         }
-        let url = session.url(state.data_type)?;
+        let Some(url) = session.url(state.data_type) else {
+            return FragOutcome::Missing;
+        };
         state.retry_after = None;
         match fragment_request(session, &url, state.seq).send().await {
             Err(error) => handle_download_error(session, state, &without_query(error)),
@@ -236,16 +243,25 @@ pub async fn download_fragment(
                                         state.seq
                                     );
                                     state.tries += 1;
-                                    if !continue_fragment_download(session, state, progress())
-                                        || !sleep_or_stop(session, state).await
-                                    {
-                                        return None;
+                                    if session.is_stopping() {
+                                        return FragOutcome::Stopped;
+                                    }
+                                    if !continue_fragment_download(session, state, progress()) {
+                                        return FragOutcome::Missing;
+                                    }
+                                    if !sleep_or_stop(session, state).await {
+                                        return FragOutcome::Stopped;
                                     }
                                     continue;
                                 }
                             },
                         };
-                        return Some(Fragment { seq: state.seq, x_head_seqnum: head, data, mime_type: mime });
+                        return FragOutcome::Downloaded(Fragment {
+                            seq: state.seq,
+                            x_head_seqnum: head,
+                            data,
+                            mime_type: mime,
+                        });
                     }
                 }
             }
@@ -253,9 +269,15 @@ pub async fn download_fragment(
 
         state.tries += 1;
         retry_fragment_url(session, state, &url).await;
-        if !continue_fragment_download(session, state, progress()) || !sleep_or_stop(session, state).await {
-            return None;
+        if session.is_stopping() {
+            return FragOutcome::Stopped;
+        }
+        if !continue_fragment_download(session, state, progress()) {
+            return FragOutcome::Missing;
+        }
+        if !sleep_or_stop(session, state).await {
+            return FragOutcome::Stopped;
         }
     }
-    None
+    if session.is_stopping() { FragOutcome::Stopped } else { FragOutcome::Missing }
 }

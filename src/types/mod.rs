@@ -204,11 +204,17 @@ pub struct CookieSet {
 pub struct DownloadState {
     pub start_frag: u64,
     pub fragments: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub skipped: u64,
     pub size: u64,
     pub temp_dir: PathBuf,
     /// Path of the state file itself; not serialized.
     #[serde(skip)]
     pub file: PathBuf,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 /// Values exposed to the `%(key)s` filename template.
