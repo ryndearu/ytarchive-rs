@@ -44,7 +44,7 @@ pub fn parse_netscape(data: &[u8]) -> CookieSet {
                 domain,
                 path: if path.is_empty() { "/".into() } else { path },
                 secure: secure.eq_ignore_ascii_case(b"true"),
-                expires: text(expires).parse::<i64>().ok().filter(|expiry| *expiry > 0),
+                expires: parse_expiry(expires),
                 value: sanitize_value(&name, value),
                 name,
                 http_only,
@@ -52,6 +52,28 @@ pub fn parse_netscape(data: &[u8]) -> CookieSet {
         })
         .collect();
     CookieSet { cookies }
+}
+
+/// Parses Netscape cookie expiry timestamps (integer or fractional Unix
+/// seconds). Sub-second positive values (`0 < t < 1`) clamp to `Some(1)`
+/// (expired in 1970) rather than promoting them to indefinite session cookies.
+fn parse_expiry(raw: &[u8]) -> Option<i64> {
+    let text = std::str::from_utf8(raw).ok()?.trim();
+    if let Ok(secs) = text.parse::<i64>() {
+        return (secs > 0).then_some(secs);
+    }
+    let (whole, frac) = text.split_once('.')?;
+    if frac.is_empty() || !frac.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let secs = whole.parse::<i64>().ok()?;
+    if secs > 0 {
+        Some(secs)
+    } else if secs == 0 && frac.bytes().any(|byte| byte != b'0') {
+        Some(1)
+    } else {
+        None
+    }
 }
 
 /// Go's `net/http` cookie value rules: bytes outside printable ASCII and
@@ -139,5 +161,19 @@ mod tests {
         }
         let sent = jar.cookies(&"https://www.youtube.com/watch".parse().unwrap());
         assert_eq!(sent.unwrap().to_str().unwrap(), "A=\"b c\"");
+    }
+
+    #[test]
+    fn parses_fractional_expiry_timestamps() {
+        let data = b".youtube.com\tTRUE\t/\tTRUE\t1893456000.5\tA\t1\n\
+                     .youtube.com\tTRUE\t/\tTRUE\t0.5\tB\t2\n\
+                     .youtube.com\tTRUE\t/\tTRUE\t0.0\tC\t3\n\
+                     .youtube.com\tTRUE\t/\tTRUE\tinvalid\tD\t4\n";
+        let set = parse_netscape(data);
+        assert_eq!(set.cookies.len(), 4);
+        assert_eq!(set.cookies[0].expires, Some(1_893_456_000));
+        assert_eq!(set.cookies[1].expires, Some(1));
+        assert_eq!(set.cookies[2].expires, None);
+        assert_eq!(set.cookies[3].expires, None);
     }
 }
