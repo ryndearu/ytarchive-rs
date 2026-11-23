@@ -37,7 +37,11 @@ impl Extractor {
             if self.cancel.is_cancelled() {
                 return Outcome::NotUsable;
             }
-            let html = get_video_html(&self.http, &self.page_url, self.is_channel, self.members_only).await;
+            let html =
+                get_video_html(&self.http, &self.page_url, self.is_channel, self.members_only, &self.cancel).await;
+            if self.cancel.is_cancelled() {
+                return Outcome::NotUsable;
+            }
             let parsed = match &html {
                 Some(host) => parse_player_response(host).map_err(|error| error.to_string()),
                 None => Err("unable to retrieve data from video page".to_string()),

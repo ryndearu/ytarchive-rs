@@ -8,6 +8,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use reqwest::cookie::Jar;
 use reqwest::{Client, Proxy};
+use tokio_util::sync::CancellationToken;
 
 use crate::cookies;
 use crate::error::{Error, Result};
@@ -70,18 +71,39 @@ impl Http {
     }
 
     /// GETs `url` and returns the body; non-2xx statuses are errors.
+    #[cfg(test)]
     pub async fn get_bytes(&self, url: &str) -> Result<Bytes> {
-        let resp = self.client.get(url).send().await?;
+        self.get_bytes_cancellable(url, &CancellationToken::new()).await
+    }
+
+    /// GETs `url` and returns the body, stopping immediately if `cancel` triggers.
+    pub async fn get_bytes_cancellable(&self, url: &str, cancel: &CancellationToken) -> Result<Bytes> {
+        let resp = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(Error::Cancelled),
+            result = self.client.get(url).send() => result?,
+        };
         let status = resp.status();
         if !status.is_success() {
             return Err(Error::HttpStatus { status: status.as_u16(), what: redact_query(url) });
         }
-        Ok(resp.bytes().await?)
+        tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(Error::Cancelled),
+            body = resp.bytes() => Ok(body?),
+        }
     }
 
-    /// Downloads `url` to `path` with the given mode (used for thumbnails).
-    pub async fn download_to_file(&self, url: &str, path: &Path, mode: u32) -> Result<()> {
-        let data = self.get_bytes(url).await?;
+    /// Downloads `url` to `path` with the given mode (used for thumbnails),
+    /// stopping immediately if `cancel` triggers.
+    pub async fn download_to_file_cancellable(
+        &self,
+        url: &str,
+        path: &Path,
+        mode: u32,
+        cancel: &CancellationToken,
+    ) -> Result<()> {
+        let data = self.get_bytes_cancellable(url, cancel).await?;
         log_debug!("Writing {} bytes to {}", data.len(), path.display());
         write_file_with_mode(path, &data, mode).await
     }

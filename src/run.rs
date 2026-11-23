@@ -180,8 +180,14 @@ async fn download(
     let mut thumbnail = None;
     if (opts.embed_thumbnail || opts.write_thumbnail) && !prepared.thumbnail_url.is_empty() {
         let temp = plan.temp(".jpg");
-        match http.download_to_file(&prepared.thumbnail_url, &temp, opts.file_mode).await {
+        match http.download_to_file_cancellable(&prepared.thumbnail_url, &temp, opts.file_mode, &cancel).await {
             Ok(()) => thumbnail = Some(Moved { temp, dest: plan.final_path(".jpg") }),
+            Err(crate::error::Error::Cancelled) => {
+                if !resuming {
+                    plan.remove_temp_dir(&prepared.video_id);
+                }
+                return if interrupt.terminated() { 143 } else { 2 };
+            }
             Err(error) => log_warn!("Failed to download thumbnail: {error}"),
         }
     }
