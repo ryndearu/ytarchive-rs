@@ -65,7 +65,13 @@ pub async fn run(
                 let code = download(opts.clone(), http, cancel, prepared, None, interrupt).await;
                 return RunResult { code, video_id: Some(id.clone()), downloaded: true };
             }
-            return RunResult::code(if interrupt.is_set() { 2 } else { 1 });
+            return RunResult::code(if interrupt.terminated() {
+                143
+            } else if interrupt.is_set() {
+                2
+            } else {
+                1
+            });
         }
     };
     if skip_ids.contains(&prepared.video_id) {
@@ -143,7 +149,7 @@ async fn download(
             log_general!("Waiting {} before starting to download...", seconds_to_duration_and_time_str(wait.as_secs()));
             log_debug!("Will start from sequence {sequence} [current is {last}]");
             tokio::select! {
-                _ = cancel.cancelled() => return 2,
+                _ = cancel.cancelled() => return if interrupt.terminated() { 143 } else { 2 },
                 _ = tokio::time::sleep(wait) => {}
             }
             start_sq = Some(sequence);
@@ -174,8 +180,14 @@ async fn download(
     let mut thumbnail = None;
     if (opts.embed_thumbnail || opts.write_thumbnail) && !prepared.thumbnail_url.is_empty() {
         let temp = plan.temp(".jpg");
-        match http.download_to_file(&prepared.thumbnail_url, &temp, opts.file_mode).await {
+        match http.download_to_file_cancellable(&prepared.thumbnail_url, &temp, opts.file_mode, &cancel).await {
             Ok(()) => thumbnail = Some(Moved { temp, dest: plan.final_path(".jpg") }),
+            Err(crate::error::Error::Cancelled) => {
+                if !resuming {
+                    plan.remove_temp_dir(&prepared.video_id);
+                }
+                return if interrupt.terminated() { 143 } else { 2 };
+            }
             Err(error) => log_warn!("Failed to download thumbnail: {error}"),
         }
     }
@@ -336,6 +348,9 @@ async fn download(
             || stored_before_failing
             || [frags.audio, frags.video].iter().flatten().any(|fragments| *fragments > 0);
         return fin.on_storage_error(had_data);
+    }
+    if interrupt.terminated() {
+        return fin.on_terminate();
     }
     if interrupt.is_set()
         && let Some(code) = fin.on_cancel().await

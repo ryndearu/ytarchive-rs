@@ -55,8 +55,8 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
     args
 }
 
-/// Runs yt-dlp once and returns stdout.
-pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool) -> Result<String> {
+/// Runs yt-dlp once and returns stdout, stopping early on cancel.
+pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool, cancel: &CancellationToken) -> Result<String> {
     let args = build_args(opts, url, ignore_no_formats);
     let executable = resolve_program(&opts.ytdlp_path).unwrap_or_else(|| PathBuf::from(&opts.ytdlp_path));
     log_trace!("Running {} {:?}", executable.display(), args);
@@ -72,9 +72,13 @@ pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool) -> Result<S
         .spawn()
         .map_err(|error| Error::Ytdlp(format!("failed to start '{}': {error}", opts.ytdlp_path)))?;
 
-    let out = tokio::time::timeout(RUN_TIMEOUT, child.wait_with_output())
-        .await
-        .map_err(|_| Error::Ytdlp(format!("timed out after {}s", RUN_TIMEOUT.as_secs())))??;
+    let out = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return Err(Error::Cancelled),
+        result = tokio::time::timeout(RUN_TIMEOUT, child.wait_with_output()) => {
+            result.map_err(|_| Error::Ytdlp(format!("timed out after {}s", RUN_TIMEOUT.as_secs())))??
+        }
+    };
 
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -94,8 +98,9 @@ pub async fn run_with_retry(
 ) -> Result<String> {
     let mut last_err = Error::Ytdlp("not run".into());
     for attempt in 1..=attempts {
-        match run(opts, url, ignore_no_formats).await {
+        match run(opts, url, ignore_no_formats, cancel).await {
             Ok(out) => return Ok(out),
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(error) => {
                 log_warn!("yt-dlp attempt {attempt}/{attempts} failed: {error}");
                 last_err = error;
@@ -184,9 +189,14 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
 }
 
 /// Reads the `X-Head-Seqnum` header (latest available fragment) via HEAD.
-pub async fn probe_x_head_seqnum(http: &Http, url: &str) -> Option<u64> {
-    let resp =
-        http.client.head(url).header(ORIGIN, "https://www.youtube.com").timeout(PROBE_TIMEOUT).send().await.ok()?;
+pub async fn probe_x_head_seqnum(http: &Http, url: &str, cancel: &CancellationToken) -> Option<u64> {
+    let resp = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return None,
+        result = http.client.head(url).header(ORIGIN, "https://www.youtube.com").timeout(PROBE_TIMEOUT).send() => {
+            result.ok()?
+        }
+    };
     resp.headers().get("x-head-seqnum")?.to_str().ok()?.trim().parse().ok()
 }
 
@@ -208,7 +218,7 @@ pub async fn extract(
     let (mut info, probe_url) = to_extraction(parse_output(&out)?);
     if let Some(part) = probe_url {
         let post_live = info.live_status == LiveStatus::PostLive;
-        info.last_sq = probe_x_head_seqnum(http, &part).await.and_then(|head| seq_boundary(head, post_live));
+        info.last_sq = probe_x_head_seqnum(http, &part, cancel).await.and_then(|head| seq_boundary(head, post_live));
     }
     if !info.urls.is_empty() {
         log_debug!("Loaded {} adaptive format URLs from yt-dlp", info.urls.len());

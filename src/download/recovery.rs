@@ -85,7 +85,12 @@ async fn fetch(session: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, off
         if session.is_stopping() {
             break;
         }
-        let resp = match fragment_request(&session, url, seq).send().await {
+        let response = tokio::select! {
+            biased;
+            _ = session.cancel.cancelled() => break,
+            result = fragment_request(&session, url, seq).send() => result,
+        };
+        let resp = match response {
             Ok(response) if response.status().is_success() => response,
             Ok(response) => {
                 log_debug!("Recovery of fragment {seq}: HTTP {}", response.status());
@@ -98,9 +103,18 @@ async fn fetch(session: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, off
         };
         let head = header_u64(resp.headers(), "x-head-seqnum");
         let mime_type = content_type(resp.headers());
-        if let Ok(body) = resp.bytes().await
-            && !body.is_empty()
-        {
+        let body = tokio::select! {
+            biased;
+            _ = session.cancel.cancelled() => break,
+            result = resp.bytes() => match result {
+                Ok(body) => body,
+                Err(error) => {
+                    log_debug!("Recovery of fragment {seq}: {}", without_query(error));
+                    continue;
+                }
+            },
+        };
+        if !body.is_empty() {
             let data = FragData::Memory(body);
             return (seq, Some(Fragment { seq, x_head_seqnum: head, data, mime_type }));
         }
@@ -168,7 +182,15 @@ pub async fn recover(
                 tasks.spawn(fetch(session.clone(), urls.clone(), seq, round));
             }
             let Some(res) = tasks.join_next().await else { break };
-            let Ok((seq, Some(frag))) = res else { continue };
+            let (seq, Some(frag)) = (match res {
+                Ok(pair) => pair,
+                Err(error) => {
+                    log_warn!("{name}: A recovery task stopped unexpectedly: {error}");
+                    continue;
+                }
+            }) else {
+                continue;
+            };
             if let Some(head_seq) = frag.x_head_seqnum {
                 span.head = span.head.max(head_seq);
             }

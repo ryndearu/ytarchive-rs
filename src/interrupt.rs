@@ -1,83 +1,112 @@
-//! Ctrl-C handling for the whole program: the first interrupt stops the
-//! current download gracefully (merge/save prompts follow); a second one
-//! exits immediately, like Go's `signal.Reset` after the first.
+//! Signal handling for the whole program: the first interrupt (`SIGINT` /
+//! `SIGTERM` on Unix, Ctrl-C / Ctrl-Break on Windows) stops the current
+//! download gracefully; a second one exits immediately, like Go's
+//! `signal.Reset`. Prompts exit immediately on the first signal.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 use tokio_util::sync::CancellationToken;
 
 use crate::log_warn;
 
-/// The signals that count as an interrupt. On Windows that is Ctrl-C and
-/// Ctrl-Break, both of which Go's `os.Interrupt` catches.
+/// True while waiting on an interactive stdin prompt, so an interrupt exits
+/// immediately without a competing signal listener.
+static PROMPTING: AtomicBool = AtomicBool::new(false);
+
+pub struct PromptGuard;
+
+impl Drop for PromptGuard {
+    fn drop(&mut self) {
+        PROMPTING.store(false, Ordering::SeqCst);
+    }
+}
+
+pub fn enter_prompt() -> PromptGuard {
+    PROMPTING.store(true, Ordering::SeqCst);
+    PromptGuard
+}
+
+/// The signals that count as an interrupt.
 struct Signals {
     #[cfg(windows)]
     ctrl_c: tokio::signal::windows::CtrlC,
     #[cfg(windows)]
     ctrl_break: tokio::signal::windows::CtrlBreak,
+    #[cfg(unix)]
+    sigint: tokio::signal::unix::Signal,
+    #[cfg(unix)]
+    sigterm: tokio::signal::unix::Signal,
 }
 
 impl Signals {
     fn new() -> std::io::Result<Self> {
+        #[cfg(unix)]
+        use tokio::signal::unix::{SignalKind, signal};
         Ok(Self {
             #[cfg(windows)]
             ctrl_c: tokio::signal::windows::ctrl_c()?,
             #[cfg(windows)]
             ctrl_break: tokio::signal::windows::ctrl_break()?,
+            #[cfg(unix)]
+            sigint: signal(SignalKind::interrupt())?,
+            #[cfg(unix)]
+            sigterm: signal(SignalKind::terminate())?,
         })
     }
 
-    /// Waits for the next interrupt; `false` if signals can't be received.
+    /// Waits for the next interrupt and returns its exit code (130 or 143).
     #[cfg(windows)]
-    async fn recv(&mut self) -> bool {
+    async fn recv(&mut self) -> Option<i32> {
         tokio::select! {
-            signal = self.ctrl_c.recv() => signal.is_some(),
-            signal = self.ctrl_break.recv() => signal.is_some(),
+            signal = self.ctrl_c.recv() => signal.map(|()| 130),
+            signal = self.ctrl_break.recv() => signal.map(|()| 130),
         }
     }
 
-    #[cfg(not(windows))]
-    async fn recv(&mut self) -> bool {
-        tokio::signal::ctrl_c().await.is_ok()
+    #[cfg(unix)]
+    async fn recv(&mut self) -> Option<i32> {
+        tokio::select! {
+            signal = self.sigint.recv() => signal.map(|()| 130),
+            signal = self.sigterm.recv() => signal.map(|()| 143),
+        }
     }
-}
 
-/// Waits for one interrupt (used by prompts); never returns if signals
-/// can't be received.
-pub async fn next() {
-    if let Ok(mut signals) = Signals::new()
-        && signals.recv().await
-    {
-        return;
+    #[cfg(not(any(windows, unix)))]
+    async fn recv(&mut self) -> Option<i32> {
+        tokio::signal::ctrl_c().await.ok().map(|()| 130)
     }
-    std::future::pending().await
 }
 
 pub struct Interrupt {
-    flag: AtomicBool,
+    signal: AtomicI32,
     token: CancellationToken,
 }
 
 impl Interrupt {
     pub fn install() -> Arc<Self> {
-        let installed = Arc::new(Self { flag: AtomicBool::new(false), token: CancellationToken::new() });
+        let installed = Arc::new(Self { signal: AtomicI32::new(0), token: CancellationToken::new() });
         tokio::spawn({
             let interrupt = installed.clone();
             async move {
                 let Ok(mut signals) = Signals::new() else { return };
-                if !signals.recv().await {
-                    return;
-                }
-                interrupt.flag.store(true, Ordering::SeqCst);
-                eprintln!();
-                log_warn!("User Interrupt, Stopping download...");
-                interrupt.token.cancel();
-                if signals.recv().await {
-                    eprintln!("\nExiting...");
-                    crate::platform::restore();
-                    crate::ytdlp_cookies::remove();
-                    std::process::exit(130);
+                while let Some(code) = signals.recv().await {
+                    let already_interrupted =
+                        interrupt.signal.compare_exchange(0, code, Ordering::SeqCst, Ordering::SeqCst).is_err();
+                    if PROMPTING.load(Ordering::SeqCst) || already_interrupted {
+                        let exit_code = if already_interrupted || code == 143 { code } else { 1 };
+                        eprintln!("\nExiting...");
+                        crate::platform::restore();
+                        crate::ytdlp_cookies::remove();
+                        std::process::exit(exit_code);
+                    }
+                    eprintln!();
+                    if code == 143 {
+                        log_warn!("Termination signal received, Stopping download...");
+                    } else {
+                        log_warn!("User Interrupt, Stopping download...");
+                    }
+                    interrupt.token.cancel();
                 }
             }
         });
@@ -85,7 +114,11 @@ impl Interrupt {
     }
 
     pub fn is_set(&self) -> bool {
-        self.flag.load(Ordering::SeqCst)
+        self.signal.load(Ordering::SeqCst) != 0
+    }
+
+    pub fn terminated(&self) -> bool {
+        self.signal.load(Ordering::SeqCst) == 143
     }
 
     /// A token for one run, cancelled on interrupt.

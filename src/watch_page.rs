@@ -1,6 +1,8 @@
 //! Scraping YouTube watch/channel pages for embedded JSON
 //! (`ytInitialPlayerResponse`, `ytInitialData`).
 
+use tokio_util::sync::CancellationToken;
+
 use crate::error::{Error, Result};
 use crate::http::Http;
 use crate::log_debug;
@@ -71,9 +73,14 @@ pub fn newest_live_stream(data: &YtInitialData, members_only: bool) -> Option<St
 }
 
 /// Looks for a live stream on the /streams tab of a channel's /live URL.
-pub async fn fetch_newest_live_stream(http: &Http, live_url: &str, members_only: bool) -> Option<String> {
+pub async fn fetch_newest_live_stream(
+    http: &Http,
+    live_url: &str,
+    members_only: bool,
+    cancel: &CancellationToken,
+) -> Option<String> {
     let streams_url = live_url.replacen("/live", "/streams", 1);
-    let html = http.get_bytes(&streams_url).await.ok()?;
+    let html = http.get_bytes_cancellable(&streams_url, cancel).await.ok()?;
     let html = String::from_utf8_lossy(&html);
     let json = extract_json(&html, INITIAL_DATA_DECL)?;
     let data: YtInitialData =
@@ -83,18 +90,25 @@ pub async fn fetch_newest_live_stream(http: &Http, live_url: &str, members_only:
 
 /// HTML for the stream's watch page. For channel URLs, a live item on the
 /// /streams tab is preferred; members-only mode never falls back to /live.
-pub async fn get_video_html(http: &Http, page_url: &str, is_channel: bool, members_only: bool) -> Option<String> {
+pub async fn get_video_html(
+    http: &Http,
+    page_url: &str,
+    is_channel: bool,
+    members_only: bool,
+    cancel: &CancellationToken,
+) -> Option<String> {
     if is_channel
-        && let Some(stream_url) = fetch_newest_live_stream(http, page_url, members_only).await
-        && let Ok(badge) = http.get_bytes(&stream_url).await
+        && let Some(stream_url) = fetch_newest_live_stream(http, page_url, members_only, cancel).await
+        && let Ok(badge) = http.get_bytes_cancellable(&stream_url, cancel).await
     {
         return Some(String::from_utf8_lossy(&badge).into_owned());
     }
-    if members_only {
+    if members_only || cancel.is_cancelled() {
         return None;
     }
-    match http.get_bytes(page_url).await {
+    match http.get_bytes_cancellable(page_url, cancel).await {
         Ok(badge) => Some(String::from_utf8_lossy(&badge).into_owned()),
+        Err(Error::Cancelled) => None,
         Err(error) => {
             log_debug!("Failed to retrieve {page_url}: {error}");
             None
@@ -173,7 +187,10 @@ mod tests {
     #[ignore]
     async fn live_watch_page() {
         let http = Http::new(&Default::default(), Default::default()).unwrap();
-        let html = get_video_html(&http, "https://www.youtube.com/@LofiGirl/live", true, false).await.unwrap();
+        let html =
+            get_video_html(&http, "https://www.youtube.com/@LofiGirl/live", true, false, &CancellationToken::new())
+                .await
+                .unwrap();
         let player_response = parse_player_response(&html).unwrap();
         assert_eq!(player_response.playability_status.status, "OK", "{:?}", player_response.playability_status);
         assert!(!player_response.video_details.video_id.is_empty());

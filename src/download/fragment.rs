@@ -217,13 +217,23 @@ pub(super) async fn download_fragment(
             return FragOutcome::Missing;
         };
         state.retry_after = None;
-        match fragment_request(session, &url, state.seq).send().await {
+        let response = tokio::select! {
+            biased;
+            _ = session.cancel.cancelled() => return FragOutcome::Stopped,
+            result = fragment_request(session, &url, state.seq).send() => result,
+        };
+        match response {
             Err(error) => handle_download_error(session, state, &without_query(error)),
             Ok(resp) if resp.status().as_u16() >= 400 => handle_http_error(session, state, &resp),
             Ok(resp) => {
                 let head = header_u64(resp.headers(), "x-head-seqnum");
                 let mime = content_type(resp.headers());
-                match resp.bytes().await {
+                let body = tokio::select! {
+                    biased;
+                    _ = session.cancel.cancelled() => return FragOutcome::Stopped,
+                    result = resp.bytes() => result,
+                };
+                match body {
                     Err(error) => handle_download_error(session, state, &without_query(error)),
                     // Success with no data: the fragment isn't ready yet.
                     Ok(body) if body.is_empty() => {
