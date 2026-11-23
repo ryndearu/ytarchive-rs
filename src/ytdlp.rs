@@ -1,5 +1,6 @@
 //! Stream info extraction by running yt-dlp and parsing its `--print` JSON.
 
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -12,6 +13,7 @@ use crate::http::Http;
 use crate::types::{
     FragmentUrl, IpVersion, LiveStatus, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo,
 };
+use crate::util::resolve_program;
 use crate::{log_debug, log_trace, log_warn};
 
 // Go allowed 30 seconds. A run that also solves the JavaScript challenge on a
@@ -56,8 +58,7 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
 /// Runs yt-dlp once and returns stdout.
 pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool) -> Result<String> {
     let args = build_args(opts, url, ignore_no_formats);
-    let executable =
-        crate::util::resolve_program(&opts.ytdlp_path).unwrap_or_else(|| std::path::PathBuf::from(&opts.ytdlp_path));
+    let executable = resolve_program(&opts.ytdlp_path).unwrap_or_else(|| PathBuf::from(&opts.ytdlp_path));
     log_trace!("Running {} {:?}", executable.display(), args);
 
     let child = Command::new(&executable)

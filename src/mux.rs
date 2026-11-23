@@ -7,6 +7,7 @@ use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 
 use crate::types::MetaInfo;
+use crate::util::resolve_program;
 use crate::{log_debug, log_error};
 
 pub struct MuxInput<'a> {
@@ -175,14 +176,14 @@ pub fn command_line(program: &str, args: &[String]) -> String {
 /// Whether `program` can be run: a path that exists, a file next to the
 /// ytarchive executable, or a name on PATH.
 pub fn program_exists(program: &str) -> bool {
-    crate::util::resolve_program(program).is_some()
+    resolve_program(program).is_some()
 }
 
 /// Runs ffmpeg, passing its stderr (progress stats) through. Returns the exit
 /// code, or -1 if it couldn't be run.
 pub async fn execute(program: &str, args: &[String]) -> i32 {
     log_debug!("Executing command: {}", command_line(program, args));
-    let executable = crate::util::resolve_program(program).unwrap_or_else(|| PathBuf::from(program));
+    let executable = resolve_program(program).unwrap_or_else(|| PathBuf::from(program));
     let mut child = match tokio::process::Command::new(&executable)
         .args(args)
         .stdin(Stdio::null())

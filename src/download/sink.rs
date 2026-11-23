@@ -2,11 +2,14 @@
 //! (default) or the SQLite store (`--sqlite`).
 
 use std::collections::BTreeMap;
-use std::io::SeekFrom;
+use std::fmt;
+use std::io::{self, SeekFrom};
+use std::mem;
 use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::task::spawn_blocking;
 
 use super::db_sink::{DbSink, db_path};
 use crate::error::Result;
@@ -34,7 +37,7 @@ fn memory_bytes(entry: Option<&Fragment>) -> u64 {
     }
 }
 
-pub async fn fragment_bytes(data: &FragData) -> std::io::Result<Bytes> {
+pub async fn fragment_bytes(data: &FragData) -> io::Result<Bytes> {
     match data {
         // Shares the downloaded buffer instead of copying it.
         FragData::Memory(bytes) => Ok(bytes.clone()),
@@ -45,7 +48,7 @@ pub async fn fragment_bytes(data: &FragData) -> std::io::Result<Bytes> {
 pub async fn remove_frag_file(data: &FragData) {
     if let FragData::File(path) = data
         && let Err(error) = tokio::fs::remove_file(path).await
-        && error.kind() != std::io::ErrorKind::NotFound
+        && error.kind() != io::ErrorKind::NotFound
     {
         log_debug!("Could not delete the fragment file {}: {error}", path.display());
     }
@@ -54,7 +57,7 @@ pub async fn remove_frag_file(data: &FragData) {
 impl TsSink {
     /// Continues the file from `state` if it is consistent, else returns
     /// `None` so the caller starts fresh.
-    pub async fn resume(path: &Path, state: &DownloadState, name: &str) -> std::io::Result<Option<(Self, u64)>> {
+    pub async fn resume(path: &Path, state: &DownloadState, name: &str) -> io::Result<Option<(Self, u64)>> {
         match tokio::fs::OpenOptions::new().read(true).write(true).open(path).await {
             Ok(mut file) => {
                 if file.metadata().await?.len() < state.size {
@@ -79,7 +82,7 @@ impl TsSink {
         }
     }
 
-    pub async fn create(path: &Path, start: u64, mode: u32) -> std::io::Result<Self> {
+    pub async fn create(path: &Path, start: u64, mode: u32) -> io::Result<Self> {
         let file = tokio::fs::File::create(path).await?;
         apply_mode(path, mode);
         Ok(Self::new(file, path, start, start))
@@ -90,7 +93,7 @@ impl TsSink {
     }
 
     /// Queues `frag` (`None` = given up) and writes everything now in order.
-    pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> std::io::Result<Vec<Event>> {
+    pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> io::Result<Vec<Event>> {
         self.waiting_bytes += memory_bytes(frag.as_ref());
         if let Some(replaced) = self.pending.insert(seq, frag) {
             self.waiting_bytes = self.waiting_bytes.saturating_sub(memory_bytes(replaced.as_ref()));
@@ -113,7 +116,7 @@ impl TsSink {
                 // reached the file (full disk) is counted in the saved
                 // state, and the next run can't resume from it.
                 self.file.flush().await?;
-                Ok::<_, std::io::Error>(data.len() as u64)
+                Ok::<_, io::Error>(data.len() as u64)
             }
             .await;
             remove_frag_file(&frag.data).await;
@@ -131,9 +134,9 @@ impl TsSink {
 
     /// Flushes; returns how many downloaded fragments never got written
     /// (stuck behind a gap when the download stopped).
-    pub async fn finish(mut self) -> std::io::Result<usize> {
+    pub async fn finish(mut self) -> io::Result<usize> {
         let mut leftover = 0;
-        for fragment in std::mem::take(&mut self.pending).into_values().flatten() {
+        for fragment in mem::take(&mut self.pending).into_values().flatten() {
             remove_frag_file(&fragment.data).await;
             leftover += 1;
         }
@@ -209,7 +212,7 @@ pub async fn open(
     {
         return Ok(Opened { sink: Sink::Ts(sink), cur, skip: Default::default(), state });
     }
-    let temp_dir = std::mem::take(&mut state.temp_dir);
+    let temp_dir = mem::take(&mut state.temp_dir);
     state = DownloadState { temp_dir, file: state.file, ..Default::default() };
     let start = fresh_start();
     state.start_frag = start;
@@ -250,8 +253,8 @@ pub struct PendingExport {
     mode: u32,
 }
 
-impl std::fmt::Debug for PendingExport {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for PendingExport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("PendingExport").field("out", &self.out).finish_non_exhaustive()
     }
 }
@@ -277,9 +280,9 @@ impl PendingExport {
         let database = self.database;
         // The export copies the whole stream; on a runtime thread it
         // would hold up the other stream's download.
-        let exported = tokio::task::spawn_blocking(move || database.export(&target, mode))
+        let exported = spawn_blocking(move || database.export(&target, mode))
             .await
-            .unwrap_or_else(|error| Err(std::io::Error::other(error).into()));
+            .unwrap_or_else(|error| Err(io::Error::other(error).into()));
         let (count, bytes) = exported.inspect_err(|error| {
             log_warn!("{}: Failed to export {} to {}: {error}", self.name, database_path.display(), self.out.display());
         })?;
@@ -334,7 +337,7 @@ impl Sink {
     /// Cleans up buffered fragment files on abort without exporting SQLite.
     pub async fn abort(self) {
         if let Sink::Ts(mut ts_sink) = self {
-            for fragment in std::mem::take(&mut ts_sink.pending).into_values().flatten() {
+            for fragment in mem::take(&mut ts_sink.pending).into_values().flatten() {
                 remove_frag_file(&fragment.data).await;
             }
             if let Err(error) = ts_sink.file.flush().await {
