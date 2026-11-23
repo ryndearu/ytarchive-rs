@@ -21,6 +21,92 @@ fn is_googlevideo(url: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Splits `--ytdlp-opts` respecting single and double quotes while keeping
+/// Windows backslashes intact unless escaping quotes.
+fn split_ytdlp_opts(input: &str) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_token = false;
+
+    while let Some(character) = chars.next() {
+        if in_single {
+            if character == '\'' {
+                in_single = false;
+            } else {
+                current.push(character);
+            }
+        } else if in_double {
+            match character {
+                '"' => in_double = false,
+                '\\' => {
+                    let mut backslashes = 1usize;
+                    while chars.peek() == Some(&'\\') {
+                        chars.next();
+                        backslashes += 1;
+                    }
+                    if chars.peek() == Some(&'"') {
+                        for _ in 0..(backslashes / 2) {
+                            current.push('\\');
+                        }
+                        if backslashes % 2 == 1 {
+                            chars.next();
+                            current.push('"');
+                        }
+                    } else {
+                        for _ in 0..backslashes {
+                            current.push('\\');
+                        }
+                    }
+                }
+                _ => current.push(character),
+            }
+        } else {
+            match character {
+                value if value.is_whitespace() => {
+                    if in_token {
+                        out.push(std::mem::take(&mut current));
+                        in_token = false;
+                    }
+                }
+                '\'' => {
+                    in_single = true;
+                    in_token = true;
+                }
+                '"' => {
+                    in_double = true;
+                    in_token = true;
+                }
+                '\\' => {
+                    in_token = true;
+                    if let Some(&next) = chars.peek()
+                        && (next == '"' || next == '\'')
+                    {
+                        chars.next();
+                        current.push(next);
+                    } else {
+                        current.push('\\');
+                    }
+                }
+                _ => {
+                    in_token = true;
+                    current.push(character);
+                }
+            }
+        }
+    }
+
+    if in_single || in_double {
+        return Err(Error::InvalidArg("--ytdlp-opts has an unclosed quote".into()));
+    }
+    if in_token {
+        out.push(current);
+    }
+    Ok(out)
+}
+
 /// Go flag aliases that are multi-character but single-dash.
 const GO_SHORT_ALIASES: &[(&str, &str)] =
     &[("td", "temporary-dir"), ("dp", "directory-permissions"), ("fp", "file-permissions")];
@@ -215,10 +301,7 @@ impl Cli {
             cookies_file: self.cookies,
             ytdlp_cookies_file: None,
             ytdlp_path: self.ytdlp_path,
-            ytdlp_opts: self
-                .ytdlp_opts
-                .map(|text| text.split_whitespace().map(String::from).collect())
-                .unwrap_or_default(),
+            ytdlp_opts: self.ytdlp_opts.as_deref().map(split_ytdlp_opts).transpose()?.unwrap_or_default(),
             ytdlp_info: self.ytdlp_info,
             codecs,
             mkv: self.mkv,
