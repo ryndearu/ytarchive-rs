@@ -202,13 +202,20 @@ pub fn try_move(src: &Path, dst: &Path) -> io::Result<()> {
         return Ok(());
     }
     crate::log_info!("Moving file {} to {}", src.display(), dst.display());
-    if fs::rename(src, dst).is_ok() {
-        return Ok(());
+    match fs::rename(src, dst) {
+        Ok(()) => return Ok(()),
+        Err(error) => crate::log_debug!("Rename failed ({error}); copying {} instead", src.display()),
     }
-    crate::log_warn!("Rename failed; copying {} instead", src.display());
-    fs::copy(src, dst)
-        .and_then(|_| fs::remove_file(src))
-        .inspect_err(|error| crate::log_warn!("Error moving file {}: {error}", src.display()))
+    if let Err(error) = fs::copy(src, dst) {
+        if let Err(remove_err) = fs::remove_file(dst)
+            && remove_err.kind() != io::ErrorKind::NotFound
+        {
+            crate::log_debug!("Could not delete the partial file {}: {remove_err}", dst.display());
+        }
+        crate::log_warn!("Error moving file {}: {error}", src.display());
+        return Err(error);
+    }
+    fs::remove_file(src).inspect_err(|error| crate::log_warn!("Error moving file {}: {error}", src.display()))
 }
 
 /// Deletes `path` if it exists, logging (not returning) errors.
