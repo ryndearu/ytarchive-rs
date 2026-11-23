@@ -134,15 +134,33 @@ impl FragThreadState {
 pub struct FragmentUrl {
     prefix: String,
     suffix: String,
+    host: Option<String>,
+    referer: Option<reqwest::header::HeaderValue>,
+    expires_at: Option<u64>,
+}
+
+fn base_from_prefix(prefix: &str) -> &str {
+    prefix.strip_suffix("&sq=").or_else(|| prefix.strip_suffix("?sq=")).unwrap_or(prefix)
 }
 
 impl FragmentUrl {
+    fn build(prefix: String, suffix: String) -> Self {
+        let parsed = reqwest::Url::parse(base_from_prefix(&prefix)).ok();
+        let host = parsed.as_ref().and_then(|url| url.host_str().map(str::to_string));
+        let referer =
+            host.as_deref().and_then(|value| reqwest::header::HeaderValue::from_str(&format!("https://{value}/")).ok());
+        let expires_at = parsed.as_ref().and_then(|url| {
+            url.query_pairs().find(|(key, _)| key == "expire").and_then(|(_, value)| value.parse().ok())
+        });
+        Self { prefix, suffix, host, referer, expires_at }
+    }
+
     /// URL that takes the sequence as a trailing `&sq=N` query parameter.
     /// Any existing `sq` parameter is removed.
     pub fn with_sq_param(url: &str) -> Self {
         let base = strip_sq_param(url);
         let sep = if base.contains('?') { '&' } else { '?' };
-        Self { prefix: format!("{base}{sep}sq="), suffix: String::new() }
+        Self::build(format!("{base}{sep}sq="), String::new())
     }
 
     /// The text around the sequence number, for storing the URL.
@@ -152,7 +170,7 @@ impl FragmentUrl {
 
     /// Rebuilds a URL stored with `parts`.
     pub fn from_parts(prefix: String, suffix: String) -> Self {
-        Self { prefix, suffix }
+        Self::build(prefix, suffix)
     }
 
     pub fn for_seq(&self, seq: u64) -> String {
@@ -160,13 +178,18 @@ impl FragmentUrl {
     }
 
     /// The URL without any sequence number (useful for HEAD probes).
+    #[cfg(test)]
     pub fn base(&self) -> &str {
-        let part = &self.prefix;
-        part.strip_suffix("&sq=").or_else(|| part.strip_suffix("?sq=")).unwrap_or(part)
+        base_from_prefix(&self.prefix)
     }
 
-    pub fn host(&self) -> Option<String> {
-        reqwest::Url::parse(self.base()).ok().and_then(|url| url.host_str().map(str::to_string))
+    #[cfg(test)]
+    pub fn host(&self) -> Option<&str> {
+        self.host.as_deref()
+    }
+
+    pub fn referer(&self) -> Option<&reqwest::header::HeaderValue> {
+        self.referer.as_ref()
     }
 
     /// googlevideo URLs meant for fragmented download carry `noclen`
@@ -177,9 +200,7 @@ impl FragmentUrl {
 
     /// When the URL stops working (its `expire` parameter, Unix seconds).
     pub fn expires_at(&self) -> Option<u64> {
-        let url = reqwest::Url::parse(self.base()).ok()?;
-        let (_, value) = url.query_pairs().find(|(key, _)| key == "expire")?;
-        value.parse().ok()
+        self.expires_at
     }
 
     /// Whether the URL has expired by `now` (Unix seconds). URLs without
@@ -211,7 +232,8 @@ mod tests {
         let url = FragmentUrl::with_sq_param("https://x.googlevideo.com/videoplayback?itag=140&noclen=1&sq=55&a=%2F");
         assert_eq!(url.for_seq(7), "https://x.googlevideo.com/videoplayback?itag=140&noclen=1&a=%2F&sq=7");
         assert_eq!(url.base(), "https://x.googlevideo.com/videoplayback?itag=140&noclen=1&a=%2F");
-        assert_eq!(url.host().as_deref(), Some("x.googlevideo.com"));
+        assert_eq!(url.host(), Some("x.googlevideo.com"));
+        assert_eq!(url.referer().and_then(|value| value.to_str().ok()), Some("https://x.googlevideo.com/"));
         assert!(url.is_fragmented());
     }
 
@@ -224,5 +246,12 @@ mod tests {
         let never = FragmentUrl::with_sq_param("https://h/videoplayback?itag=140");
         assert_eq!(never.expires_at(), None);
         assert!(!never.is_expired(u64::MAX));
+    }
+
+    #[test]
+    fn from_parts_caches_expiry_and_referer() {
+        let url = FragmentUrl::from_parts("https://h/videoplayback?expire=123&sq=".into(), String::new());
+        assert_eq!(url.expires_at(), Some(123));
+        assert_eq!(url.referer().and_then(|value| value.to_str().ok()), Some("https://h/"));
     }
 }

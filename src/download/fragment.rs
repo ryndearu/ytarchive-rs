@@ -169,8 +169,8 @@ pub(super) fn header_u64(headers: &reqwest::header::HeaderMap, name: &str) -> Op
 /// The request for fragment `seq` from `url`, with the headers YouTube expects.
 pub(super) fn fragment_request(session: &Session, url: &FragmentUrl, seq: u64) -> reqwest::RequestBuilder {
     let mut req = session.http.client.get(url.for_seq(seq)).header(ORIGIN, "https://www.youtube.com");
-    if let Some(host) = url.host() {
-        req = req.header(REFERER, format!("https://{host}/"));
+    if let Some(referer) = url.referer() {
+        req = req.header(REFERER, referer);
     }
     req
 }
