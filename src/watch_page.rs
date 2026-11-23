@@ -1,6 +1,7 @@
 //! Scraping YouTube watch/channel pages for embedded JSON
 //! (`ytInitialPlayerResponse`, `ytInitialData`).
 
+use serde::de::IgnoredAny;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
@@ -14,15 +15,20 @@ const CANONICAL_WATCH_LINK: &str = r#"<link rel="canonical" href="https://www.yo
 /// Membership streams are near the top; don't scan the whole /streams tab.
 const MAX_STREAM_ITEM_CHECK: usize = 5;
 
-/// Returns the JSON object assigned by `decl` inside a `<script>`: from the
-/// first `{` after the declaration to the last `};` before `</script>`.
+/// Returns the JSON object assigned by `decl` inside a `<script>`.
 pub fn extract_json<'a>(html: &'a str, decl: &str) -> Option<&'a str> {
     let decl_at = html.find(decl)?;
-    let rest = &html[decl_at..];
-    let script = &rest[..rest.find("</script>").unwrap_or(rest.len())];
-    let start = script.find('{')?;
-    let end = script.rfind("};")?;
-    (end > start).then(|| &script[start..=end])
+    let after_decl = html.get(decl_at + decl.len()..)?;
+    let script = after_decl.get(..after_decl.find("</script>").unwrap_or(after_decl.len()))?;
+    let trimmed = script.trim_start();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+    let mut stream = serde_json::Deserializer::from_str(trimmed).into_iter::<IgnoredAny>();
+    match stream.next() {
+        Some(Ok(IgnoredAny)) => trimmed.get(..stream.byte_offset()),
+        _ => None,
+    }
 }
 
 pub fn parse_player_response(html: &str) -> Result<PlayerResponse> {
@@ -79,7 +85,8 @@ pub async fn fetch_newest_live_stream(
     members_only: bool,
     cancel: &CancellationToken,
 ) -> Result<Option<String>> {
-    let streams_url = live_url.replacen("/live", "/streams", 1);
+    let streams_url =
+        live_url.strip_suffix("/live").map(|base| format!("{base}/streams")).unwrap_or_else(|| live_url.to_string());
     let html = http.get_bytes_cancellable(&streams_url, cancel).await?;
     let html = String::from_utf8_lossy(&html);
     let Some(json) = extract_json(&html, INITIAL_DATA_DECL) else {
@@ -159,6 +166,10 @@ mod tests {
         assert!(player_response.microformat.player_microformat_renderer.live_broadcast_details.is_live_now);
         assert_eq!(player_response.streaming_data.adaptive_formats[0].target_duration_sec, 5.0);
         assert_eq!(extract_json(WATCH_HTML, INITIAL_DATA_DECL), Some(r#"{"x":1}"#));
+        assert_eq!(
+            extract_json(r#"<script>var ytInitialData = {"x":1};var other = {"y":2};</script>"#, INITIAL_DATA_DECL),
+            Some(r#"{"x":1}"#)
+        );
     }
 
     #[test]
