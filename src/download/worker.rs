@@ -9,6 +9,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::fragment::{FragOutcome, download_fragment};
+use crate::error::Error;
 use crate::log_debug;
 use crate::session::Session;
 use crate::types::{DataType, FragThreadState, Fragment, StreamProgress};
@@ -96,7 +97,7 @@ pub(super) enum Msg {
     /// Given up on; the sink skips it instead of stalling forever.
     Missing(u64),
     /// Writing a temp fragment file failed (e.g. disk full).
-    StorageError(u64, crate::error::Error),
+    StorageError(u64, Error),
 }
 
 pub(super) async fn worker(

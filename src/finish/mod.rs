@@ -1,7 +1,10 @@
 //! After downloading: Ctrl-C choices (merge / keep files / keep resume
 //! state), moving files to the final directory, and muxing.
 
+use std::mem;
 use std::path::PathBuf;
+
+use tokio::task::spawn_blocking;
 
 use crate::download::{PendingExport, local_time};
 use crate::mux::{self, MuxCommand};
@@ -51,7 +54,7 @@ async fn decide(action: Action, question: &str) -> bool {
 
 impl Finish<'_> {
     async fn export_pending(&mut self) -> bool {
-        for pending in std::mem::take(&mut self.pending_exports) {
+        for pending in mem::take(&mut self.pending_exports) {
             if let Err(error) = pending.export().await {
                 log_error!("Failed to export downloaded data: {error}");
                 return false;
@@ -64,7 +67,7 @@ impl Finish<'_> {
         let mut ok = true;
         for moved in items.iter().copied().flatten() {
             // A move to another filesystem copies the whole file.
-            let result = tokio::task::spawn_blocking({
+            let result = spawn_blocking({
                 let moved = moved.clone();
                 move || try_move(&moved.temp, &moved.dest)
             })
@@ -135,8 +138,6 @@ impl Finish<'_> {
         1
     }
 
-    /// Stops on `SIGTERM` without running interactive prompts: discards pending
-    /// SQLite exports and leaves temporary and state files to resume later.
     pub fn on_terminate(&mut self) -> i32 {
         self.pending_exports.clear();
         log_warn!("Termination signal received. Files were left in {} to resume later.", self.plan.temp_dir.display());

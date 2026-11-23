@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::download::{MEMORY_LIMIT, PendingExport, StreamParams, download_stream};
+use crate::error::Error;
 use crate::finish::{Finish, Moved};
 use crate::http::Http;
 use crate::input_url::InputUrl;
@@ -18,10 +19,10 @@ use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
 use crate::log::report_progress;
 use crate::mux::{MuxInput, command_line, ffmpeg_args};
-use crate::output::{OutputPlan, ensure_dir, final_location, load_states, temp_dir};
+use crate::output::{OutputPlan, ensure_dir, final_location, load_states, state_file, temp_dir};
 use crate::prepare::{Prepared, prepare, prepared_from_kept};
 use crate::session::Session;
-use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, Options, PerType, SavedDownload};
+use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, FormatSelection, Options, PerType, SavedDownload};
 use crate::util::{seconds_to_duration_and_time_str, write_file_with_mode};
 use crate::{log_debug, log_error, log_general, log_info, log_warn};
 
@@ -102,7 +103,7 @@ pub async fn run(
     RunResult { code, video_id, downloaded: true }
 }
 
-fn select_streams(sel: &crate::types::FormatSelection) -> Vec<(DataType, u32)> {
+fn select_streams(sel: &FormatSelection) -> Vec<(DataType, u32)> {
     [
         sel.audio_url.as_ref().map(|_| (DataType::Audio, AUDIO_ITAG)),
         sel.video_url.as_ref().zip(sel.video_itag).map(|(_, itag)| (DataType::Video, itag)),
@@ -208,7 +209,7 @@ async fn download(
         let temp = plan.temp(".jpg");
         match http.download_to_file_cancellable(&prepared.thumbnail_url, &temp, opts.file_mode, &cancel).await {
             Ok(()) => thumbnail = Some(Moved { temp, dest: plan.final_path(".jpg") }),
-            Err(crate::error::Error::Cancelled) => {
+            Err(Error::Cancelled) => {
                 if !resuming {
                     plan.remove_temp_dir(&prepared.video_id);
                 }
@@ -314,7 +315,7 @@ async fn download(
     let mut pending_exports: Vec<PendingExport> = Vec::new();
     let mut state_files = Vec::new();
     for (task, (data_type, itag)) in tasks.into_iter().zip(&streams) {
-        state_files.push(crate::output::state_file(&opts, &prepared.video_id, *itag));
+        state_files.push(state_file(&opts, &prepared.video_id, *itag));
         match task.await {
             Ok(Ok(out)) => {
                 if !out.skipped.is_empty() {
@@ -337,7 +338,7 @@ async fn download(
                 // Every error a download returns is about its storage. One
                 // that isn't from opening it came after data was stored.
                 storage_failed = true;
-                stored_before_failing |= !matches!(error, crate::error::Error::OpenStorage(_));
+                stored_before_failing |= !matches!(error, Error::OpenStorage(_));
                 log_error!("{} download failed: {error}", data_type.as_str());
             }
             Err(error) => log_error!("{} download task panicked: {error}", data_type.as_str()),

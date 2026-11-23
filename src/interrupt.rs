@@ -3,12 +3,20 @@
 //! download gracefully; a second one exits immediately, like Go's
 //! `signal.Reset`. Prompts exit immediately on the first signal.
 
+use std::io;
+use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::time::Duration;
 
+#[cfg(unix)]
+use tokio::signal::unix::{Signal, SignalKind, signal};
+#[cfg(windows)]
+use tokio::signal::windows::{CtrlBreak, CtrlC, ctrl_break, ctrl_c};
 use tokio_util::sync::CancellationToken;
 
-use crate::log_warn;
+use crate::util::sleep_or_cancel;
+use crate::{log_warn, platform, ytdlp_cookies};
 
 /// True while waiting on an interactive stdin prompt, so an interrupt exits
 /// immediately without a competing signal listener.
@@ -30,24 +38,22 @@ pub fn enter_prompt() -> PromptGuard {
 /// The signals that count as an interrupt.
 struct Signals {
     #[cfg(windows)]
-    ctrl_c: tokio::signal::windows::CtrlC,
+    ctrl_c: CtrlC,
     #[cfg(windows)]
-    ctrl_break: tokio::signal::windows::CtrlBreak,
+    ctrl_break: CtrlBreak,
     #[cfg(unix)]
-    sigint: tokio::signal::unix::Signal,
+    sigint: Signal,
     #[cfg(unix)]
-    sigterm: tokio::signal::unix::Signal,
+    sigterm: Signal,
 }
 
 impl Signals {
-    fn new() -> std::io::Result<Self> {
-        #[cfg(unix)]
-        use tokio::signal::unix::{SignalKind, signal};
+    fn new() -> io::Result<Self> {
         Ok(Self {
             #[cfg(windows)]
-            ctrl_c: tokio::signal::windows::ctrl_c()?,
+            ctrl_c: ctrl_c()?,
             #[cfg(windows)]
-            ctrl_break: tokio::signal::windows::ctrl_break()?,
+            ctrl_break: ctrl_break()?,
             #[cfg(unix)]
             sigint: signal(SignalKind::interrupt())?,
             #[cfg(unix)]
@@ -96,9 +102,9 @@ impl Interrupt {
                     if PROMPTING.load(Ordering::SeqCst) || already_interrupted {
                         let exit_code = if already_interrupted || code == 143 { code } else { 1 };
                         eprintln!("\nExiting...");
-                        crate::platform::restore();
-                        crate::ytdlp_cookies::remove();
-                        std::process::exit(exit_code);
+                        platform::restore();
+                        ytdlp_cookies::remove();
+                        process::exit(exit_code);
                     }
                     eprintln!();
                     if code == 143 {
@@ -127,7 +133,7 @@ impl Interrupt {
     }
 
     /// Waits for `dur` unless interrupted first. Returns `false` if interrupted.
-    pub async fn sleep(&self, dur: std::time::Duration) -> bool {
-        crate::util::sleep_or_cancel(&self.token, dur).await
+    pub async fn sleep(&self, dur: Duration) -> bool {
+        sleep_or_cancel(&self.token, dur).await
     }
 }
