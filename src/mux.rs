@@ -67,17 +67,18 @@ fn unused_output(dir: &Path, name: &str, ext: &str) -> PathBuf {
 
 pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
     let audio_only = mux_input.video.is_none();
+    let mkv = mux_input.mkv && !audio_only;
     let mut args: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "fatal", "-stats"].map(String::from).to_vec();
 
     // mp4/m4a take the thumbnail as an input stream; mkv attaches it.
-    let thumb_input = mux_input.thumbnail.filter(|_| !mux_input.mkv);
+    let thumb_input = mux_input.thumbnail.filter(|_| !mkv);
     if let Some(thumbnail) = thumb_input {
         args.extend(["-i".into(), path_text(thumbnail)]);
     }
 
     let ext = if audio_only {
         "m4a"
-    } else if mux_input.mkv {
+    } else if mkv {
         "mkv"
     } else {
         "mp4"
@@ -89,7 +90,7 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
         args.push(path_text(input));
     }
     if mux_input.video.is_some() {
-        if !mux_input.mkv {
+        if !mkv {
             args.extend(["-movflags".into(), "faststart".into()]);
         }
         if thumb_input.is_some() {
@@ -102,7 +103,7 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
 
     args.extend(["-c".into(), "copy".into()]);
     if let Some(thumbnail) = mux_input.thumbnail {
-        if mux_input.mkv {
+        if mkv {
             args.extend([
                 "-attach".into(),
                 path_text(thumbnail),
@@ -273,14 +274,18 @@ mod tests {
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
             video: None,
-            thumbnail: None,
+            thumbnail: Some(Path::new("t.jpg")),
             mkv: true,
             metadata: None,
             out_dir: &out_dir,
             file_name: "out",
         });
         assert!(cmd.output.ends_with("out.m4a"));
+        let joined = cmd.args.join(" ");
         assert!(!cmd.args.contains(&"-movflags".to_string()));
+        assert!(joined.contains("-i t.jpg"));
+        assert!(joined.contains("-disposition:v:0 attached_pic"));
+        assert!(!joined.contains("-attach"));
     }
 
     #[test]
