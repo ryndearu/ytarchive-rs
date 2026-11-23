@@ -11,6 +11,9 @@ on:
     paths: ["Cargo.toml", "Cargo.lock", "deny.toml", ".github/workflows/audit.yml"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 

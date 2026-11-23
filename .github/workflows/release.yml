@@ -10,7 +10,11 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: test
     uses: ./.github/workflows/build.yml
 
   publish:
@@ -32,7 +36,7 @@ jobs:
             dl="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$TAG"
             echo "## Downloads"
             echo
-            echo "One zip per platform, holding only the executable. Linux builds are static and run on any distribution."
+            echo "One zip per platform, holding only the executable. Linux builds are static and run on any distribution. Checksums are in \`SHA256SUMS\`."
             echo
             echo "| Platform | x64 | arm64 |"
             echo "| --- | --- | --- |"
@@ -49,6 +53,10 @@ jobs:
           pattern: dist-*
           merge-multiple: true
           path: dist
+
+      - name: Generate checksums
+        shell: bash
+        run: (cd dist && sha256sum *.zip > SHA256SUMS)
 
       - name: Publish
         run: gh release create "$TAG" dist/* --verify-tag --latest --title "$TAG" --notes-file notes.md
