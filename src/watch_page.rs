@@ -1,6 +1,8 @@
 //! Scraping YouTube watch/channel pages for embedded JSON
 //! (`ytInitialPlayerResponse`, `ytInitialData`).
 
+use std::collections::HashSet;
+
 use serde::de::IgnoredAny;
 use tokio_util::sync::CancellationToken;
 
@@ -46,9 +48,9 @@ pub fn video_id_from_watch_page(html: &str) -> Option<String> {
     (!id.is_empty()).then(|| id.to_string())
 }
 
-/// Watch URL of the first currently-live item on a channel's /streams tab.
-/// With `members_only`, only items with a members-only badge count.
-pub fn newest_live_stream(data: &YtInitialData, members_only: bool) -> Option<String> {
+/// Watch URL of the first currently-live item on a channel's /streams tab not
+/// in `skip_ids`. With `members_only`, only items with a members-only badge count.
+pub fn newest_live_stream(data: &YtInitialData, members_only: bool, skip_ids: &HashSet<String>) -> Option<String> {
     let contents = data
         .contents
         .two_column_browse_results_renderer
@@ -62,6 +64,7 @@ pub fn newest_live_stream(data: &YtInitialData, members_only: bool) -> Option<St
         .iter()
         .take(MAX_STREAM_ITEM_CHECK)
         .map(|content| &content.rich_item_renderer.content.video_renderer)
+        .filter(|video| !skip_ids.contains(&video.video_id))
         .filter(|video| {
             !members_only
                 || video
@@ -83,6 +86,7 @@ pub async fn fetch_newest_live_stream(
     http: &Http,
     live_url: &str,
     members_only: bool,
+    skip_ids: &HashSet<String>,
     cancel: &CancellationToken,
 ) -> Result<Option<String>> {
     let streams_url =
@@ -99,7 +103,7 @@ pub async fn fetch_newest_live_stream(
             return Ok(None);
         }
     };
-    Ok(newest_live_stream(&data, members_only))
+    Ok(newest_live_stream(&data, members_only, skip_ids))
 }
 
 /// HTML for the stream's watch page. For channel URLs, a live item on the
@@ -109,10 +113,11 @@ pub async fn get_video_html(
     page_url: &str,
     is_channel: bool,
     members_only: bool,
+    skip_ids: &HashSet<String>,
     cancel: &CancellationToken,
 ) -> Result<String> {
     if is_channel {
-        match fetch_newest_live_stream(http, page_url, members_only, cancel).await {
+        match fetch_newest_live_stream(http, page_url, members_only, skip_ids, cancel).await {
             Ok(Some(stream_url)) => match http.get_bytes_cancellable(&stream_url, cancel).await {
                 Ok(page) => return Ok(String::from_utf8_lossy(&page).into_owned()),
                 Err(Error::Cancelled) => return Err(Error::Cancelled),
@@ -203,16 +208,19 @@ mod tests {
 
     #[test]
     fn finds_live_stream() {
+        let empty = HashSet::new();
         let data = initial_data(vec![item("a", false, false), item("b", true, false), item("c", true, true)]);
-        assert_eq!(newest_live_stream(&data, false).as_deref(), Some("https://www.youtube.com/watch?v=b"));
-        assert_eq!(newest_live_stream(&data, true).as_deref(), Some("https://www.youtube.com/watch?v=c"));
+        assert_eq!(newest_live_stream(&data, false, &empty).as_deref(), Some("https://www.youtube.com/watch?v=b"));
+        assert_eq!(newest_live_stream(&data, true, &empty).as_deref(), Some("https://www.youtube.com/watch?v=c"));
+        let skip = HashSet::from(["b".to_string()]);
+        assert_eq!(newest_live_stream(&data, false, &skip).as_deref(), Some("https://www.youtube.com/watch?v=c"));
     }
 
     #[test]
     fn only_first_five_items() {
         let mut items: Vec<_> = (0..5).map(|number| item(&number.to_string(), false, false)).collect();
         items.push(item("late", true, false));
-        assert_eq!(newest_live_stream(&initial_data(items), false), None);
+        assert_eq!(newest_live_stream(&initial_data(items), false, &HashSet::new()), None);
     }
 
     /// Hits YouTube. Run with `cargo test -- --ignored live_watch_page`.
@@ -220,10 +228,16 @@ mod tests {
     #[ignore]
     async fn live_watch_page() {
         let http = Http::new(&Default::default(), Default::default()).unwrap();
-        let html =
-            get_video_html(&http, "https://www.youtube.com/@LofiGirl/live", true, false, &CancellationToken::new())
-                .await
-                .unwrap();
+        let html = get_video_html(
+            &http,
+            "https://www.youtube.com/@LofiGirl/live",
+            true,
+            false,
+            &HashSet::new(),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
         let player_response = parse_player_response(&html).unwrap();
         assert_eq!(player_response.playability_status.status, "OK", "{:?}", player_response.playability_status);
         assert!(!player_response.video_details.video_id.is_empty());
