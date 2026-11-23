@@ -185,6 +185,12 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         let (seq, frag) = match msg {
             Msg::Done(fragment) => (fragment.seq, Some(fragment)),
             Msg::Missing(seq) => (seq, None),
+            Msg::StorageError(seq, error) => {
+                log_error!("{name}: Error writing temp fragment {seq}: {error}");
+                store_err = Some(error);
+                session.stop();
+                break;
+            }
         };
         let events = match sink.push(seq, frag).await {
             Ok(events) => {
