@@ -303,7 +303,11 @@ async fn download(
                 stored_before_failing |= !matches!(error, crate::error::Error::OpenStorage(_));
                 log_error!("{} download failed: {error}", data_type.as_str());
             }
-            Err(error) => log_error!("{} download task panicked: {error}", data_type.as_str()),
+            Err(error) => {
+                storage_failed = true;
+                stored_before_failing = true;
+                log_error!("{} download task panicked: {error}", data_type.as_str());
+            }
         }
     }
     if let Err(error) = reporter.await {
