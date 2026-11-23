@@ -1,15 +1,16 @@
 //! Downloading one fragment with Go ytarchive's retry policy.
 
+use std::fmt::Display;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use reqwest::StatusCode;
-use reqwest::header::{CONTENT_TYPE, ORIGIN, REFERER};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, ORIGIN, REFERER};
 
 use crate::error::Error;
 use crate::session::Session;
 use crate::types::{FragData, FragThreadState, Fragment, FragmentUrl, StreamProgress};
-use crate::util::write_file_with_mode;
+use crate::util::{sleep_or_cancel, write_file_with_mode};
 use crate::{log_debug, log_trace, log_warn};
 
 /// The longest wait between attempts that backing off can reach (a longer
@@ -149,7 +150,7 @@ fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &
     }
 }
 
-fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &dyn std::fmt::Display) {
+fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &dyn Display) {
     log_debug!("{}: Error with fragment {}: {err}", state.name, state.seq);
     state.backoff_step += 1;
     state.is_403 = false;
@@ -162,7 +163,7 @@ fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &d
     }
 }
 
-pub(super) fn header_u64(headers: &reqwest::header::HeaderMap, name: &str) -> Option<u64> {
+pub(super) fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
     headers.get(name)?.to_str().ok()?.trim().parse().ok()
 }
 
@@ -175,7 +176,7 @@ pub(super) fn fragment_request(session: &Session, url: &FragmentUrl, seq: u64) -
     req
 }
 
-pub(super) fn content_type(headers: &reqwest::header::HeaderMap) -> String {
+pub(super) fn content_type(headers: &HeaderMap) -> String {
     headers.get(CONTENT_TYPE).and_then(|value| value.to_str().ok()).unwrap_or("").to_string()
 }
 
@@ -191,7 +192,7 @@ pub(super) fn retry_delay(state: &FragThreadState) -> Duration {
 }
 
 async fn sleep_or_stop(session: &Session, state: &FragThreadState) -> bool {
-    crate::util::sleep_or_cancel(&session.cancel, retry_delay(state)).await
+    sleep_or_cancel(&session.cancel, retry_delay(state)).await
 }
 
 pub(super) enum FragOutcome {

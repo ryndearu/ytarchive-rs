@@ -1,3 +1,5 @@
+use std::io;
+
 use thiserror::Error;
 
 /// Crate-wide error type.
@@ -10,7 +12,7 @@ pub enum Error {
     HttpStatus { status: u16, what: String },
 
     #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
 
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),

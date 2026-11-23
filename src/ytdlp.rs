@@ -13,6 +13,7 @@ use crate::error::{Error, Result};
 use crate::http::Http;
 use crate::types::{
     FragmentUrl, IpVersion, LiveStatus, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo,
+    is_fragmented,
 };
 use crate::util::resolve_program;
 use crate::{log_debug, log_trace, log_warn};
@@ -146,7 +147,7 @@ pub fn is_adaptive_format(format: &YtdlpFormat) -> bool {
     let Some(url) = format.url.as_deref() else {
         return false;
     };
-    crate::types::is_fragmented(url)
+    is_fragmented(url)
         && format.manifest_url.as_deref().is_none_or(str::is_empty)
         && matches!(format.protocol.as_deref(), Some("http_dash_segments" | "http_dash_segments_generator"))
 }

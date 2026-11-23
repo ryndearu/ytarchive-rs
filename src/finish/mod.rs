@@ -1,7 +1,6 @@
 //! After downloading: Ctrl-C choices (merge / keep files / keep resume
 //! state), moving files to the final directory, and muxing.
 
-use std::mem;
 use std::path::PathBuf;
 
 use tokio::task::spawn_blocking;
@@ -54,7 +53,7 @@ async fn decide(action: Action, question: &str) -> bool {
 
 impl Finish<'_> {
     async fn export_pending(&mut self) -> bool {
-        for pending in mem::take(&mut self.pending_exports) {
+        for pending in std::mem::take(&mut self.pending_exports) {
             if let Err(error) = pending.export().await {
                 log_error!("Failed to export downloaded data: {error}");
                 return false;

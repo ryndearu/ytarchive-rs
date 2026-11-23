@@ -1,3 +1,6 @@
+use std::path;
+use std::{env, fs, process};
+
 use super::*;
 use crate::types::new_format_info;
 
@@ -69,7 +72,7 @@ fn folder_names_are_windows_safe() {
     // `..` in the template itself is kept.
     let parent = opts("../%(title)s", true);
     let (dir, _) = final_location(&parent, &info).unwrap();
-    assert_eq!(dir, std::path::absolute("..").unwrap());
+    assert_eq!(dir, path::absolute("..").unwrap());
 }
 
 #[test]
@@ -90,8 +93,7 @@ fn title_is_cut_to_fit_windows_max_path() {
     let options = Options { temp_dir: Some(temp_dir.clone()), ..options };
     let (_, short) = final_location(&options, &format_info(&"t".repeat(200))).unwrap();
     assert!(short.len() < name.len());
-    let temp =
-        std::path::absolute(&temp_dir).unwrap().join("vid__ffffffff").join(format!("{short}.f399.frag12345678.ts"));
+    let temp = path::absolute(&temp_dir).unwrap().join("vid__ffffffff").join(format!("{short}.f399.frag12345678.ts"));
     assert!(units(&temp) < WINDOWS_MAX_PATH, "{}", units(&temp));
 
     // Without --windows-filenames, only the 255-byte name limit applies.
@@ -117,32 +119,32 @@ fn temp_paths() {
 
 #[test]
 fn cleanup_keeps_data_set_aside_from_an_earlier_run() {
-    let base = std::env::temp_dir().join(format!("ytarchive-rs-cleanup-{}", std::process::id()));
+    let base = env::temp_dir().join(format!("ytarchive-rs-cleanup-{}", process::id()));
     let temp_dir = base.join("vid__ab12");
-    std::fs::create_dir_all(&temp_dir).unwrap();
+    fs::create_dir_all(&temp_dir).unwrap();
     let plan = OutputPlan { final_dir: base.clone(), file_name: "n".into(), temp_dir: temp_dir.clone() };
-    std::fs::write(plan.temp(".f140.ts"), b"new").unwrap();
-    std::fs::write(plan.temp(".f140.ts.old"), b"earlier").unwrap();
+    fs::write(plan.temp(".f140.ts"), b"new").unwrap();
+    fs::write(plan.temp(".f140.ts.old"), b"earlier").unwrap();
     plan.remove_temp_dir("vid");
     assert!(!plan.temp(".f140.ts").exists());
-    assert_eq!(std::fs::read(plan.temp(".f140.ts.old")).unwrap(), b"earlier");
+    assert_eq!(fs::read(plan.temp(".f140.ts.old")).unwrap(), b"earlier");
 
-    std::fs::remove_file(plan.temp(".f140.ts.old")).unwrap();
+    fs::remove_file(plan.temp(".f140.ts.old")).unwrap();
     plan.remove_temp_dir("vid");
     assert!(!temp_dir.exists());
-    std::fs::remove_dir_all(&base).unwrap();
+    fs::remove_dir_all(&base).unwrap();
 }
 
 #[test]
 fn state_paths_and_loading() {
-    let dir = std::env::temp_dir().join(format!("ytarchive-rs-out-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = env::temp_dir().join(format!("ytarchive-rs-out-{}", process::id()));
+    fs::create_dir_all(&dir).unwrap();
     let options = Options { temp_dir: Some(dir.clone()), ..Default::default() };
     let path = state_file(&options, "vid", 140);
     assert_eq!(path, dir.join("vid.f140.state"));
     // serde_json escapes Windows backslashes in the path.
     let json = serde_json::json!({"StartFrag": 5, "Fragments": 2, "Size": 10, "TempDir": dir});
-    std::fs::write(&path, json.to_string()).unwrap();
+    fs::write(&path, json.to_string()).unwrap();
     let (states, prev) = load_states(&options, "vid", &[140, 299]);
     assert_eq!(states[0].start_frag, 5);
     assert_eq!(states[0].file, path);
@@ -151,5 +153,5 @@ fn state_paths_and_loading() {
 
     let disabled = Options { disable_save_state: true, ..options };
     assert_eq!(load_states(&disabled, "vid", &[140]).0[0].fragments, 0);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }

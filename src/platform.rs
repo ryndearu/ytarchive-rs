@@ -7,6 +7,11 @@
 //! progress) until a key is pressed. All of it goes through safe wrapper
 //! crates, so there is no `unsafe` here.
 
+#[cfg(windows)]
+use std::io;
+#[cfg(windows)]
+use std::sync::OnceLock;
+
 pub struct ConsoleGuard {
     /// Releases the keep-awake request when dropped.
     #[cfg(windows)]
@@ -17,13 +22,13 @@ pub struct ConsoleGuard {
 /// of the console window, which outlives this program, so it's restored on
 /// exit (by `ConsoleGuard` or, before `process::exit`, by `restore`).
 #[cfg(windows)]
-static INPUT_MODE: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+static INPUT_MODE: OnceLock<u32> = OnceLock::new();
 
 /// Undoes console changes; call before `std::process::exit`.
 pub fn restore() {
     #[cfg(windows)]
     if let Some(&mode) = INPUT_MODE.get()
-        && let Err(error) = winapi_util::console::set_mode(std::io::stdin(), mode)
+        && let Err(error) = winapi_util::console::set_mode(io::stdin(), mode)
     {
         crate::log_debug!("Could not restore the console mode: {error}");
     }
@@ -64,7 +69,7 @@ pub fn setup() -> ConsoleGuard {
 #[cfg(windows)]
 fn disable_quick_edit() -> Option<()> {
     use winapi_util::console;
-    let stdin = std::io::stdin();
+    let stdin = io::stdin();
     let mode = console::mode(&stdin)
         .inspect_err(|error| crate::log_debug!("Could not read the console mode: {error}"))
         .ok()?;

@@ -1,15 +1,17 @@
 //! SQLite storage and private-stream recovery tests.
 
-use std::slice;
+use std::fs;
 use std::sync::OnceLock;
+use std::time::Instant;
 
 use rusqlite::Connection;
 
 use super::*;
 use crate::error::Error;
+use crate::types::{SavedDownload, StorageMode};
 
 fn sqlite_opts(threads: usize) -> Options {
-    Options { storage: crate::types::StorageMode::Sqlite, ..opts(threads, true) }
+    Options { storage: StorageMode::Sqlite, ..opts(threads, true) }
 }
 
 /// `--recover-private` (which turns on SQLite).
@@ -30,9 +32,7 @@ async fn sqlite_resume_fills_gap() {
     assert_eq!(first.state.fragments, 9);
     assert!(dir.join("out.f140.sqlite").exists());
     // No temp fragment files are used in SQLite mode.
-    assert!(
-        !std::fs::read_dir(&dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".frag"))
-    );
+    assert!(!fs::read_dir(&dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".frag")));
 
     // Second run against a healthy server resumes from the saved state and
     // only needs the missing fragment.
@@ -47,8 +47,8 @@ async fn sqlite_resume_fills_gap() {
     assert_eq!(progress_counts(&mut receiver), [9, 1]);
 
     let want: Vec<u8> = (0..10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -57,17 +57,17 @@ async fn sqlite_resumes_a_ts_download_as_ts() {
     let dir = temp_dir("sqlite-resume-ts");
     // Started with --no-sqlite (or by Go): 3 fragments in the .ts, no database.
     let first: Vec<u8> = (0..3).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    std::fs::write(dir.join("out.f140.ts"), &first).unwrap();
+    fs::write(dir.join("out.f140.ts"), &first).unwrap();
     let state = DownloadState { start_frag: 0, fragments: 3, size: first.len() as u64, ..Default::default() };
 
     let session = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
     let (stream_params, _rx) = params(&dir, 8, state);
     let out = download_stream(session, stream_params).await.unwrap();
     let want: Vec<u8> = (0..8).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     assert_eq!(out.state.fragments, 8);
     assert!(!dir.join("out.f140.sqlite").exists());
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 /// A server whose fragments from `forbidden` on get 403, marking `session`
@@ -100,14 +100,14 @@ async fn recovers_fragments_after_the_stream_goes_private() {
     assert_eq!(out.retry_until, None);
     assert_eq!(out.state.fragments, 12);
     let want: Vec<u8> = (0..12).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
 async fn recovery_gives_up_and_a_later_run_retries() {
     let dir = temp_dir("recover-later");
-    let saved = Arc::new(crate::types::SavedDownload {
+    let saved = Arc::new(SavedDownload {
         video_id: "abc".into(),
         label: "audio_only".into(),
         target_duration: 1,
@@ -126,10 +126,10 @@ async fn recovery_gives_up_and_a_later_run_retries() {
     // The fake server's URLs have no expire parameter.
     assert_eq!(out.retry_until, Some(u64::MAX));
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
 
     // The database has what a later run needs.
-    let kept = crate::download::read_kept(&dir, 140, 0o644).unwrap();
+    let kept = read_kept(&dir, 140, 0o644).unwrap();
     assert_eq!(kept.info, *saved);
     assert_eq!(kept.head, Some(12));
     assert_eq!(kept.urls, [FragmentUrl::with_sq_param(&url)]);
@@ -146,8 +146,8 @@ async fn recovery_gives_up_and_a_later_run_retries() {
     // 0..=4 were stored; 5..=11 are fetched again, nothing else.
     assert_eq!(progress_counts(&mut receiver), [5, 1, 1, 1, 1, 1, 1, 1]);
     let want: Vec<u8> = (0..12).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -158,17 +158,17 @@ async fn a_killed_download_keeps_the_head() {
     let dir = temp_dir("recover-killed");
     let session = Session::for_test(recovery_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
     let (mut stream_params, mut receiver) = params(&dir, 200, DownloadState::default());
-    stream_params.saved = Some(Arc::new(crate::types::SavedDownload { video_id: "abc".into(), ..Default::default() }));
+    stream_params.saved = Some(Arc::new(SavedDownload { video_id: "abc".into(), ..Default::default() }));
     let task = tokio::spawn(download_stream(session, stream_params));
     for _ in 0..3 {
         receiver.recv().await.unwrap();
     }
     task.abort();
     assert!(task.await.unwrap_err().is_cancelled(), "the download ended before the kill");
-    let kept = crate::download::read_kept(&dir, 140, 0o644).unwrap();
+    let kept = read_kept(&dir, 140, 0o644).unwrap();
     assert_eq!(kept.head, Some(200));
     // A blocking write that outlives the abort can still be adding files here.
-    std::fs::remove_dir_all(&dir).ok();
+    fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -178,11 +178,11 @@ async fn no_recovery_while_the_stream_is_available() {
     let dir = temp_dir("recover-none");
     let session = Session::for_test(recovery_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
     let (stream_params, _rx) = params(&dir, 12, DownloadState::default());
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let out = download_stream(session, stream_params).await.unwrap();
     assert_eq!(out.skipped, [5, 6, 7, 8, 9]);
     assert!(started.elapsed() < Duration::from_secs(5));
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -200,9 +200,9 @@ async fn no_recovery_without_the_flag() {
     assert_eq!(out.skipped, [5]);
     assert_eq!(out.retry_until, None);
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(std::fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    assert!(crate::download::read_kept(&dir, 140, 0o644).is_none());
-    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert!(read_kept(&dir, 140, 0o644).is_none());
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -225,7 +225,7 @@ async fn sqlite_storage_error_creates_no_ts_file() {
     let err = download_stream(session, stream_params).await.unwrap_err();
     assert!(matches!(err, Error::Sqlite(_)), "{err}");
     assert!(!dir.join("out.f140.ts").exists(), "partial .ts must not be exported on storage error");
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
@@ -245,11 +245,11 @@ async fn push_with_meta_batches_and_skips_empty_updates() {
 
     sink.push_with_meta(1, Some(frag(1)), MetaUpdate { head: Some(42), urls: vec![url.clone()] }).await.unwrap();
     assert_eq!(sink.meta("head").unwrap().as_deref(), Some("42"));
-    assert_eq!(sink.urls().unwrap(), slice::from_ref(&url));
+    assert_eq!(sink.urls().unwrap(), std::slice::from_ref(&url));
 
     sink.push_with_meta(2, Some(frag(2)), MetaUpdate::default()).await.unwrap();
     assert_eq!(sink.meta("head").unwrap().as_deref(), Some("42"));
     assert_eq!(sink.urls().unwrap(), [url]);
     drop(sink);
-    std::fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
 }

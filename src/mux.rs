@@ -197,6 +197,8 @@ pub async fn execute(program: &str, args: &[String]) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     /// One folder per test with no shared parent, so removing it leaves nothing
@@ -268,16 +270,16 @@ mod tests {
     #[test]
     fn avoids_existing_output() {
         let out_dir = dir("exists");
-        std::fs::create_dir_all(&out_dir).unwrap();
-        std::fs::write(out_dir.join("out.mp4"), b"").unwrap();
+        fs::create_dir_all(&out_dir).unwrap();
+        fs::write(out_dir.join("out.mp4"), b"").unwrap();
         assert_eq!(unused_output(&out_dir, "out", "mp4"), out_dir.join("out-1.mp4"));
-        std::fs::remove_dir_all(&out_dir).unwrap();
+        fs::remove_dir_all(&out_dir).unwrap();
     }
 
     #[test]
     fn output_name_is_picked_again_before_muxing() {
         let out_dir = dir("taken-later");
-        std::fs::create_dir_all(&out_dir).unwrap();
+        fs::create_dir_all(&out_dir).unwrap();
         let cmd = ffmpeg_args(&MuxInput {
             audio: Some(Path::new("a.ts")),
             video: Some(Path::new("v.ts")),
@@ -289,12 +291,12 @@ mod tests {
         });
         assert_eq!(cmd.with_unused_output().args, cmd.args);
 
-        std::fs::write(&cmd.output, b"").unwrap();
+        fs::write(&cmd.output, b"").unwrap();
         let later = cmd.with_unused_output();
         assert_eq!(later.output, out_dir.join("out-1.mp4"));
         assert_eq!(later.args.last(), Some(&path_text(&later.output)));
         assert_eq!(later.args[..later.args.len() - 1], cmd.args[..cmd.args.len() - 1]);
-        std::fs::remove_dir_all(&out_dir).unwrap();
+        fs::remove_dir_all(&out_dir).unwrap();
     }
 
     #[test]

@@ -1,12 +1,13 @@
 //! Output file naming, final/temporary directories, and resume state files.
 
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::{self, Component, Path, PathBuf};
 
 use crate::download::load_state;
 use crate::error::{Error, Result};
 use crate::types::{DownloadState, FormatInfo, Options};
 use crate::util::filename::MAX_FILENAME_LEN;
-use crate::util::{NameStyle, create_temp_dir, format_filename, portable_file_name, sterilize_filename};
+use crate::util::{NameStyle, apply_mode, create_temp_dir, format_filename, portable_file_name, sterilize_filename};
 use crate::{log_error, log_warn};
 
 #[derive(Debug, Clone)]
@@ -44,19 +45,19 @@ impl OutputPlan {
         if !self.owns_temp_dir(video_id) {
             return;
         }
-        let entries: Vec<PathBuf> = std::fs::read_dir(&self.temp_dir)
+        let entries: Vec<PathBuf> = fs::read_dir(&self.temp_dir)
             .map(|entries| entries.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())
             .unwrap_or_default();
         let (kept, others): (Vec<PathBuf>, Vec<PathBuf>) =
             entries.into_iter().partition(|path| path.extension().is_some_and(|extension| extension == "old"));
         if kept.is_empty() {
-            if let Err(error) = std::fs::remove_dir_all(&self.temp_dir) {
+            if let Err(error) = fs::remove_dir_all(&self.temp_dir) {
                 log_warn!("Error removing temporary directory {}: {error}", self.temp_dir.display());
             }
             return;
         }
         for path in others {
-            let removed = if path.is_dir() { std::fs::remove_dir_all(&path) } else { std::fs::remove_file(&path) };
+            let removed = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
             if let Err(error) = removed {
                 log_warn!("Error removing {}: {error}", path.display());
             }
@@ -122,7 +123,7 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
     let mut dir = Path::new(full).parent().map(Path::to_path_buf).unwrap_or_default();
     // Relative templates must stay relative (a value can't make them absolute).
     if !Path::new(&opts.output_format).is_absolute() {
-        dir = dir.components().filter(|component| !matches!(component, std::path::Component::RootDir)).collect();
+        dir = dir.components().filter(|component| !matches!(component, Component::RootDir)).collect();
     }
     // With --windows-filenames, folder names from the template (e.g.
     // %(channel)s) must be valid on Windows too; drive prefixes, roots, `.`
@@ -131,7 +132,7 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
         dir = dir
             .components()
             .map(|component| match component {
-                std::path::Component::Normal(name) => PathBuf::from(portable_file_name(&name.to_string_lossy())),
+                Component::Normal(name) => PathBuf::from(portable_file_name(&name.to_string_lossy())),
                 other => PathBuf::from(other.as_os_str()),
             })
             .collect();
@@ -139,7 +140,7 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
     if dir.as_os_str().is_empty() {
         dir = PathBuf::from(".");
     }
-    std::path::absolute(&dir).unwrap_or(dir)
+    path::absolute(&dir).unwrap_or(dir)
 }
 
 /// UTF-16 units left for the base name so that `{dir}\{name}{suffix}` fits
@@ -147,7 +148,7 @@ fn output_dir(opts: &Options, full: &str, style: NameStyle) -> PathBuf {
 fn windows_name_room(opts: &Options, final_dir: &Path, video_id: &str) -> usize {
     let units = |path: &Path| path.as_os_str().to_string_lossy().encode_utf16().count();
     let temp_parent = match &opts.temp_dir {
-        Some(path) => std::path::absolute(path).unwrap_or_else(|_| path.clone()),
+        Some(path) => path::absolute(path).unwrap_or_else(|_| path.clone()),
         None => final_dir.to_path_buf(),
     };
     let temp_dir = units(&temp_parent) + 1 + video_id.len() + 2 + TEMP_DIR_RANDOM;
@@ -161,9 +162,9 @@ pub fn ensure_dir(dir: PathBuf, mode: u32, what: &str) -> PathBuf {
     if dir == Path::new(".") || dir.is_dir() {
         return dir;
     }
-    match std::fs::create_dir_all(&dir) {
+    match fs::create_dir_all(&dir) {
         Ok(()) => {
-            crate::util::apply_mode(&dir, mode);
+            apply_mode(&dir, mode);
             dir
         }
         Err(error) => {

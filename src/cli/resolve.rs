@@ -1,8 +1,8 @@
 //! Rewriting Go-style flags for clap, then validating flag combinations and
 //! resolving them into `Options`.
 
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
-use std::mem;
 use std::time::Duration;
 
 use clap::CommandFactory;
@@ -70,7 +70,7 @@ fn split_ytdlp_opts(input: &str) -> Result<Vec<String>> {
             match character {
                 value if value.is_whitespace() => {
                     if in_token {
-                        out.push(mem::take(&mut current));
+                        out.push(std::mem::take(&mut current));
                         in_token = false;
                     }
                 }
@@ -122,8 +122,8 @@ where
     I: IntoIterator<Item = OsString>,
 {
     let cmd = Cli::command();
-    let mut long_takes_value = std::collections::HashMap::new();
-    let mut short_takes_value = std::collections::HashSet::new();
+    let mut long_takes_value = HashMap::new();
+    let mut short_takes_value = HashSet::new();
     for arg in cmd.get_arguments() {
         let takes = arg.get_action().takes_values();
         if let Some(line) = arg.get_long() {
