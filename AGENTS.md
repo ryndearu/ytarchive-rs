@@ -27,8 +27,9 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - No `unsafe` unless truly necessary; prefer a maintained safe wrapper crate. Lifting `#![forbid(unsafe_code)]` in `main.rs` needs a good reason and a `// SAFETY:` comment on every `unsafe` block.
 - Outside tests: no `unwrap()`/`expect()` (use `?`), no unchecked indexing or slicing, and no `let _ =` on a `Result` (handle or log it). Clippy enforces this (`[lints.clippy]` in `Cargo.toml`; `clippy.toml` exempts tests). Use `util::lock` for mutexes and `util::apply_mode` for permissions that may fail.
 - Names are full words (`sequence`, not `sq`), closure parameters included.
+- Import with `use` (std, external crates, then `crate::`) instead of writing out paths: `Duration::from_secs(5)`, not `std::time::Duration::from_secs(5)`. A single call may stay inline when the short name is unclear (`std::env::temp_dir()`).
 - Clone for an async block inside the block passed to the spawn, under the same name: `tokio::spawn({ let session = session.clone(); async move { … } })`.
-- Comments explain a non-obvious *why*, especially where behavior differs from Go; none that summarize code or divide it into sections.
+- Comments explain a non-obvious *why*, especially where behavior differs from Go; none that summarize code or divide it into sections. Keep comments stating a contract the code doesn't show (when data is copied, what `None` means, why a value is clamped).
 - Cookies are read twice on purpose: `cookies.rs` follows Go for ytarchive's own requests; `ytdlp_cookies.rs` mirrors yt-dlp's loader only to decide whether yt-dlp needs a repaired copy. Keep them separate.
 
 ## Testing
@@ -79,6 +80,9 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 - One commit per completed step, each building on its own and updating the docs it affects (`README.md`, `docs/CHANGES_FROM_GO.md`, `docs/NOT_TESTED.md`, this file). In a large docs update, attach each docs change to its commit; only the rest goes into a separate `docs:` commit.
 - Commit and push only when asked, and pause after each step for review.
 - Never force-push or rewrite pushed history; unpushed commits may be reorganized. Never commit secrets.
+- Fold a fix into the unpushed commit it fixes instead of adding a follow-up commit.
+- Before pushing, check each message against its diff; drop lines that no longer match (e.g. "Document in …" for a file the commit doesn't touch).
+- Do everything a handoff asks, including PR descriptions and questions for the user, not only the code.
 
 ## Releases and CI
 
