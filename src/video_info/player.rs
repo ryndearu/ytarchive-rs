@@ -13,11 +13,21 @@ use crate::{log, log_debug, log_error, log_general, log_info, log_warn};
 
 pub enum Outcome {
     Found(Box<PlayerResponse>),
-    /// Couldn't get a player response at all.
+    /// Couldn't get a player response at all (permanent or unparsed).
     NotFound,
+    /// Temporary network/server failure; a running download stays refreshable.
+    TransientError,
     /// Got one, but it can't be downloaded (not live, unplayable, user
     /// declined to wait, cancelled, ...).
     NotUsable,
+}
+
+fn is_transient_http(error: &crate::error::Error) -> bool {
+    match error {
+        crate::error::Error::Http(_) | crate::error::Error::Io(_) => true,
+        crate::error::Error::HttpStatus { status, .. } => *status == 429 || *status >= 500,
+        _ => false,
+    }
 }
 
 const POLL: Duration = Duration::from_secs(DEFAULT_POLL_SECS);
@@ -30,6 +40,7 @@ impl Extractor {
         let mut live_waited = 0u64;
         let mut retry_count = 0u32;
         let mut response_retries = 0u32;
+        let mut all_transient = true;
         let mut details_retries = 0u32;
         let mut secs_late = 0u64;
 
@@ -37,14 +48,32 @@ impl Extractor {
             if self.cancel.is_cancelled() {
                 return Outcome::NotUsable;
             }
-            let html =
-                get_video_html(&self.http, &self.page_url, self.is_channel, self.members_only, &self.cancel).await;
-            if self.cancel.is_cancelled() {
-                return Outcome::NotUsable;
-            }
-            let parsed = match &html {
-                Some(host) => parse_player_response(host).map_err(|error| error.to_string()),
-                None => Err("unable to retrieve data from video page".to_string()),
+            let (parsed, transient) = match get_video_html(
+                &self.http,
+                &self.page_url,
+                self.is_channel,
+                self.members_only,
+                &self.cancel,
+            )
+            .await
+            {
+                Ok(html_page) => {
+                    let page_id = if self.is_channel { video_id_from_watch_page(&html_page) } else { None };
+                    match parse_player_response(&html_page) {
+                        Ok(player_response) => {
+                            if let Some(id) = page_id {
+                                self.video_id = id;
+                            }
+                            (Ok(player_response), false)
+                        }
+                        Err(error) => (Err(error.to_string()), false),
+                    }
+                }
+                Err(crate::error::Error::Cancelled) => return Outcome::NotUsable,
+                Err(error) => {
+                    let transient = is_transient_http(&error);
+                    (Err(error.to_string()), transient)
+                }
             };
 
             let player_response = match parsed {
@@ -69,6 +98,7 @@ impl Extractor {
                         log::retry_status(retry_count, live_waited, newlines);
                         continue;
                     }
+                    all_transient &= transient;
                     if response_retries < MAX_RETRIES {
                         response_retries += 1;
                         log_warn!("Error retrieving player response: {err} (Retry {response_retries}/{MAX_RETRIES})");
@@ -78,16 +108,18 @@ impl Extractor {
                         continue;
                     }
                     eprintln!();
+                    if all_transient {
+                        if self.in_progress {
+                            log_warn!("Temporary error retrieving player response; continuing with current URLs.");
+                        } else {
+                            log_error!("Error retrieving player response, max retries reached.");
+                        }
+                        return Outcome::TransientError;
+                    }
                     log_error!("Error retrieving player response, max retries reached.");
                     return Outcome::NotFound;
                 }
             };
-
-            if self.is_channel
-                && let Some(id) = html.as_deref().and_then(video_id_from_watch_page)
-            {
-                self.video_id = id;
-            }
 
             let details = &player_response.video_details;
             if details.video_id.is_empty() {
