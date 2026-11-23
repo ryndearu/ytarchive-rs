@@ -29,7 +29,7 @@ The full list is in [docs/CHANGES_FROM_GO.md](docs/CHANGES_FROM_GO.md); what has
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp), kept up to date. It extracts the download URLs. The **nightly** channel is recommended, since YouTube changes often and fixes land there first: `yt-dlp --update-to nightly`, `pip install -U --pre "yt-dlp[default]"`, or the binary from [yt-dlp-nightly-builds](https://github.com/yt-dlp/yt-dlp-nightly-builds/releases) (distro packages and Homebrew only have stable).
 - A JavaScript runtime for yt-dlp's YouTube support: [deno](https://deno.com/) by default. If you only have node, add `--ytdlp-opts "--js-runtimes node"`.
 
-ytarchive looks for `ffmpeg` and `yt-dlp` on your `PATH`. On Windows you can also put `ffmpeg.exe` and `yt-dlp.exe` in the same folder as `ytarchive.exe`.
+ytarchive looks for `ffmpeg` and `yt-dlp` next to the `ytarchive` executable first, and then on your `PATH` (on Windows, put `ffmpeg.exe` and `yt-dlp.exe` in the same folder as `ytarchive.exe`).
 
 ## Installing
 

@@ -56,9 +56,11 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
 /// Runs yt-dlp once and returns stdout.
 pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool) -> Result<String> {
     let args = build_args(opts, url, ignore_no_formats);
-    log_trace!("Running {} {:?}", opts.ytdlp_path, args);
+    let executable =
+        crate::util::resolve_program(&opts.ytdlp_path).unwrap_or_else(|| std::path::PathBuf::from(&opts.ytdlp_path));
+    log_trace!("Running {} {:?}", executable.display(), args);
 
-    let child = Command::new(&opts.ytdlp_path)
+    let child = Command::new(&executable)
         .args(&args)
         .env("PYTHONIOENCODING", "utf-8")
         .env("PYTHONUTF8", "1")
