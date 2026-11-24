@@ -99,7 +99,11 @@ impl Extractor {
             };
 
             let player_response = match parsed {
-                Ok(player_response) => player_response,
+                Ok(player_response) => {
+                    response_retries = 0;
+                    all_transient = true;
+                    player_response
+                }
                 Err(err) => {
                     if wait_on_channel {
                         if !self.wait_on_idle_channel(&mut live_waited, &mut retry_count, newlines).await {
@@ -158,6 +162,7 @@ impl Extractor {
                 self.unavailable = true;
                 return Outcome::NotUsable;
             }
+            details_retries = 0;
 
             if !self.in_progress && self.skip_ids.contains(&details.video_id) {
                 self.video_id = details.video_id.clone();
