@@ -60,7 +60,7 @@ pub struct Extractor {
     /// reuse it instead of selecting again.
     pub fixed_itag: Option<Option<u32>>,
 
-    pub info_printed: bool,
+    printed_info: Option<(String, String)>,
     pub in_progress: bool,
     pub live: bool,
     pub unavailable: bool,
@@ -99,7 +99,7 @@ impl Extractor {
             selected,
             codecs: opts.codecs.clone(),
             fixed_itag: opts.audio_only.then_some(None),
-            info_printed: false,
+            printed_info: None,
             in_progress: false,
             live: false,
             unavailable: false,
@@ -130,12 +130,19 @@ impl Extractor {
     }
 
     fn print_info(&mut self, channel: &str, title: &str) {
-        if self.info_printed || channel.is_empty() || title.is_empty() {
+        if self.in_progress || channel.is_empty() || title.is_empty() {
+            return;
+        }
+        if self
+            .printed_info
+            .as_ref()
+            .is_some_and(|(prev_channel, prev_title)| prev_channel == channel && prev_title == title)
+        {
             return;
         }
         log_general!("Channel: {channel}");
         log_general!("Video Title: {title}");
-        self.info_printed = true;
+        self.printed_info = Some((channel.to_string(), title.to_string()));
     }
 
     pub(super) fn reject_negative_live_from(&self) -> bool {
