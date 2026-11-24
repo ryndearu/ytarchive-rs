@@ -150,9 +150,11 @@ pub async fn recover(
                 log_warn!("{name}: Nothing was recovered in {idle} rounds; giving up on {} fragment(s)", missing.len());
                 break;
             }
-            tokio::select! {
-                _ = session.cancel.cancelled() => break,
-                _ = tokio::time::sleep(ROUND_INTERVAL) => {}
+            if !usable(session.known_urls(data_type)).is_empty() {
+                tokio::select! {
+                    _ = session.cancel.cancelled() => break,
+                    _ = tokio::time::sleep(ROUND_INTERVAL) => {}
+                }
             }
         }
         let urls = usable(session.known_urls(data_type));
@@ -178,6 +180,7 @@ pub async fn recover(
         let mut recovered = 0u64;
         loop {
             while tasks.len() < threads
+                && !session.is_stopping()
                 && let Some(seq) = queue.next()
             {
                 tasks.spawn(fetch(session.clone(), urls.clone(), seq, round - 1));
