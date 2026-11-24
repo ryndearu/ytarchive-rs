@@ -95,13 +95,32 @@ impl Session {
         }
     }
 
+    /// Prepends URLs saved by an earlier run, which are older than the ones
+    /// this run obtained.
+    pub fn remember_older(&self, data_type: DataType, older: Vec<FragmentUrl>) {
+        let mut known = lock(self.known.get(data_type));
+        let mut combined: Vec<FragmentUrl> = Vec::with_capacity(older.len() + known.len());
+        for url in older {
+            if !known.contains(&url) && !combined.contains(&url) {
+                combined.push(url);
+            }
+        }
+        combined.extend(known.drain(..));
+        *known = combined;
+    }
+
     pub fn url(&self, data_type: DataType) -> Option<FragmentUrl> {
         lock(self.urls.get(data_type)).clone()
     }
 
-    /// Every URL used for `dt`, newest first.
+    /// Every URL used for `data_type`, newest first.
     pub fn known_urls(&self, data_type: DataType) -> Vec<FragmentUrl> {
         lock(self.known.get(data_type)).iter().rev().cloned().collect()
+    }
+
+    /// Every URL used for `data_type`, oldest first (matching SQLite `urls` rowid order).
+    pub fn known_urls_oldest_first(&self, data_type: DataType) -> Vec<FragmentUrl> {
+        lock(self.known.get(data_type)).clone()
     }
 
     pub fn is_live(&self) -> bool {
