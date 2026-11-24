@@ -206,7 +206,7 @@ pub async fn open(
                 // Unresumable database (e.g. reused temp dir whose state has 0
                 // fragments): set it aside rather than splicing two runs.
                 drop(sink);
-                keep_existing_db(&database_path, name).await;
+                keep_existing_db(&database_path, name).await?;
                 sink = DbSink::open_async(database_path, mode).await?;
                 skip.clear();
                 fragments = 0;
@@ -230,7 +230,7 @@ pub async fn open(
     state = DownloadState { temp_dir, file: state.file, ..Default::default() };
     let start = fresh_start();
     state.start_frag = start;
-    keep_existing_data(data_file, name).await;
+    keep_existing_data(data_file, name).await?;
     let sink = TsSink::create(data_file, start, mode).await?;
     Ok(Opened { sink: Sink::Ts(sink), cur: start, skip: Default::default(), state })
 }
@@ -241,33 +241,22 @@ pub async fn open(
 /// other stream's state was still good, or the file is shorter than its
 /// state says. With no usable state at all the run gets a new folder, and
 /// the old one is left as it is.
-async fn keep_existing_data(data_file: &Path, name: &str) -> bool {
+async fn keep_existing_data(data_file: &Path, name: &str) -> io::Result<bool> {
     let has_data = tokio::fs::metadata(data_file).await.is_ok_and(|metadata| metadata.len() > 0);
     if !has_data {
-        return false;
+        return Ok(false);
     }
     let mut old_name = data_file.as_os_str().to_os_string();
     old_name.push(".old");
     let old_file = PathBuf::from(old_name);
-    match tokio::fs::rename(data_file, &old_file).await {
-        Ok(()) => {
-            log_warn!(
-                "{name}: {} has data that can't be resumed; kept it as {}",
-                data_file.display(),
-                old_file.display()
-            );
-            true
-        }
-        Err(error) => {
-            log_warn!("{name}: Could not keep the existing {}: {error}", data_file.display());
-            false
-        }
-    }
+    tokio::fs::rename(data_file, &old_file).await?;
+    log_warn!("{name}: {} has data that can't be resumed; kept it as {}", data_file.display(), old_file.display());
+    Ok(true)
 }
 
-pub(super) async fn keep_existing_db(database_path: &Path, name: &str) {
-    if !keep_existing_data(database_path, name).await {
-        return;
+pub(super) async fn keep_existing_db(database_path: &Path, name: &str) -> io::Result<()> {
+    if !keep_existing_data(database_path, name).await? {
+        return Ok(());
     }
     for suffix in ["-wal", "-shm"] {
         let mut sidecar = database_path.as_os_str().to_os_string();
@@ -290,9 +279,11 @@ pub(super) async fn keep_existing_db(database_path: &Path, name: &str) {
             }
             Err(error) => {
                 log_warn!("{name}: Could not keep {}: {error}", sidecar_path.display());
+                return Err(error);
             }
         }
     }
+    Ok(())
 }
 
 /// A SQLite database ready to export to `.ts`, deferred until all streams finish.

@@ -319,7 +319,7 @@ async fn keep_existing_db_preserves_uncheckpointed_wal() {
     fs::copy(dir.join("live.sqlite-wal"), dir.join("out.f140.sqlite-wal")).unwrap();
     drop(conn);
 
-    keep_existing_db(&target_db, "audio").await;
+    keep_existing_db(&target_db, "audio").await.unwrap();
 
     assert!(!target_db.exists());
     assert!(!dir.join("out.f140.sqlite-wal").exists());
@@ -332,5 +332,38 @@ async fn keep_existing_db_preserves_uncheckpointed_wal() {
     assert_eq!(data, [0xDE, 0xAD, 0xBE, 0xEF]);
     drop(old_conn);
 
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn aborts_when_unresumable_sqlite_cannot_be_moved_aside() {
+    use super::super::db_sink::DbSink;
+    use crate::types::{FragData, Fragment};
+
+    let dir = temp_dir("sqlite-keep-old-fail");
+    let database_path = dir.join("out.f140.sqlite");
+    let mut old = DbSink::open(&database_path, 0o644).unwrap();
+    let frag = Fragment {
+        seq: 0,
+        x_head_seqnum: None,
+        data: FragData::Memory(bytes::Bytes::from(fragment_body(0))),
+        mime_type: "video/mp4".into(),
+    };
+    old.push(0, Some(frag)).await.unwrap();
+    drop(old);
+
+    let blocker = dir.join("out.f140.sqlite.old");
+    fs::create_dir(&blocker).unwrap();
+    fs::write(blocker.join("keep"), b"x").unwrap();
+
+    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param("http://127.0.0.1:1/x?")), false);
+    let (stream_params, _rx) = params(&dir, 6, DownloadState::default());
+    let err = download_stream(session, stream_params).await.unwrap_err();
+    assert!(matches!(err, Error::OpenStorage(_)), "{err}");
+
+    let conn = Connection::open(&database_path).unwrap();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM segments", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 1);
+    drop(conn);
     fs::remove_dir_all(&dir).unwrap();
 }
