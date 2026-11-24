@@ -162,20 +162,47 @@ fn is_executable_file(path: &Path) -> bool {
     }
 }
 
-fn find_executable(candidate: PathBuf) -> Option<PathBuf> {
-    if is_executable_file(&candidate) {
-        return Some(candidate);
+#[cfg(any(windows, test))]
+const DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
+
+/// Candidate paths for an executable on Windows, honoring `PATHEXT` and never
+/// matching bare extensionless files (such as POSIX shims on `PATH`).
+#[cfg(any(windows, test))]
+fn windows_executable_candidates(candidate: &Path, pathext: Option<&str>) -> Vec<PathBuf> {
+    let raw = pathext.filter(|value| !value.trim().is_empty()).unwrap_or(DEFAULT_PATHEXT);
+    let exts: Vec<&str> = raw.split(';').map(str::trim).filter(|ext| !ext.is_empty()).collect();
+    let has_pathext = candidate
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| exts.iter().any(|known| known.trim_start_matches('.').eq_ignore_ascii_case(ext)));
+    if has_pathext {
+        return vec![candidate.to_path_buf()];
     }
+    let mut out = Vec::with_capacity(exts.len() + 1);
+    for ext in exts {
+        let mut with_ext = candidate.as_os_str().to_os_string();
+        if !ext.starts_with('.') {
+            with_ext.push(".");
+        }
+        with_ext.push(ext);
+        out.push(PathBuf::from(with_ext));
+    }
+    if candidate.extension().is_some() {
+        out.push(candidate.to_path_buf());
+    }
+    out
+}
+
+fn find_executable(candidate: PathBuf) -> Option<PathBuf> {
     #[cfg(windows)]
     {
-        let mut with_exe = candidate.into_os_string();
-        with_exe.push(".exe");
-        let exe_path = PathBuf::from(with_exe);
-        if is_executable_file(&exe_path) {
-            return Some(exe_path);
-        }
+        let pathext = env::var("PATHEXT").ok();
+        windows_executable_candidates(&candidate, pathext.as_deref()).into_iter().find(|path| is_executable_file(path))
     }
-    None
+    #[cfg(not(windows))]
+    {
+        is_executable_file(&candidate).then_some(candidate)
+    }
 }
 
 /// Resolves `program` as a path (if it contains a separator), else next to the
@@ -308,5 +335,17 @@ mod tests {
         try_move(&source, &destination).unwrap();
         assert_eq!(fs::read(&destination).unwrap(), b"data");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn windows_candidates_follow_pathext_and_skip_extensionless_shims() {
+        let bare = windows_executable_candidates(Path::new("yt-dlp"), Some(".EXE;.CMD"));
+        assert_eq!(bare, [PathBuf::from("yt-dlp.EXE"), PathBuf::from("yt-dlp.CMD")]);
+
+        let explicit = windows_executable_candidates(Path::new("yt-dlp.cmd"), Some(".EXE;.CMD"));
+        assert_eq!(explicit, [PathBuf::from("yt-dlp.cmd")]);
+
+        let dotted = windows_executable_candidates(Path::new("yt-dlp.nightly"), Some(".EXE"));
+        assert_eq!(dotted, [PathBuf::from("yt-dlp.nightly.EXE"), PathBuf::from("yt-dlp.nightly")]);
     }
 }

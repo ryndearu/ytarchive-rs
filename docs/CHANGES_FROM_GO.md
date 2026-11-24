@@ -87,7 +87,7 @@ Windows, Linux, and macOS are supported, each as x64 and arm64. Go built for mor
 - **Windows console** (port of `util_windows.go`): the system is kept awake, ANSI colors are enabled, and QuickEdit mode is turned off and restored on exit, all through safe wrapper crates (no `unsafe`).
 - **`--windows-filenames` / `--no-windows-filenames` / `--no-path-limit`** (new; see [File names](../README.md#file-names)). Go always replaced `<>:"/\|?*`, only in the file name, and didn't keep paths within MAX_PATH.
 - **The `.ffmpeg.txt` command uses the platform's quoting.** Go always used POSIX quoting.
-- **`ffmpeg`/`yt-dlp` next to the executable are found**, besides `PATH`, and executed by resolved path on every OS (including Linux and macOS). Go also looked in the current directory.
+- **`ffmpeg`/`yt-dlp` next to the executable are found**, besides `PATH`, and executed by resolved path on every OS (including Linux and macOS); Windows honors `PATHEXT` (`.exe`, `.cmd`, `.bat`, …) and skips bare extensionless files. Go also looked in the current directory.
 
 ## Go bugs fixed during the port
 
