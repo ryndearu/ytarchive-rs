@@ -293,7 +293,9 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
             let mut stored = match database.stored_async().await {
                 Ok(stored) => Some(stored),
                 Err(error) => {
+                    log_error!("{name}: Error reading stored fragments for recovery: {error}");
                     store_err = Some(error);
+                    session.stop();
                     None
                 }
             };
@@ -309,6 +311,7 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
                     Err(error) => {
                         log_error!("{name}: Error storing recovered fragments: {error}");
                         store_err = Some(error);
+                        session.stop();
                     }
                 }
             }
