@@ -189,6 +189,9 @@ async fn download(
                         }
                     }
                     None => {
+                        if interrupt.is_set() {
+                            return if interrupt.terminated() { 143 } else { 2 };
+                        }
                         log_error!("Got an error when re-grabbing video info after the delay period elapsed. Exiting.");
                         return 1;
                     }

@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
 
+use crate::error::Error;
 use crate::formats::{self, UrlMap};
 use crate::http::Http;
 use crate::input_url::InputUrl;
@@ -20,7 +21,7 @@ use crate::types::{
     VideoCodec, new_format_info,
 };
 use crate::util::sleep_or_cancel;
-use crate::{log_debug, log_error, log_general, ytdlp};
+use crate::{log_error, log_general, log_warn, ytdlp};
 
 /// Minimum time between two extractions; little changes faster than this.
 const MIN_UPDATE_INTERVAL: Duration = Duration::from_secs(DEFAULT_POLL_SECS);
@@ -175,9 +176,14 @@ impl Extractor {
 
         let info = match ytdlp::extract(&self.http, &self.opts, &self.page_url, false, &self.cancel).await {
             Ok(info) => info,
+            Err(Error::Cancelled) => return None,
             Err(error) => {
-                log_debug!("yt-dlp extraction failed: {error}");
-                Default::default()
+                if self.in_progress {
+                    log_warn!("yt-dlp extraction failed; continuing with current URLs: {error}");
+                } else {
+                    log_error!("yt-dlp extraction failed: {error}");
+                }
+                return None;
             }
         };
         if let Some(sequence) = info.last_sq.filter(|last| *last > 0) {
