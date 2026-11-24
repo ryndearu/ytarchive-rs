@@ -58,7 +58,11 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
         }
         for prefix in ["/live/", "/shorts/"] {
             if lower_path.starts_with(prefix) {
-                let id = path[prefix.len()..].trim_matches('/').to_string();
+                let id = path
+                    .get(prefix.len()..)
+                    .and_then(|rest| rest.trim_start_matches('/').split('/').next())
+                    .unwrap_or("")
+                    .to_string();
                 if id.is_empty() {
                     break;
                 }
@@ -66,7 +70,7 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
             }
         }
     } else if host == "youtu.be" {
-        let id = path.trim_matches('/').to_string();
+        let id = path.trim_start_matches('/').split('/').next().unwrap_or("").to_string();
         if !id.is_empty() {
             return Ok(InputUrl::Video { id });
         }
@@ -135,8 +139,11 @@ mod tests {
         assert_eq!(parse_input_url("https://www.youtube.com/watch?v=abc&t=1").unwrap(), video("abc"));
         assert_eq!(parse_input_url("https://m.youtube.com/watch?v=abc").unwrap(), video("abc"));
         assert_eq!(parse_input_url("https://youtu.be/abc?si=x").unwrap(), video("abc"));
+        assert_eq!(parse_input_url("https://youtu.be/abc/extra").unwrap(), video("abc"));
         assert_eq!(parse_input_url("https://youtube.com/live/abc?feature=share").unwrap(), video("abc"));
+        assert_eq!(parse_input_url("https://youtube.com/live/abc/extra").unwrap(), video("abc"));
         assert_eq!(parse_input_url("https://youtube.com/shorts/abc").unwrap(), video("abc"));
+        assert_eq!(parse_input_url("https://youtube.com/shorts/abc/extra").unwrap(), video("abc"));
         assert!(parse_input_url("https://youtube.com/watch?x=1").is_err());
         assert!(parse_input_url("https://example.com/watch?v=abc").is_err());
         assert!(parse_input_url("not a url").is_err());
