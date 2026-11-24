@@ -388,7 +388,15 @@ mod tests {
         assert!(unrelated.exists());
 
         drop(live_lock);
-        cleanup_stale_cookie_files(&dir, &current, future_cutoff);
+        // A parallel test spawning a subprocess can briefly hold a forked copy
+        // of the lock fd across fork/exec; retry cleanup briefly if needed.
+        for _ in 0..20 {
+            cleanup_stale_cookie_files(&dir, &current, future_cutoff);
+            if !live.exists() && !lock_path_for(&live).exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
         assert!(!live.exists());
         assert!(!lock_path_for(&live).exists());
         fs::remove_dir_all(&dir).unwrap();
