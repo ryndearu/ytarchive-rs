@@ -6,11 +6,17 @@ use std::fmt::Arguments;
 use std::io::{self, IsTerminal};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::time::Duration;
 
 use tokio::sync::mpsc;
+use tokio::time::{Instant, sleep_until};
 
 use crate::types::{DataType, LogLevel, PerType, ProgressInfo};
 use crate::util::format_size;
+
+/// Minimum interval between inline TTY progress redraws; queued updates are
+/// coalesced and flushed when the stream finishes.
+const TTY_PROGRESS_INTERVAL: Duration = Duration::from_millis(50);
 
 /// The "Video Fragments: N; Audio Fragments: M; ..." status line.
 #[derive(Debug, Default, Clone, Copy)]
@@ -46,12 +52,13 @@ impl Totals {
     }
 }
 
-/// Prints a status line per progress message until the channel closes.
+/// Prints a coalesced status line as progress arrives until the channel closes.
 pub async fn report_progress(mut receiver: mpsc::UnboundedReceiver<ProgressInfo>, newlines: bool) -> Totals {
     let mut totals = Totals::default();
     let verbose = enabled(LogLevel::Info);
-    while let Some(progress) = receiver.recv().await {
-        totals.add(&progress);
+    let mut last_printed: Option<Instant> = None;
+    let mut flush_at: Option<Instant> = None;
+    let render = |totals: &Totals| {
         if level() > LogLevel::Quiet {
             if newlines || !is_tty() {
                 INLINE_ACTIVE.store(false, Ordering::Relaxed);
@@ -59,6 +66,51 @@ pub async fn report_progress(mut receiver: mpsc::UnboundedReceiver<ProgressInfo>
             } else {
                 INLINE_ACTIVE.store(true, Ordering::Relaxed);
                 eprint!("\r{}\x1b[K", totals.line(verbose));
+            }
+        }
+    };
+
+    loop {
+        let event = match flush_at {
+            Some(deadline) => tokio::select! {
+                biased;
+                msg = receiver.recv() => Some(msg),
+                _ = sleep_until(deadline) => None,
+            },
+            None => Some(receiver.recv().await),
+        };
+        match event {
+            Some(Some(progress)) => {
+                totals.add(&progress);
+                while let Ok(more) = receiver.try_recv() {
+                    totals.add(&more);
+                }
+                if level() <= LogLevel::Quiet {
+                    flush_at = None;
+                } else if newlines || !is_tty() {
+                    render(&totals);
+                    flush_at = None;
+                } else if let Some(at) = last_printed
+                    && let Some(remaining) = TTY_PROGRESS_INTERVAL.checked_sub(at.elapsed())
+                    && !remaining.is_zero()
+                {
+                    flush_at.get_or_insert_with(|| Instant::now() + remaining);
+                } else {
+                    render(&totals);
+                    last_printed = Some(Instant::now());
+                    flush_at = None;
+                }
+            }
+            Some(None) => {
+                if flush_at.is_some() {
+                    render(&totals);
+                }
+                break;
+            }
+            None => {
+                render(&totals);
+                last_printed = Some(Instant::now());
+                flush_at = None;
             }
         }
     }
