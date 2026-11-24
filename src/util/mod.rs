@@ -85,7 +85,7 @@ pub fn seconds_to_duration_and_time_str(seconds: u64) -> String {
 }
 
 /// Applies a unix permission mode. No-op on other platforms.
-pub fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
+fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -111,7 +111,7 @@ pub fn apply_mode(path: &Path, mode: u32) {
 pub async fn write_file_with_mode(path: &Path, data: &[u8], mode: u32) -> Result<()> {
     let res = async {
         tokio::fs::write(path, data).await?;
-        set_mode(path, mode)?;
+        apply_mode(path, mode);
         Ok(())
     }
     .await;
@@ -131,9 +131,10 @@ pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
     let mut temp_name = path.as_os_str().to_os_string();
     temp_name.push(".tmp");
     let temp_path = PathBuf::from(temp_name);
-    let res = fs::write(&temp_path, data)
-        .and_then(|()| set_mode(&temp_path, mode))
-        .and_then(|()| fs::rename(&temp_path, path));
+    let res = fs::write(&temp_path, data).and_then(|()| {
+        apply_mode(&temp_path, mode);
+        fs::rename(&temp_path, path)
+    });
     if res.is_err()
         && let Err(error) = fs::remove_file(&temp_path)
         && error.kind() != io::ErrorKind::NotFound
