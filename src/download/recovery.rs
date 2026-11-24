@@ -21,6 +21,7 @@ use crate::http::without_query;
 use crate::session::Session;
 use crate::stream_meta::local_unix_timestamp;
 use crate::types::{DataType, FragData, Fragment, FragmentUrl};
+use crate::util::sleep_wall_clock;
 use crate::{log_debug, log_info, log_warn};
 
 /// Time between rounds. livestream_dl waits a few minutes too: right after
@@ -150,11 +151,10 @@ pub async fn recover(
                 log_warn!("{name}: Nothing was recovered in {idle} rounds; giving up on {} fragment(s)", missing.len());
                 break;
             }
-            if !usable(session.known_urls(data_type)).is_empty() {
-                tokio::select! {
-                    _ = session.cancel.cancelled() => break,
-                    _ = tokio::time::sleep(ROUND_INTERVAL) => {}
-                }
+            if !usable(session.known_urls(data_type)).is_empty()
+                && !sleep_wall_clock(&session.cancel, ROUND_INTERVAL).await
+            {
+                break;
             }
         }
         let urls = usable(session.known_urls(data_type));
