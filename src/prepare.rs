@@ -9,6 +9,7 @@
 //! the same command again finds it through the state files and retries only
 //! the missing fragments, while the URLs still work.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -44,18 +45,28 @@ pub struct Prepared {
     pub unavailable: bool,
 }
 
-/// `None` if nothing downloadable was found (already logged).
+pub enum PrepareOutcome {
+    Ready(Box<Prepared>),
+    /// Resolved to a stream already recorded by `--monitor-channel`.
+    Skipped(String),
+    /// Nothing downloadable was found (already logged).
+    Failed,
+}
+
 pub async fn prepare(
     opts: &Arc<Options>,
     http: &Http,
     cancel: &CancellationToken,
     input: &InputUrl,
-) -> Option<Prepared> {
+    skip_ids: &HashSet<String>,
+) -> PrepareOutcome {
     if let InputUrl::GoogleVideo { id, itag, url } = input {
-        let sel = gvideo_selection(opts, *itag, url.clone()).await?;
+        let Some(sel) = gvideo_selection(opts, *itag, url.clone()).await else {
+            return PrepareOutcome::Failed;
+        };
         let mut format_info = new_format_info();
         format_info.insert("id".into(), id.clone());
-        return Some(Prepared {
+        return PrepareOutcome::Ready(Box::new(Prepared {
             extractor: None,
             sel,
             video_id: id.clone(),
@@ -66,12 +77,18 @@ pub async fn prepare(
             metadata: MetaInfo::new(),
             thumbnail_url: String::new(),
             unavailable: false,
-        });
+        }));
     }
 
-    let mut extractor = Extractor::new(opts.clone(), http.clone(), cancel.clone(), input);
-    let sel = extractor.get_video_info().await?;
-    Some(Prepared {
+    let mut extractor = Extractor::new(opts.clone(), http.clone(), cancel.clone(), input, skip_ids);
+    let Some(sel) = extractor.get_video_info().await else {
+        return if extractor.skipped_already_recorded {
+            PrepareOutcome::Skipped(extractor.video_id)
+        } else {
+            PrepareOutcome::Failed
+        };
+    };
+    PrepareOutcome::Ready(Box::new(Prepared {
         sel,
         video_id: extractor.video_id.clone(),
         live: extractor.live,
@@ -82,7 +99,7 @@ pub async fn prepare(
         thumbnail_url: extractor.thumbnail.clone(),
         unavailable: false,
         extractor: Some(extractor),
-    })
+    }))
 }
 
 async fn prompt_url(data_type: DataType) -> Option<(FragmentUrl, u32)> {

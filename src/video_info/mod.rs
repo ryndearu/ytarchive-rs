@@ -5,6 +5,7 @@
 mod player;
 mod ytdlp_mode;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -43,6 +44,9 @@ pub struct Extractor {
     pub channel_url: Option<String>,
     pub members_only: bool,
     pub video_id: String,
+    /// Video IDs already recorded by `--monitor-channel`, skipped before yt-dlp.
+    pub skip_ids: HashSet<String>,
+    pub skipped_already_recorded: bool,
 
     pub wait: Action,
     /// Poll interval while waiting; `None` = use the scheduled start time.
@@ -69,7 +73,13 @@ pub struct Extractor {
 }
 
 impl Extractor {
-    pub fn new(opts: Arc<Options>, http: Http, cancel: CancellationToken, input: &InputUrl) -> Self {
+    pub fn new(
+        opts: Arc<Options>,
+        http: Http,
+        cancel: CancellationToken,
+        input: &InputUrl,
+        skip_ids: &HashSet<String>,
+    ) -> Self {
         let (is_channel, video_id) = match input {
             InputUrl::Channel { .. } => (true, String::new()),
             InputUrl::Video { id } | InputUrl::GoogleVideo { id, .. } => (false, id.clone()),
@@ -81,6 +91,8 @@ impl Extractor {
             channel_url: is_channel.then(|| input.page_url()),
             members_only: opts.members_only && is_channel,
             video_id,
+            skip_ids: skip_ids.clone(),
+            skipped_already_recorded: false,
             wait: opts.wait,
             retry_secs: opts.retry_stream.map(|duration| duration.as_secs()),
             selected,

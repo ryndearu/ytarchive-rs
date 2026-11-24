@@ -20,7 +20,7 @@ use crate::live_from::{resolve_live_from, start_delay};
 use crate::log::report_progress;
 use crate::mux::{MuxInput, command_line, ffmpeg_args};
 use crate::output::{OutputPlan, ensure_dir, final_location, load_states, state_file, temp_dir};
-use crate::prepare::{Prepared, prepare, prepared_from_kept};
+use crate::prepare::{PrepareOutcome, Prepared, prepare, prepared_from_kept};
 use crate::session::Session;
 use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, FormatSelection, Options, PerType, SavedDownload};
 use crate::util::{seconds_to_duration_and_time_str, write_file_with_mode};
@@ -54,9 +54,12 @@ pub async fn run(
     skip_ids: &HashSet<String>,
 ) -> RunResult {
     let cancel = interrupt.child_token();
-    let prepared = match prepare(&opts, &http, &cancel, input).await {
-        Some(prepared) => prepared,
-        None => {
+    let prepared = match prepare(&opts, &http, &cancel, input, skip_ids).await {
+        PrepareOutcome::Ready(prepared) => *prepared,
+        PrepareOutcome::Skipped(id) => {
+            return RunResult { code: 0, video_id: Some(id), downloaded: false };
+        }
+        PrepareOutcome::Failed => {
             // A download kept for retrying missing fragments can still go on
             // with its saved URLs after the stream went private.
             if !interrupt.is_set()

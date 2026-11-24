@@ -56,6 +56,7 @@ impl Extractor {
                 &self.page_url,
                 self.is_channel,
                 self.members_only,
+                &self.skip_ids,
                 &self.cancel,
             )
             .await
@@ -144,6 +145,13 @@ impl Extractor {
                 log_error!("Video Details not found, max retries reached.");
                 self.live = false;
                 self.unavailable = true;
+                return Outcome::NotUsable;
+            }
+
+            if !self.in_progress && self.skip_ids.contains(&details.video_id) {
+                self.video_id = details.video_id.clone();
+                self.skipped_already_recorded = true;
+                log_info!("{} was already downloaded; not downloading it again", details.video_id);
                 return Outcome::NotUsable;
             }
 
