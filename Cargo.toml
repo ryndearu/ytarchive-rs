@@ -2,6 +2,7 @@
 name = "ytarchive"
 version = "1.1.0"
 edition = "2024"
+rust-version = "1.89"
 description = "Archive YouTube livestreams from the start (Rust port of dreammu/ytarchive)"
 license = "MIT"
 
