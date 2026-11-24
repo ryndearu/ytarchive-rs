@@ -248,10 +248,9 @@ pub(super) async fn save_info_async(
     database: &DbSink,
     saved: Option<&SavedDownload>,
 ) -> Result<usize> {
-    for url in run_blocking(&database.conn, |conn| urls_with(conn)).await? {
-        session.remember(data_type, &url);
-    }
-    let urls = session.known_urls(data_type);
+    let older = run_blocking(&database.conn, |conn| urls_with(conn)).await?;
+    session.remember_older(data_type, older);
+    let urls = session.known_urls_oldest_first(data_type);
     let count = urls.len();
     let download_json = saved.map(serde_json::to_string).transpose()?;
     run_blocking(&database.conn, move |conn| {
@@ -281,7 +280,7 @@ pub(super) async fn save_end_async(
     database: &DbSink,
     head: Option<u64>,
 ) -> Result<()> {
-    let urls = session.known_urls(data_type);
+    let urls = session.known_urls_oldest_first(data_type);
     run_blocking(&database.conn, move |conn| {
         let tx = conn.transaction()?;
         save_urls_with(&tx, &urls)?;

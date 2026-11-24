@@ -197,7 +197,7 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         };
         let (meta, next_saved) = if recovering && frag.is_some() {
             let max_seq = lock(&dispatch).max_seq;
-            let urls = session.known_urls(data_type);
+            let urls = session.known_urls_oldest_first(data_type);
             let url_count = urls.len();
             let send_urls = if url_count != saved.urls { urls } else { Vec::new() };
             let send_head = max_seq.filter(|_| saved.head != max_seq);

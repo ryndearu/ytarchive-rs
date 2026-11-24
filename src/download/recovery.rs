@@ -179,7 +179,7 @@ pub async fn recover(
             while tasks.len() < threads
                 && let Some(seq) = queue.next()
             {
-                tasks.spawn(fetch(session.clone(), urls.clone(), seq, round));
+                tasks.spawn(fetch(session.clone(), urls.clone(), seq, round - 1));
             }
             let Some(res) = tasks.join_next().await else { break };
             let (seq, Some(frag)) = (match res {
