@@ -23,7 +23,7 @@ use crate::output::{OutputPlan, ensure_dir, final_location, load_states, state_f
 use crate::prepare::{PrepareOutcome, Prepared, prepare, prepared_from_kept};
 use crate::session::Session;
 use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, FormatSelection, Options, PerType, SavedDownload};
-use crate::util::{seconds_to_duration_and_time_str, write_file_with_mode};
+use crate::util::{seconds_to_duration_and_time_str, sleep_wall_clock, write_file_with_mode};
 use crate::{log_debug, log_error, log_general, log_info, log_warn};
 
 pub fn exit_code(code: i32) -> ExitCode {
@@ -161,9 +161,8 @@ async fn download(
             let (sequence, wait) = start_delay(delay, last, prepared.target_duration);
             log_general!("Waiting {} before starting to download...", seconds_to_duration_and_time_str(wait.as_secs()));
             log_debug!("Will start from sequence {sequence} [current is {last}]");
-            tokio::select! {
-                _ = cancel.cancelled() => return if interrupt.terminated() { 143 } else { 2 },
-                _ = tokio::time::sleep(wait) => {}
+            if !sleep_wall_clock(&cancel, wait).await {
+                return if interrupt.terminated() { 143 } else { 2 };
             }
             start_sq = Some(sequence);
             if wait > Duration::from_secs(DEFAULT_POLL_SECS)
