@@ -7,8 +7,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use tokio::time::{sleep, timeout};
 
-use super::super::fragment::{continue_fragment_download, retry_delay, without_query};
+use super::super::fragment::{continue_fragment_download, retry_delay};
 use super::*;
+use crate::http::without_query;
 use crate::types::{FragThreadState, StreamProgress};
 
 #[tokio::test]

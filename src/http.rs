@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use reqwest::cookie::Jar;
-use reqwest::{Client, Proxy};
+use reqwest::{Client, Proxy, Url};
 use tokio_util::sync::CancellationToken;
 
 use crate::cookies;
@@ -81,7 +81,7 @@ impl Http {
         let resp = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(Error::Cancelled),
-            result = self.client.get(url).send() => result?,
+            result = self.client.get(url).send() => result.map_err(without_query)?,
         };
         let status = resp.status();
         if !status.is_success() {
@@ -90,7 +90,7 @@ impl Http {
         tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(Error::Cancelled),
-            body = resp.bytes() => Ok(body?),
+            body = resp.bytes() => Ok(body.map_err(without_query)?),
         }
     }
 
@@ -107,6 +107,141 @@ impl Http {
         log_debug!("Writing {} bytes to {}", data.len(), path.display());
         write_file_with_mode(path, &data, mode).await
     }
+}
+
+/// Drops the query string from a request error, which for googlevideo URLs
+/// holds the signature and the user's IP address.
+pub fn without_query(mut error: reqwest::Error) -> reqwest::Error {
+    if let Some(url) = error.url_mut() {
+        url.set_query(None);
+    }
+    error
+}
+
+/// Clears embedded credentials from a proxy URL before logging it.
+pub fn redact_proxy(url: &Url) -> Url {
+    let mut redacted = url.clone();
+    if !redacted.username().is_empty() && redacted.set_username("").is_err() {
+        log_trace!("Could not redact username from proxy URL");
+    }
+    if redacted.password().is_some() && redacted.set_password(None).is_err() {
+        log_trace!("Could not redact password from proxy URL");
+    }
+    redacted
+}
+
+/// Redacts credentials and sensitive query parameters from a URL before
+/// logging it. Watch URLs keep their `v` video ID; all other query strings
+/// (including googlevideo signatures and IPs) are dropped.
+pub fn redact_url_for_log(raw: &str) -> String {
+    let Ok(mut url) = Url::parse(raw) else {
+        return redact_query(raw);
+    };
+    url = redact_proxy(&url);
+    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+    let is_watch = matches!(host.as_str(), "youtube.com" | "www.youtube.com" | "m.youtube.com")
+        && url.path().to_ascii_lowercase().starts_with("/watch");
+    if is_watch {
+        let video_id = url.query_pairs().find(|(key, _)| key == "v").map(|(_, value)| value.into_owned());
+        url.set_query(None);
+        if let Some(id) = video_id {
+            url.query_pairs_mut().append_pair("v", &id);
+        }
+    } else {
+        url.set_query(None);
+    }
+    url.to_string()
+}
+
+fn redact_proxy_str(raw: &str) -> String {
+    if raw.contains("://")
+        && let Ok(url) = Url::parse(raw)
+    {
+        return redact_proxy(&url).to_string();
+    }
+    let (authority, rest) = match raw.find('/') {
+        Some(pos) => raw.split_at(pos),
+        None => (raw, ""),
+    };
+    match authority.rsplit_once('@') {
+        Some((_, host)) => format!("{host}{rest}"),
+        None => raw.to_string(),
+    }
+}
+
+fn redact_extractor_args(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(pos) = rest.find("po_token=") {
+        let (before, after_pos) = rest.split_at(pos);
+        out.push_str(before);
+        out.push_str("po_token=<redacted>");
+        let token_start = after_pos.strip_prefix("po_token=").unwrap_or("");
+        match token_start.find(';') {
+            Some(end) => rest = token_start.split_at(end).1,
+            None => return out,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Returns `args` with proxy credentials, passwords, and `po_token` values
+/// removed, for `--debug`/`--trace` logging.
+pub fn redact_proxy_args(args: &[String]) -> Vec<String> {
+    enum Expect {
+        None,
+        Proxy,
+        Secret,
+        ExtractorArgs,
+    }
+    let mut out = Vec::with_capacity(args.len());
+    let mut expect = Expect::None;
+    for arg in args {
+        match expect {
+            Expect::Proxy => {
+                expect = Expect::None;
+                out.push(redact_proxy_str(arg));
+                continue;
+            }
+            Expect::Secret => {
+                expect = Expect::None;
+                out.push("<redacted>".into());
+                continue;
+            }
+            Expect::ExtractorArgs => {
+                expect = Expect::None;
+                out.push(redact_extractor_args(arg));
+                continue;
+            }
+            Expect::None => {}
+        }
+        if matches!(arg.as_str(), "--proxy" | "--geo-verification-proxy") {
+            expect = Expect::Proxy;
+            out.push(arg.clone());
+        } else if let Some(raw) = arg.strip_prefix("--proxy=") {
+            out.push(format!("--proxy={}", redact_proxy_str(raw)));
+        } else if let Some(raw) = arg.strip_prefix("--geo-verification-proxy=") {
+            out.push(format!("--geo-verification-proxy={}", redact_proxy_str(raw)));
+        } else if matches!(arg.as_str(), "--password" | "-p" | "--ap-password") {
+            expect = Expect::Secret;
+            out.push(arg.clone());
+        } else if arg.starts_with("--password=") {
+            out.push("--password=<redacted>".into());
+        } else if arg.starts_with("--ap-password=") {
+            out.push("--ap-password=<redacted>".into());
+        } else if arg.starts_with("-p") && arg.len() > 2 {
+            out.push("-p<redacted>".into());
+        } else if arg == "--extractor-args" {
+            expect = Expect::ExtractorArgs;
+            out.push(arg.clone());
+        } else if let Some(raw) = arg.strip_prefix("--extractor-args=") {
+            out.push(format!("--extractor-args={}", redact_extractor_args(raw)));
+        } else {
+            out.push(arg.clone());
+        }
+    }
+    out
 }
 
 /// Drops the query string, which for googlevideo URLs carries signatures and IPs.
@@ -168,5 +303,42 @@ mod tests {
             ..Default::default()
         };
         assert!(Http::new(&opts, CookieSet::default()).is_ok());
+    }
+
+    #[test]
+    fn redacts_urls_and_sensitive_ytdlp_args() {
+        assert_eq!(
+            redact_url_for_log("https://rr1---sn-x.googlevideo.com/videoplayback?itag=140&ip=1.2.3.4&sig=SECRET"),
+            "https://rr1---sn-x.googlevideo.com/videoplayback"
+        );
+        assert_eq!(
+            redact_url_for_log("https://www.youtube.com/watch?v=abc123&si=tracking"),
+            "https://www.youtube.com/watch?v=abc123"
+        );
+        let args: Vec<String> = [
+            "--proxy",
+            "user:pass@proxy.local:1080",
+            "--proxy=socks5h://u:pw@127.0.0.1:9050",
+            "--password",
+            "topsecret",
+            "--extractor-args",
+            "youtube:po_token=web.gvs+SECRET_A,web.player+SECRET_B;player_client=web",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let redacted = redact_proxy_args(&args);
+        assert_eq!(
+            redacted,
+            [
+                "--proxy",
+                "proxy.local:1080",
+                "--proxy=socks5h://127.0.0.1:9050",
+                "--password",
+                "<redacted>",
+                "--extractor-args",
+                "youtube:po_token=<redacted>;player_client=web",
+            ]
+        );
     }
 }

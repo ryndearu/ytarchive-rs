@@ -8,6 +8,7 @@ use reqwest::StatusCode;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, ORIGIN, REFERER};
 
 use crate::error::Error;
+use crate::http::without_query;
 use crate::session::Session;
 use crate::types::{FragData, FragThreadState, Fragment, FragmentUrl, StreamProgress};
 use crate::util::{sleep_or_cancel, write_file_with_mode};
@@ -22,15 +23,6 @@ const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 /// least `STUCK_BEHIND` of them since it was first tried.
 const STUCK_ROUNDS: u32 = 4;
 const STUCK_BEHIND: u64 = 30;
-
-/// A request error for logging: without the URL's query string, which holds
-/// the signature and the user's IP address.
-pub fn without_query(mut error: reqwest::Error) -> reqwest::Error {
-    if let Some(url) = error.url_mut() {
-        url.set_query(None);
-    }
-    error
-}
 
 /// Whether a live fragment whose tries just ran out is stuck: it keeps
 /// failing while the rest of the stream downloads. A connection or server

@@ -14,9 +14,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::task::JoinSet;
 
 use super::db_sink::DbSink;
-use super::fragment::{content_type, fragment_request, header_u64, without_query};
+use super::fragment::{content_type, fragment_request, header_u64};
 use super::sink::Event;
 use crate::error::Result;
+use crate::http::without_query;
 use crate::session::Session;
 use crate::stream_meta::local_unix_timestamp;
 use crate::types::{DataType, FragData, Fragment, FragmentUrl};
