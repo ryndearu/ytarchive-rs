@@ -36,6 +36,17 @@ fn is_transient_http(error: &Error) -> bool {
 const POLL: Duration = Duration::from_secs(DEFAULT_POLL_SECS);
 
 impl Extractor {
+    /// Restores channel `/live` polling after a resolved watch page turns out
+    /// unavailable, offline, or not yet live.
+    fn reset_to_channel(&mut self) {
+        if let Some(live_url) = self.channel_url.clone() {
+            self.page_url = live_url;
+            self.is_channel = true;
+            self.members_only = self.opts.members_only;
+            self.video_id.clear();
+        }
+    }
+
     /// Waits one poll interval on an idle channel, asking for quality ahead on
     /// the first wait. Returns `false` if cancelled.
     async fn wait_on_idle_channel(&mut self, live_waited: &mut u64, retry_count: &mut u32, newlines: bool) -> bool {
@@ -106,6 +117,7 @@ impl Extractor {
                 }
                 Err(err) => {
                     if wait_on_channel {
+                        self.reset_to_channel();
                         if !self.wait_on_idle_channel(&mut live_waited, &mut retry_count, newlines).await {
                             return Outcome::NotUsable;
                         }
@@ -137,6 +149,7 @@ impl Extractor {
             let details = &player_response.video_details;
             if details.video_id.is_empty() {
                 if wait_on_channel {
+                    self.reset_to_channel();
                     if !self.wait_on_idle_channel(&mut live_waited, &mut retry_count, newlines).await {
                         return Outcome::NotUsable;
                     }
@@ -247,6 +260,9 @@ impl Extractor {
                     }
 
                     if let Some(secs) = self.retry_secs {
+                        if wait_on_channel {
+                            self.reset_to_channel();
+                        }
                         if first_wait {
                             first_wait = false;
                             log_general!("Waiting for stream, retrying every {secs} seconds...");
@@ -318,7 +334,7 @@ impl Extractor {
                         if self.video_id.is_empty() {
                             self.video_id = details.video_id.clone();
                         }
-                        self.page_url = format!("https://www.youtube.com/watch?v={}", self.video_id);
+                        self.page_url = self.watch_url(&self.video_id);
                         self.members_only = false;
                         self.is_channel = false;
                         continue;
@@ -333,17 +349,14 @@ impl Extractor {
                         // go back to /live instead of polling this video, so
                         // whichever stream starts first is found. Go kept
                         // polling the video.
-                        if wait_on_channel && let Some(live_url) = self.channel_url.clone() {
+                        if wait_on_channel && self.channel_url.is_some() {
                             let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
                             if live_waited == 0 {
                                 log_general!(
                                     "The stream on the channel's /live page has not started. Checking the channel every {secs} seconds."
                                 );
                             }
-                            self.page_url = live_url;
-                            self.is_channel = true;
-                            self.members_only = self.opts.members_only;
-                            self.video_id.clear();
+                            self.reset_to_channel();
                             if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
                                 return Outcome::NotUsable;
                             }
