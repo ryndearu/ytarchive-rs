@@ -41,7 +41,7 @@ Download the zip for your platform (Windows, Linux, or macOS; x64 or arm64) from
 | Linux | [`ytarchive_linux_x64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_linux_x64.zip) | [`ytarchive_linux_arm64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_linux_arm64.zip) |
 | macOS | [`ytarchive_macos_x64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_macos_x64.zip) (Intel) | [`ytarchive_macos_arm64.zip`](https://github.com/ryndearu/ytarchive-rs/releases/latest/download/ytarchive_macos_arm64.zip) (Apple Silicon) |
 
-Nightly builds, with the newest changes: [Windows x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_windows_x64.zip), [Linux x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_linux_x64.zip), [macOS arm64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_macos_arm64.zip).
+Nightly builds, with the newest changes: [Windows x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_windows_x64.zip), [Linux x64](https://github.com/ryndearu/ytarchive-rs/releases/download/nightly/ytarchive_linux_x64.zip).
 
 ### Linux
 
