@@ -93,12 +93,12 @@ pub async fn run(
             }
             Err(error) => {
                 log_error!("{error}");
-                return RunResult::code(1);
+                return RunResult { code: 1, video_id, downloaded: true };
             }
         },
         (Some(_), None) => {
             log_error!("--live-from needs the current stream position, which could not be determined");
-            return RunResult::code(1);
+            return RunResult { code: 1, video_id, downloaded: true };
         }
     };
 

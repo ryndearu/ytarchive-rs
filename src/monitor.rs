@@ -54,6 +54,10 @@ impl MonitorTracker {
     }
 }
 
+fn remaining_wait(elapsed: Duration, interval: Duration) -> Option<Duration> {
+    interval.checked_sub(elapsed).filter(|remaining| !remaining.is_zero())
+}
+
 pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) -> ExitCode {
     let raw_url = match &opts.url {
         Some(url) => url.clone(),
@@ -108,9 +112,9 @@ pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) ->
                 }
             }
         }
-        if started.elapsed() < interval {
+        if let Some(remaining) = remaining_wait(started.elapsed(), interval) {
             log_debug!("Last run exited before the set wait time. Waiting before running again...");
-            if !interrupt.sleep(interval).await {
+            if !interrupt.sleep(remaining).await {
                 return exit_code(if interrupt.terminated() { 143 } else { 2 });
             }
         }
@@ -135,5 +139,13 @@ mod tests {
         assert_eq!(tracker.record_result("flaky".into(), 1), MonitorOutcome::Retry);
         assert_eq!(tracker.record_result("flaky".into(), 0), MonitorOutcome::Finished);
         assert!(tracker.recorded().contains("flaky"));
+    }
+
+    #[test]
+    fn waits_only_for_remaining_poll_interval() {
+        let interval = Duration::from_secs(60);
+        assert_eq!(remaining_wait(Duration::from_secs(15), interval), Some(Duration::from_secs(45)));
+        assert_eq!(remaining_wait(Duration::from_secs(60), interval), None);
+        assert_eq!(remaining_wait(Duration::from_secs(90), interval), None);
     }
 }
