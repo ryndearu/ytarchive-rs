@@ -245,11 +245,13 @@ pub fn redact_proxy_args(args: &[String]) -> Vec<String> {
             }
             Expect::None => {}
         }
-        if arg == "--proxy" {
+        if matches!(arg.as_str(), "--proxy" | "--geo-verification-proxy") {
             expect = Expect::Proxy;
             out.push(arg.clone());
         } else if let Some(raw) = arg.strip_prefix("--proxy=") {
             out.push(format!("--proxy={}", redact_proxy_str(raw)));
+        } else if let Some(raw) = arg.strip_prefix("--geo-verification-proxy=") {
+            out.push(format!("--geo-verification-proxy={}", redact_proxy_str(raw)));
         } else if matches!(
             arg.as_str(),
             "--password"
@@ -263,6 +265,8 @@ pub fn redact_proxy_args(args: &[String]) -> Vec<String> {
             expect = Expect::Secret;
             out.push(arg.clone());
         } else if let Some(prefix) = SECRET_INLINE_PREFIXES.iter().find(|prefix| arg.starts_with(**prefix)) {
+            out.push(format!("{prefix}<redacted>"));
+        } else if let Some(prefix) = ["-p", "-2"].into_iter().find(|prefix| arg.starts_with(prefix) && arg.len() > 2) {
             out.push(format!("{prefix}<redacted>"));
         } else if matches!(arg.as_str(), "--add-header" | "--add-headers") {
             expect = Expect::Header;
