@@ -3,7 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -18,6 +18,17 @@ const REFRESH_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 /// A failed scheduled refresh is tried again this soon rather than after
 /// another full interval, by which time the URLs would have expired.
 const FAILED_REFRESH_RETRY: Duration = Duration::from_secs(5 * 60);
+
+fn clock_now() -> (SystemTime, Instant) {
+    (SystemTime::now(), Instant::now())
+}
+
+/// True when either monotonic or wall-clock time has advanced by `interval`:
+/// `SystemTime` counts system sleep/suspend, while `Instant` still triggers
+/// if the system clock moves backwards.
+fn elapsed_at_least((wall, mono): (SystemTime, Instant), interval: Duration) -> bool {
+    mono.elapsed() >= interval || wall.elapsed().is_ok_and(|elapsed| elapsed >= interval)
+}
 
 #[cfg(test)]
 type RefreshHook = Arc<dyn Fn() -> Option<FragmentUrl> + Send + Sync>;
@@ -38,7 +49,9 @@ pub struct Session {
     /// a URL from an earlier refresh may still work when a newer one doesn't.
     known: PerType<Mutex<Vec<FragmentUrl>>>,
     finished: PerType<AtomicBool>,
-    last_url_refresh: Mutex<Instant>,
+    /// Both clocks at the last URL refresh so system sleep/suspend counts
+    /// toward the 5-hour interval while backward clock jumps cannot stall it.
+    last_url_refresh: Mutex<(SystemTime, Instant)>,
     #[cfg(test)]
     on_refresh: Option<RefreshHook>,
 }
@@ -67,7 +80,7 @@ impl Session {
             urls: PerType::default(),
             known: PerType::default(),
             finished: PerType::default(),
-            last_url_refresh: Mutex::new(Instant::now()),
+            last_url_refresh: Mutex::new(clock_now()),
             #[cfg(test)]
             on_refresh: None,
         };
@@ -181,7 +194,7 @@ impl Session {
         match sel {
             Some(sel) => {
                 self.apply_selection(&sel);
-                *lock(&self.last_url_refresh) = Instant::now();
+                *lock(&self.last_url_refresh) = clock_now();
                 true
             }
             None => false,
@@ -199,7 +212,7 @@ impl Session {
         if let Some(hook) = &self.on_refresh {
             if let Some(url) = hook() {
                 self.set_url(data_type, Some(url));
-                *lock(&self.last_url_refresh) = Instant::now();
+                *lock(&self.last_url_refresh) = clock_now();
             }
             return self.url(data_type).as_ref().is_some_and(|updated| updated != current);
         }
@@ -229,24 +242,21 @@ impl Session {
             let session = Arc::clone(self);
             async move {
                 let interval = Duration::from_secs(URL_REFRESH_INTERVAL_SECS);
-                let mut retry_at: Option<Instant> = None;
+                let mut failed_at: Option<(SystemTime, Instant)> = None;
                 loop {
                     tokio::select! {
                         _ = session.cancel.cancelled() => return,
                         _ = tokio::time::sleep(REFRESH_CHECK_INTERVAL) => {}
                     }
-                    if lock(&session.last_url_refresh).elapsed() < interval {
-                        retry_at = None;
+                    let last = *lock(&session.last_url_refresh);
+                    if !elapsed_at_least(last, interval) {
+                        failed_at = None;
                         continue;
                     }
-                    if retry_at.is_some_and(|at| Instant::now() < at) {
+                    if failed_at.is_some_and(|at| !elapsed_at_least(at, FAILED_REFRESH_RETRY)) {
                         continue;
                     }
-                    retry_at = if session.periodic_refresh_once().await {
-                        None
-                    } else {
-                        Some(Instant::now() + FAILED_REFRESH_RETRY)
-                    };
+                    failed_at = if session.periodic_refresh_once().await { None } else { Some(clock_now()) };
                 }
             }
         }))
@@ -289,7 +299,7 @@ impl Session {
         if let Some(Some(url)) = video {
             self.set_url(DataType::Video, Some(url));
         }
-        *lock(&self.last_url_refresh) = Instant::now();
+        *lock(&self.last_url_refresh) = clock_now();
         true
     }
 
@@ -337,7 +347,7 @@ impl Session {
             urls: PerType::default(),
             known: PerType::default(),
             finished: PerType::default(),
-            last_url_refresh: Mutex::new(Instant::now()),
+            last_url_refresh: Mutex::new(clock_now()),
             on_refresh,
         };
         session.apply_selection(&sel);

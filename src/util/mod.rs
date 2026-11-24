@@ -26,6 +26,25 @@ pub async fn sleep_or_cancel(cancel: &CancellationToken, dur: Duration) -> bool 
     }
 }
 
+/// Sleeps for `dur` measured by the wall clock, re-checking every 60 s so
+/// system sleep/suspend does not extend the wait. Returns `false` if cancelled.
+pub async fn sleep_wall_clock(cancel: &CancellationToken, dur: Duration) -> bool {
+    let Some(deadline) = SystemTime::now().checked_add(dur) else {
+        return sleep_or_cancel(cancel, dur).await;
+    };
+    loop {
+        let Ok(remaining) = deadline.duration_since(SystemTime::now()) else {
+            return true;
+        };
+        if remaining.is_zero() {
+            return true;
+        }
+        if !sleep_or_cancel(cancel, remaining.min(Duration::from_secs(60))).await {
+            return false;
+        }
+    }
+}
+
 /// Locks `mutex` even if a thread panicked while holding it. The values
 /// guarded here (counters, URL lists, timestamps) stay usable after a panic,
 /// and one failed task shouldn't take the whole download down with it.
