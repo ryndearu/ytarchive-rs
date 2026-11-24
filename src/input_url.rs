@@ -45,16 +45,23 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
         }
         if CHANNEL_PREFIXES.iter().any(|prefix| lower_path.starts_with(prefix)) {
             // Keep only the channel part (/@name, /channel/ID, ...) and append /live,
-            // dropping sub pages like /streams or /videos.
+            // dropping sub pages like /streams or /videos. Normalize the origin to
+            // desktop HTTPS so mobile links (m.youtube.com) still serve desktop /streams.
             let mut segs = path.trim_matches('/').split('/');
             let first = segs.next().unwrap_or("");
-            let channel_path = if first.starts_with('@') {
+            let channel_path = if let Some(handle) = first.strip_prefix('@') {
+                if handle.is_empty() {
+                    return Err(Error::InvalidArg("youtube channel URL is missing a handle".into()));
+                }
                 format!("/{first}")
             } else {
-                format!("/{first}/{}", segs.next().unwrap_or(""))
+                let name = segs.next().unwrap_or("");
+                if name.is_empty() {
+                    return Err(Error::InvalidArg("youtube channel URL is missing a channel identifier".into()));
+                }
+                format!("/{first}/{name}")
             };
-            let origin = format!("{}://{}", parsed.scheme(), parsed.host_str().unwrap_or(""));
-            return Ok(InputUrl::Channel { live_url: format!("{origin}{channel_path}/live") });
+            return Ok(InputUrl::Channel { live_url: format!("https://www.youtube.com{channel_path}/live") });
         }
         for prefix in ["/live/", "/shorts/"] {
             if lower_path.starts_with(prefix) {
@@ -156,7 +163,22 @@ mod tests {
             parse_input_url("https://www.youtube.com/channel/UC123/videos?x=1").unwrap(),
             channel("https://www.youtube.com/channel/UC123/live")
         );
-        assert_eq!(parse_input_url("https://youtube.com/c/Name/").unwrap(), channel("https://youtube.com/c/Name/live"));
+        assert_eq!(
+            parse_input_url("https://youtube.com/c/Name/").unwrap(),
+            channel("https://www.youtube.com/c/Name/live")
+        );
+        assert_eq!(
+            parse_input_url("https://m.youtube.com/@LofiGirl").unwrap(),
+            channel("https://www.youtube.com/@LofiGirl/live")
+        );
+        assert_eq!(
+            parse_input_url("http://youtube.com/@LofiGirl").unwrap(),
+            channel("https://www.youtube.com/@LofiGirl/live")
+        );
+        assert!(parse_input_url("https://www.youtube.com/channel/").is_err());
+        assert!(parse_input_url("https://www.youtube.com/c/").is_err());
+        assert!(parse_input_url("https://www.youtube.com/user/").is_err());
+        assert!(parse_input_url("https://www.youtube.com/@").is_err());
     }
 
     #[test]

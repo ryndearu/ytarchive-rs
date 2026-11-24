@@ -36,6 +36,24 @@ fn is_transient_http(error: &Error) -> bool {
 const POLL: Duration = Duration::from_secs(DEFAULT_POLL_SECS);
 
 impl Extractor {
+    /// Waits one poll interval on an idle channel, asking for quality ahead on
+    /// the first wait. Returns `false` if cancelled.
+    async fn wait_on_idle_channel(&mut self, live_waited: &mut u64, retry_count: &mut u32, newlines: bool) -> bool {
+        let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
+        if *live_waited == 0 {
+            eprintln!();
+            self.ask_ahead().await;
+            log_general!("You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds.");
+        }
+        if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
+            return false;
+        }
+        *live_waited += secs;
+        *retry_count += 1;
+        log::retry_status(*retry_count, *live_waited, newlines);
+        true
+    }
+
     pub(super) async fn get_playable_player_response(&mut self) -> Outcome {
         let newlines = self.opts.status_newlines;
         let wait_on_channel = self.is_channel && self.retry_secs.is_some() && !self.in_progress;
@@ -84,22 +102,9 @@ impl Extractor {
                 Ok(player_response) => player_response,
                 Err(err) => {
                     if wait_on_channel {
-                        let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
-                        if live_waited == 0 {
-                            eprintln!();
-                            self.ask_ahead().await;
-                        }
-                        if live_waited == 0 {
-                            log_general!(
-                                "You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds."
-                            );
-                        }
-                        if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
+                        if !self.wait_on_idle_channel(&mut live_waited, &mut retry_count, newlines).await {
                             return Outcome::NotUsable;
                         }
-                        live_waited += secs;
-                        retry_count += 1;
-                        log::retry_status(retry_count, live_waited, newlines);
                         continue;
                     }
                     all_transient &= transient;
@@ -127,6 +132,12 @@ impl Extractor {
 
             let details = &player_response.video_details;
             if details.video_id.is_empty() {
+                if wait_on_channel {
+                    if !self.wait_on_idle_channel(&mut live_waited, &mut retry_count, newlines).await {
+                        return Outcome::NotUsable;
+                    }
+                    continue;
+                }
                 if details_retries < MAX_RETRIES {
                     details_retries += 1;
                     log_warn!(
