@@ -380,3 +380,21 @@ async fn live_unavailable_stream_ends_on_near_head_non_403() {
     assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn unlimited_retries_stop_on_403_and_near_head_end_of_stream() {
+    let options = Options { frag_max_tries: 0, ..opts(1, false) };
+    let session = Session::for_test(options, None, false);
+    let mut state = FragThreadState::new("audio1", DataType::Audio, Duration::from_millis(1));
+    state.reset_for(9, Some(10), 0);
+    state.tries = 10;
+    assert_eq!(continue_fragment_download(&session, &mut state, moved(0)), RetryDecision::EndOfStream);
+
+    state.reset_for(2, Some(10), 0);
+    state.tries = 10;
+    assert_eq!(continue_fragment_download(&session, &mut state, moved(0)), RetryDecision::Retry);
+
+    state.is_403 = true;
+    assert_eq!(continue_fragment_download(&session, &mut state, moved(0)), RetryDecision::GiveUp);
+    assert!(session.is_finished(DataType::Audio));
+}
