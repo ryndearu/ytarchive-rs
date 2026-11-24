@@ -24,7 +24,9 @@ pub struct TsSink {
     file: tokio::fs::File,
     path: PathBuf,
     next_write: u64,
-    start_frag: u64,
+    /// True once at least one fragment has been written, so only the first
+    /// written fragment keeps its `ftyp` box even if `start_frag` was skipped.
+    wrote_any: bool,
     pending: BTreeMap<u64, Option<Fragment>>,
     /// Bytes of `pending` held in memory (fragment files don't count).
     waiting_bytes: u64,
@@ -72,7 +74,7 @@ impl TsSink {
                 file.seek(SeekFrom::End(0)).await?;
                 let cur = state.start_frag + state.fragments + state.skipped;
                 log_info!("{name}: Resuming download from sequence {cur}");
-                Ok(Some((Self::new(file, path, cur, state.start_frag), cur)))
+                Ok(Some((Self::new(file, path, cur, state.fragments > 0), cur)))
             }
             Err(error) => {
                 log_warn!("{name}: Failed to open {} to resume download: {error}", path.display());
@@ -85,11 +87,11 @@ impl TsSink {
     pub async fn create(path: &Path, start: u64, mode: u32) -> io::Result<Self> {
         let file = tokio::fs::File::create(path).await?;
         apply_mode(path, mode);
-        Ok(Self::new(file, path, start, start))
+        Ok(Self::new(file, path, start, false))
     }
 
-    fn new(file: tokio::fs::File, path: &Path, next_write: u64, start_frag: u64) -> Self {
-        Self { file, path: path.to_path_buf(), next_write, start_frag, pending: BTreeMap::new(), waiting_bytes: 0 }
+    fn new(file: tokio::fs::File, path: &Path, next_write: u64, wrote_any: bool) -> Self {
+        Self { file, path: path.to_path_buf(), next_write, wrote_any, pending: BTreeMap::new(), waiting_bytes: 0 }
     }
 
     /// Queues `frag` (`None` = given up) and writes everything now in order.
@@ -108,8 +110,7 @@ impl TsSink {
             };
             let written = async {
                 let raw = fragment_bytes(&frag.data).await?;
-                let first = self.next_write == self.start_frag;
-                let data = strip_for_concat(&raw, &frag.mime_type, first).map_or(raw, Bytes::from);
+                let data = strip_for_concat(&raw, &frag.mime_type, !self.wrote_any).map_or(raw, Bytes::from);
                 self.file.write_all(&data).await?;
                 // tokio writes in the background and reports a failure only
                 // on the next call; without this a fragment that never
@@ -121,7 +122,10 @@ impl TsSink {
             .await;
             remove_frag_file(&frag.data).await;
             match written {
-                Ok(bytes) => events.push(Event::Wrote(bytes)),
+                Ok(bytes) => {
+                    self.wrote_any = true;
+                    events.push(Event::Wrote(bytes));
+                }
                 Err(error) => {
                     log_warn!("Error writing fragment {} to {}: {error}", self.next_write, self.path.display());
                     return Err(error);

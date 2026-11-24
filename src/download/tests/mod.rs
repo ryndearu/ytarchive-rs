@@ -232,6 +232,19 @@ async fn skips_permanently_failing_fragment() {
 }
 
 #[tokio::test]
+async fn keeps_ftyp_when_first_fragment_is_skipped() {
+    let url = serve(5, vec![0]).await;
+    let dir = temp_dir("skip-first");
+    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (stream_params, _rx) = params(&dir, 5, DownloadState::default());
+    let out = download_stream(session, stream_params).await.unwrap();
+    assert_eq!(out.skipped, [0]);
+    let want: Vec<u8> = (1..5).flat_map(|sequence| expected(sequence, sequence == 1)).collect();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
 async fn unopenable_storage_is_reported_as_such() {
     // A data file in a folder that doesn't exist, like a name Windows rejects.
     let dir = temp_dir("no-storage");
