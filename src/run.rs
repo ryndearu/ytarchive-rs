@@ -291,6 +291,7 @@ async fn download(
 
     let mut tasks = Vec::new();
     for ((data_type, itag), state) in streams.iter().copied().zip(states) {
+        let adopt_renamed = plan.owns_dir(&state.temp_dir, &prepared.video_id);
         let file = plan.temp_in(&state.temp_dir, &format!(".f{itag}.ts"));
         let frag_prefix = plan.temp_in(&state.temp_dir, &format!(".f{itag}"));
         log_info!("Starting download to {}", file.display());
@@ -310,6 +311,7 @@ async fn download(
                 progress: sender.clone(),
                 saved: Some(saved.clone()),
                 memory_limit: MEMORY_LIMIT,
+                adopt_renamed,
             },
         )));
     }

@@ -170,6 +170,7 @@ fn params(dir: &Path, last_sq: u64, state: DownloadState) -> (StreamParams, mpsc
             progress: sender,
             saved: None,
             memory_limit: MEMORY_LIMIT,
+            adopt_renamed: true,
         },
         receiver,
     )

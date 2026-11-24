@@ -220,3 +220,32 @@ async fn aborts_when_unresumable_sqlite_cannot_be_moved_aside() {
     drop(conn);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn sqlite_resumes_when_output_name_changes() {
+    let dir = temp_dir("sqlite-resume-renamed");
+    let url = serve(6, vec![2]).await;
+    let session = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, _rx) = params(&dir, 6, DownloadState::default());
+    stream_params.data_file = dir.join("old-title.f140.ts");
+    let first = download_stream(session, stream_params).await.unwrap();
+    assert_eq!(first.skipped, [2]);
+    drop(first.pending_export);
+
+    let url = serve(6, vec![]).await;
+    let saved = load_state(&dir.join("out.f140.state")).unwrap();
+    let session = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, mut receiver) = params(&dir, 6, saved);
+    stream_params.data_file = dir.join("new-title.f140.ts");
+    let second = download_stream(session, stream_params).await.unwrap();
+    assert!(second.skipped.is_empty());
+    assert_eq!(second.state.fragments, 6);
+    assert_eq!(progress_counts(&mut receiver), [5, 1]);
+    assert!(!dir.join("old-title.f140.sqlite").exists());
+    assert!(dir.join("new-title.f140.sqlite").exists());
+
+    second.pending_export.unwrap().export().await.unwrap();
+    let want: Vec<u8> = (0..6).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("new-title.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
+}

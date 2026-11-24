@@ -109,3 +109,42 @@ async fn resume_after_skipped_fragment_does_not_duplicate() {
     assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn resumes_ts_when_output_name_changes() {
+    let url = serve(10, vec![]).await;
+    let dir = temp_dir("resume-renamed");
+    let first: Vec<u8> = (0..4).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    fs::write(dir.join("old-title.f140.ts"), &first).unwrap();
+    let state = DownloadState { start_frag: 0, fragments: 4, size: first.len() as u64, ..Default::default() };
+
+    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, mut receiver) = params(&dir, 10, state);
+    stream_params.data_file = dir.join("new-title.f140.ts");
+    let out = download_stream(session, stream_params).await.unwrap();
+    let want: Vec<u8> = (0..10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("new-title.f140.ts")).unwrap(), want);
+    assert!(!dir.join("old-title.f140.ts").exists());
+    assert_eq!(out.state.fragments, 10);
+    assert_eq!(progress_counts(&mut receiver), [4, 1, 1, 1, 1, 1, 1]);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn does_not_adopt_renamed_file_when_temp_dir_not_owned() {
+    let url = serve(5, vec![]).await;
+    let dir = temp_dir("resume-unowned");
+    fs::write(dir.join("other-video.f140.ts"), b"other video data").unwrap();
+    let state = DownloadState { start_frag: 0, fragments: 3, size: 16, ..Default::default() };
+
+    let session = Session::for_test(opts(1, false), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, _rx) = params(&dir, 5, state);
+    stream_params.data_file = dir.join("new-title.f140.ts");
+    stream_params.adopt_renamed = false;
+    let out = download_stream(session, stream_params).await.unwrap();
+    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("new-title.f140.ts")).unwrap(), want);
+    assert_eq!(fs::read(dir.join("other-video.f140.ts")).unwrap(), b"other video data");
+    assert_eq!(out.state.fragments, 5);
+    fs::remove_dir_all(&dir).unwrap();
+}

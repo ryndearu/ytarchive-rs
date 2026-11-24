@@ -41,6 +41,9 @@ pub struct StreamParams {
     pub saved: Option<Arc<SavedDownload>>,
     /// See `MEMORY_LIMIT`.
     pub memory_limit: u64,
+    /// True when `data_file` lives in an owned `{video_id}__*` temp dir, so
+    /// resuming can adopt an existing `.f{itag}` file under an older title/`-o`.
+    pub adopt_renamed: bool,
 }
 
 /// With `--no-frag-files`, fragments downloaded past a missing one wait in
@@ -116,7 +119,16 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     let target = session.target_duration();
     let state = std::mem::take(&mut params.state);
     let want_sqlite = session.opts.storage == StorageMode::Sqlite;
-    let opened = sink::open(want_sqlite, &params.data_file, state, || fresh_start(&params, target), mode, &name).await;
+    let opened = sink::open(
+        want_sqlite,
+        &params.data_file,
+        state,
+        || fresh_start(&params, target),
+        mode,
+        params.adopt_renamed,
+        &name,
+    )
+    .await;
     let opened = match opened {
         Ok(opened) => opened,
         Err(error) => {

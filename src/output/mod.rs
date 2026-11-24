@@ -31,15 +31,18 @@ impl OutputPlan {
         self.final_dir.join(format!("{}{suffix}", self.file_name))
     }
 
+    /// Whether `dir` is a `{video_id}__XXXX` temp dir we created (not
+    /// `final_dir` or an arbitrary dir named in a state file).
+    pub fn owns_dir(&self, dir: &Path, video_id: &str) -> bool {
+        dir != self.final_dir
+            && dir.file_name().is_some_and(|name| name.to_string_lossy().starts_with(&format!("{video_id}__")))
+    }
+
     /// Whether the temp dir is ours to delete afterwards: it must be a
     /// `{video_id}__XXXX` dir we create, never an arbitrary dir named in a
     /// state file.
     pub fn owns_temp_dir(&self, video_id: &str) -> bool {
-        self.temp_dir != self.final_dir
-            && self
-                .temp_dir
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().starts_with(&format!("{video_id}__")))
+        self.owns_dir(&self.temp_dir, video_id)
     }
 
     /// Removes our temp dir. Data an earlier run left there that couldn't be
