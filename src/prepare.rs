@@ -195,7 +195,17 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
             kept.push((itag, kept_stream));
         }
     }
-    let info = kept.first()?.1.info.clone();
+    let video_itag = kept
+        .iter()
+        .find_map(|(_, kept_stream)| kept_stream.info.video_itag)
+        .or_else(|| kept.iter().find_map(|(itag, _)| (*itag != AUDIO_ITAG).then_some(*itag)));
+    let info = kept
+        .iter()
+        .find(|(_, kept_stream)| kept_stream.info.video_itag.is_some())
+        .or_else(|| kept.first())?
+        .1
+        .info
+        .clone();
     // The newest URL of each stream; recovery tries the others too.
     let url = |itag: u32| {
         kept.iter()
@@ -203,7 +213,7 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
             .and_then(|(_, kept_stream)| kept_stream.urls.last().cloned())
     };
     let audio_url = (!opts.video_only).then(|| url(AUDIO_ITAG)).flatten();
-    let video_url = (!opts.audio_only).then(|| info.video_itag.and_then(url)).flatten();
+    let video_url = (!opts.audio_only).then(|| video_itag.and_then(url)).flatten();
     if audio_url.is_none() && video_url.is_none() {
         return None;
     }
@@ -216,7 +226,7 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
         sel: FormatSelection {
             label: info.label,
             codec: None,
-            video_itag: video_url.as_ref().and(info.video_itag),
+            video_itag: video_url.as_ref().and(video_itag),
             audio_url,
             video_url,
         },
@@ -294,6 +304,59 @@ mod tests {
         assert!(audio_only.sel.audio_url.is_some());
         assert!(audio_only.sel.video_url.is_none());
         assert!(audio_only.sel.video_itag.is_none());
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn prepared_from_kept_finds_video_when_audio_info_has_no_video_itag() {
+        use crate::download::DbSink;
+        use crate::types::{DownloadState, SavedDownload};
+
+        let dir = std::env::temp_dir().join(format!("ytarchive-rs-kept-mixed-{}", std::process::id()));
+        let temp_dir = dir.join("vid__abcd");
+        if dir.exists() {
+            fs::remove_dir_all(&dir).unwrap();
+        }
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let audio_saved = SavedDownload {
+            video_id: "vid".into(),
+            target_duration: 5,
+            label: "audio_only".into(),
+            video_itag: None,
+            ..Default::default()
+        };
+        let video_saved = SavedDownload {
+            video_id: "vid".into(),
+            target_duration: 5,
+            label: "1080p60".into(),
+            video_itag: Some(299),
+            ..Default::default()
+        };
+        for (itag, raw_url, saved) in [
+            (140u32, "https://r.googlevideo.com/v?itag=140&noclen=1", audio_saved),
+            (299u32, "https://r.googlevideo.com/v?itag=299&noclen=1", video_saved),
+        ] {
+            let db = DbSink::open(&temp_dir.join(format!("out.f{itag}.sqlite")), 0o644).unwrap();
+            db.set_meta("download", &serde_json::to_string(&saved).unwrap()).unwrap();
+            db.set_meta("head", "10").unwrap();
+            db.save_urls(&[FragmentUrl::with_sq_param(raw_url)]).unwrap();
+            let state = DownloadState { fragments: 1, temp_dir: temp_dir.clone(), ..Default::default() };
+            fs::write(dir.join(format!("vid.f{itag}.state")), serde_json::to_vec(&state).unwrap()).unwrap();
+        }
+
+        let base = Options { recover_private: true, temp_dir: Some(dir.clone()), ..Default::default() };
+        let both = prepared_from_kept(&base, "vid").unwrap();
+        assert!(both.sel.audio_url.is_some());
+        assert!(both.sel.video_url.is_some());
+        assert_eq!(both.sel.video_itag, Some(299));
+        assert_eq!(both.sel.label, "1080p60");
+
+        let video_only = prepared_from_kept(&Options { video_only: true, ..base }, "vid").unwrap();
+        assert!(video_only.sel.audio_url.is_none());
+        assert!(video_only.sel.video_url.is_some());
+        assert_eq!(video_only.sel.video_itag, Some(299));
 
         fs::remove_dir_all(&dir).unwrap();
     }
