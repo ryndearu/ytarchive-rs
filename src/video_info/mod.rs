@@ -132,16 +132,19 @@ impl Extractor {
         if !self.due() {
             return None;
         }
-        if self.opts.ytdlp_info {
+        let selection = if self.opts.ytdlp_info {
             self.get_video_info_ytdlp().await
         } else {
             self.get_video_info_player_response().await
-        }
+        };
+        // A failed extraction can take minutes, and the workers queued on the
+        // refresh lock would each run another one right away.
+        self.last_updated = Some(Instant::now());
+        selection
     }
 
     async fn get_video_info_player_response(&mut self) -> Option<FormatSelection> {
         let outcome = self.get_playable_player_response().await;
-        self.last_updated = Some(Instant::now());
         let player_response = match outcome {
             player::Outcome::Found(player_response) => player_response,
             player::Outcome::NotFound => {
