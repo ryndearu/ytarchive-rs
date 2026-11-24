@@ -182,12 +182,15 @@ impl Session {
         let Some(mutex) = &self.extractor else {
             return false;
         };
+        if self.is_unavailable() {
+            return false;
+        }
         let mut extractor = tokio::select! {
             biased;
             _ = self.cancel.cancelled() => return false,
             guard = mutex.lock() => guard,
         };
-        if self.url(data_type).as_ref() == Some(current) {
+        if self.url(data_type).as_ref() == Some(current) && !self.is_unavailable() {
             log_debug!("{}: Attempting to retrieve a new download URL", data_type.as_str());
             self.run_refresh(&mut extractor).await;
         }

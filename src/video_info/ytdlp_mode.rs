@@ -1,7 +1,5 @@
 //! `--ytdlp-info` mode: yt-dlp provides status, metadata, and URLs.
 
-use std::time::Instant;
-
 use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES};
 use crate::error::Error;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_ytdlp, local_unix_timestamp};
@@ -88,7 +86,6 @@ impl Extractor {
                 // Unparsable output is retried; yt-dlp itself failing (after its
                 // own retries) means the stream is gone, as in Go.
                 Err(Error::Json(error)) => {
-                    self.last_updated = Some(Instant::now());
                     let msg = format!("Failed to parse yt-dlp JSON: {error}");
                     match self.retry_or_fail(&mut retries, &msg) {
                         Step::Retry => continue,
@@ -96,7 +93,6 @@ impl Extractor {
                     }
                 }
                 Err(error) => {
-                    self.last_updated = Some(Instant::now());
                     if !self.cancel.is_cancelled() {
                         if is_transient_error(&error) {
                             log_warn!("Temporary yt-dlp extraction failure: {error}");
@@ -109,7 +105,6 @@ impl Extractor {
                     return None;
                 }
             };
-            self.last_updated = Some(Instant::now());
             if self.cancel.is_cancelled() {
                 return None;
             }
