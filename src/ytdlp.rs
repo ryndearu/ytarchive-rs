@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use reqwest::header::ORIGIN;
+use reqwest::header::{ORIGIN, REFERER};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
@@ -15,7 +15,7 @@ use crate::types::{
     FragmentUrl, IpVersion, LiveStatus, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo,
     is_fragmented,
 };
-use crate::util::resolve_program;
+use crate::util::{resolve_program, sleep_or_cancel};
 use crate::{log_debug, log_trace, log_warn};
 
 // Go allowed 30 seconds. A run that also solves the JavaScript challenge on a
@@ -24,6 +24,8 @@ use crate::{log_debug, log_trace, log_warn};
 const RUN_TIMEOUT: Duration = Duration::from_secs(60);
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+const PROBE_ATTEMPTS: u32 = 3;
+const PROBE_RETRY_DELAY: Duration = Duration::from_secs(1);
 pub const DEFAULT_ATTEMPTS: u32 = 3;
 
 /// Arguments for one yt-dlp invocation. `ignore_no_formats` keeps yt-dlp from
@@ -209,14 +211,41 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
 
 /// Reads the `X-Head-Seqnum` header (latest available fragment) via HEAD.
 pub async fn probe_x_head_seqnum(http: &Http, url: &str, cancel: &CancellationToken) -> Option<u64> {
-    let resp = tokio::select! {
-        biased;
-        _ = cancel.cancelled() => return None,
-        result = http.client.head(url).header(ORIGIN, "https://www.youtube.com").timeout(PROBE_TIMEOUT).send() => {
-            result.ok()?
+    let referer = FragmentUrl::with_sq_param(url).referer().cloned();
+    for attempt in 1..=PROBE_ATTEMPTS {
+        let mut req = http.client.head(url).header(ORIGIN, "https://www.youtube.com").timeout(PROBE_TIMEOUT);
+        if let Some(value) = &referer {
+            req = req.header(REFERER, value);
         }
-    };
-    resp.headers().get("x-head-seqnum")?.to_str().ok()?.trim().parse().ok()
+        let resp = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return None,
+            result = req.send() => result,
+        };
+        match resp {
+            Ok(response) => {
+                if let Some(head) = response
+                    .headers()
+                    .get("x-head-seqnum")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|text| text.trim().parse().ok())
+                {
+                    return Some(head);
+                }
+                log_debug!(
+                    "X-Head-Seqnum probe returned HTTP {} without header (attempt {attempt}/{PROBE_ATTEMPTS})",
+                    response.status()
+                );
+            }
+            Err(error) => {
+                log_debug!("X-Head-Seqnum probe failed (attempt {attempt}/{PROBE_ATTEMPTS}): {}", error.without_url());
+            }
+        }
+        if attempt < PROBE_ATTEMPTS && !sleep_or_cancel(cancel, PROBE_RETRY_DELAY).await {
+            return None;
+        }
+    }
+    None
 }
 
 /// Sequence boundary for downloading. Post-live, the last couple of fragments
