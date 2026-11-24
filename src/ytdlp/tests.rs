@@ -116,6 +116,17 @@ fn boundary() {
     assert_eq!(seq_boundary(1, true), None);
 }
 
+#[test]
+fn stderr_prefers_error_line() {
+    assert_eq!(
+        stderr_error_line("WARNING: old\nERROR: [youtube] abc: Video unavailable\r\nWARNING: hint\n\n"),
+        "ERROR: [youtube] abc: Video unavailable"
+    );
+    assert_eq!(stderr_error_line("ERROR: first\nERROR: second\nTrailing note\n"), "ERROR: second");
+    assert_eq!(stderr_error_line("WARNING: one\n  plain failure  \n\n"), "plain failure");
+    assert_eq!(stderr_error_line("  \n\r\n"), "");
+}
+
 #[tokio::test]
 async fn run_with_retry_fails_fast_on_missing_binary() {
     let opts = Options { ytdlp_path: "definitely-nonexistent-yt-dlp-binary-xyz".into(), ..Default::default() };

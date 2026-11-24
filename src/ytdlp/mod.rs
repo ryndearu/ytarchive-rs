@@ -58,6 +58,16 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
     args
 }
 
+fn stderr_error_line(stderr: &str) -> &str {
+    stderr
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| line.starts_with("ERROR:"))
+        .or_else(|| stderr.lines().rev().map(str::trim).find(|line| !line.is_empty()))
+        .unwrap_or("")
+}
+
 /// Runs yt-dlp once and returns stdout, stopping early on cancel.
 pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool, cancel: &CancellationToken) -> Result<String> {
     let args = build_args(opts, url, ignore_no_formats);
@@ -87,8 +97,8 @@ pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool, cancel: &Ca
 
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        let last = stderr.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or("");
-        return Err(Error::Ytdlp(format!("{}: {last}", out.status)));
+        let line = stderr_error_line(&stderr);
+        return Err(Error::Ytdlp(format!("{}: {line}", out.status)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
