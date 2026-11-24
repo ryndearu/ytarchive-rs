@@ -127,6 +127,11 @@ impl Interrupt {
         self.signal.load(Ordering::SeqCst) == 143
     }
 
+    /// Exit code for an interrupt: 143 on `SIGTERM`, 2 on user Ctrl-C.
+    pub fn cancel_code(&self) -> i32 {
+        if self.terminated() { 143 } else { 2 }
+    }
+
     /// A token for one run, cancelled on interrupt.
     pub fn child_token(&self) -> CancellationToken {
         self.token.child_token()
