@@ -24,6 +24,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - The version includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)`, `v0.1.0+abc1234 (2026-11-07)`.
 - Arguments that aren't valid UTF-8 are converted instead of rejected.
 - yt-dlp gets a repaired copy (in the temp folder, deleted on exit) of a cookies file it can't read: not UTF-8, no `# Netscape HTTP Cookie File` header, a second column that doesn't match the domain's leading `.`, or a stray line starting like JSON. Go passed the file as it was, and yt-dlp failed.
+- `--members-only` warns and is ignored for video URLs (Go skipped fetching the watch page and failed), and warns on channel URLs when `--cookies` is not given.
 
 ### Downloading
 

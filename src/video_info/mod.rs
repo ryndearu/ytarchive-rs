@@ -79,7 +79,7 @@ impl Extractor {
             page_url: input.page_url(),
             is_channel,
             channel_url: is_channel.then(|| input.page_url()),
-            members_only: opts.members_only,
+            members_only: opts.members_only && is_channel,
             video_id,
             wait: opts.wait,
             retry_secs: opts.retry_stream.map(|duration| duration.as_secs()),
