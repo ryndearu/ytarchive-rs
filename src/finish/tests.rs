@@ -46,6 +46,7 @@ fn finish_of<'a>(opts: &'a Options, plan: &'a OutputPlan, state_file: &Path) -> 
         video_frags: None,
         keep_for_retry: None,
         pending_exports: Vec::new(),
+        interrupt: None,
     }
 }
 
@@ -211,5 +212,42 @@ async fn finish_skips_muxing_when_move_fails() {
     assert_eq!(finish.finish().await, 1);
     assert!(plan.temp(".f140.ts").exists(), "temp file must remain intact after failed move");
     assert!(state_file.exists(), "state file must remain intact after failed move");
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+}
+
+#[tokio::test]
+async fn zero_fragments_skips_mux_and_cleans_up() {
+    let (plan, state_file) = downloaded("zero-frags");
+    let pending = PendingExport::for_test(&plan.temp(".f140.sqlite"), plan.temp(".f140.ts.exported")).await;
+    let opts = Options { ffmpeg_path: "nonexistent-ffmpeg-binary".into(), ..Default::default() };
+    let mut finish = finish_of(&opts, &plan, &state_file);
+    finish.audio_frags = Some(0);
+    finish.video_frags = Some(0);
+    finish.pending_exports.push(pending);
+
+    assert_eq!(finish.finish().await, 1);
+    assert!(!plan.temp(".f140.ts.exported").exists(), "0-fragment finish must not export SQLite");
+    assert!(!plan.final_path(".f140.ts").exists(), "0-fragment finish must not move files");
+    assert!(!plan.temp_dir.exists(), "empty temp dir should be cleaned up");
+    assert!(!state_file.exists(), "0-fragment state file should be deleted");
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+}
+
+#[tokio::test]
+async fn zero_fragments_with_keep_for_retry_preserves_temp_and_state() {
+    let (plan, state_file) = downloaded("zero-frags-retry");
+    let pending = PendingExport::for_test(&plan.temp(".f140.sqlite"), plan.temp(".f140.ts.exported")).await;
+    let opts = Options::default();
+    let mut finish = finish_of(&opts, &plan, &state_file);
+    finish.audio_frags = Some(0);
+    finish.video_frags = None;
+    finish.keep_for_retry = Some(u64::MAX);
+    finish.pending_exports.push(pending);
+
+    assert_eq!(finish.finish().await, 1);
+    assert!(!plan.temp(".f140.ts.exported").exists(), "0-fragment finish must not export SQLite");
+    assert!(plan.temp(".f140.sqlite").exists(), "kept database must remain for later retry");
+    assert!(plan.temp_dir.exists(), "temp dir must be preserved when keep_for_retry is set");
+    assert!(state_file.exists(), "state file must be preserved when keep_for_retry is set");
     fs::remove_dir_all(&plan.final_dir).unwrap();
 }

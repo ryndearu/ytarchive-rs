@@ -73,9 +73,10 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 
 - The progress line is written to stderr (Go: stdout).
 - ANSI color/clear escapes (including `\x1b[K` on general logs) and `\r` status rewrites are omitted when stderr is not a terminal, trailing inline-status newlines are omitted under `--quiet`, `--newline`, or non-TTY stderr, and colors respect `NO_COLOR`.
-- `ffmpeg` inherits stderr directly (or silences it under `--quiet`) rather than reading chunks through lossy UTF-8 decoding.
+- `ffmpeg` inherits stdout and stderr directly (or silences both under `--quiet`) rather than reading chunks through lossy UTF-8 decoding.
 - A second Ctrl-C exits immediately, like Go's `signal.Reset`.
-- On Linux and macOS, `SIGTERM` stops the download gracefully without interactive prompts, leaves the temporary folder and state files intact for resuming, and exits with 143 (a second signal exits immediately). Interactive prompts coordinate with the main signal listener instead of registering a second handler.
+- On Linux and macOS, `SIGTERM` stops the download gracefully without interactive prompts, leaves the temporary folder and state files intact for resuming, and exits with 143 (a second signal exits immediately). Signals arriving during `ffmpeg` muxing also cancel `ffmpeg`, remove any partial output file, keep the `.ts` files, and exit with `143` (`SIGTERM`) or `2` (Ctrl-C). Interactive prompts coordinate with the main signal listener instead of registering a second handler.
+- Downloads that finish with 0 fragments exit with code 1 without invoking `ffmpeg` on empty `.ts` files, cleaning up their empty temporary directory unless `--recover-private` kept it for retrying.
 - On Ctrl-C with closed stdin while waiting on an interactive cancel prompt, temporary files and resume state are left intact for resuming instead of deleting the download (Go treated EOF as "no" to every prompt).
 - Interrupting cancels in-flight HTTP requests and kills running `yt-dlp` subprocesses right away instead of waiting for timeouts.
 

@@ -5,9 +5,11 @@ use std::mem;
 use std::path::PathBuf;
 
 use tokio::task::spawn_blocking;
+use tokio_util::sync::CancellationToken;
 
 use crate::download::{PendingExport, local_time};
-use crate::mux::{self, MuxCommand};
+use crate::interrupt::Interrupt;
+use crate::mux::{self, MuxCommand, MuxExit};
 use crate::output::OutputPlan;
 use crate::prompt::read_yes_no;
 use crate::types::{Action, Options};
@@ -42,6 +44,8 @@ pub struct Finish<'a> {
     pub keep_for_retry: Option<u64>,
     /// Deferred SQLite exports when interrupted so cancel prompts run first.
     pub pending_exports: Vec<PendingExport>,
+    /// Shared signal state, used to cancel ffmpeg if interrupted during muxing.
+    pub interrupt: Option<&'a Interrupt>,
 }
 
 async fn decide(action: Action, question: &str) -> Option<bool> {
@@ -221,6 +225,18 @@ impl Finish<'_> {
 
     /// Moves files into place and muxes. Returns the exit code.
     pub async fn finish(&mut self) -> i32 {
+        let total_frags: u64 = self.audio_frags.into_iter().chain(self.video_frags).sum();
+        if total_frags == 0 {
+            self.pending_exports.clear();
+            log_error!("No fragments were downloaded.");
+            if self.retry_until().is_some() {
+                self.cleanup_or_keep(true);
+            } else {
+                self.plan.remove_temp_dir(self.video_id);
+                self.delete_state_files();
+            }
+            return 1;
+        }
         if !self.export_pending().await {
             return self.on_storage_error(true);
         }
@@ -293,8 +309,24 @@ impl Finish<'_> {
             return 1;
         }
 
+        // When merging after a user Ctrl-C, the shared token is already
+        // cancelled; only cancel muxing on a fresh signal during muxing.
+        let mux_cancel = match self.interrupt {
+            Some(interrupt) if !interrupt.is_set() => interrupt.child_token(),
+            _ => CancellationToken::new(),
+        };
+        let cancel_code = || self.interrupt.map_or(2, Interrupt::cancel_code);
+
         log_general!("Muxing final file...");
-        let mut code = mux::execute(&options.ffmpeg_path, &mux.args).await;
+        let mut code = match mux::execute(&options.ffmpeg_path, &mux.args, &mux_cancel).await {
+            MuxExit::Cancelled => {
+                log_warn!("Muxing interrupted; keeping .ts files.");
+                try_delete(&mux.output);
+                self.cleanup_or_keep(moves_ok);
+                return cancel_code();
+            }
+            MuxExit::Code(code) => code,
+        };
         if code == 0 {
             // ffmpeg creates the final files with the default mode, so apply
             // --file-permissions afterwards. Go never did.
@@ -306,7 +338,15 @@ impl Finish<'_> {
         }
         if let Some(audio_mux) = &audio_mux {
             log_general!("Creating separate audio file...");
-            let audio_code = mux::execute(&options.ffmpeg_path, &audio_mux.args).await;
+            let audio_code = match mux::execute(&options.ffmpeg_path, &audio_mux.args, &mux_cancel).await {
+                MuxExit::Cancelled => {
+                    log_warn!("Muxing interrupted; keeping .ts files.");
+                    try_delete(&audio_mux.output);
+                    self.cleanup_or_keep(moves_ok);
+                    return cancel_code();
+                }
+                MuxExit::Code(audio_code) => audio_code,
+            };
             if audio_code == 0 {
                 apply_mode(&audio_mux.output, options.file_mode);
             } else {

@@ -69,13 +69,7 @@ pub async fn run(
                 let code = download(opts.clone(), http, cancel, prepared, None, interrupt).await;
                 return RunResult { code, video_id: Some(id.clone()), downloaded: true };
             }
-            return RunResult::code(if interrupt.terminated() {
-                143
-            } else if interrupt.is_set() {
-                2
-            } else {
-                1
-            });
+            return RunResult::code(if interrupt.is_set() { interrupt.cancel_code() } else { 1 });
         }
     };
     if skip_ids.contains(&prepared.video_id) {
@@ -162,7 +156,7 @@ async fn download(
             log_general!("Waiting {} before starting to download...", seconds_to_duration_and_time_str(wait.as_secs()));
             log_debug!("Will start from sequence {sequence} [current is {last}]");
             if !sleep_wall_clock(&cancel, wait).await {
-                return if interrupt.terminated() { 143 } else { 2 };
+                return interrupt.cancel_code();
             }
             start_sq = Some(sequence);
             if wait > Duration::from_secs(DEFAULT_POLL_SECS)
@@ -192,7 +186,7 @@ async fn download(
                     }
                     None => {
                         if interrupt.is_set() {
-                            return if interrupt.terminated() { 143 } else { 2 };
+                            return interrupt.cancel_code();
                         }
                         log_error!("Got an error when re-grabbing video info after the delay period elapsed. Exiting.");
                         return 1;
@@ -218,7 +212,7 @@ async fn download(
                 if !resuming {
                     plan.remove_temp_dir(&prepared.video_id);
                 }
-                return if interrupt.terminated() { 143 } else { 2 };
+                return interrupt.cancel_code();
             }
             Err(error) => log_warn!("Failed to download thumbnail: {error}"),
         }
@@ -373,6 +367,7 @@ async fn download(
         video_frags: frags.video,
         keep_for_retry: retry_until,
         pending_exports,
+        interrupt: Some(&interrupt),
     };
     if storage_failed {
         let had_data = resuming
