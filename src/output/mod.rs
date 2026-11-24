@@ -6,7 +6,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::download::load_state;
 use crate::error::{Error, Result};
 use crate::types::{DownloadState, FormatInfo, Options};
-use crate::util::filename::MAX_FILENAME_LEN;
+use crate::util::filename::{MAX_FILENAME_LEN, SUFFIX_ROOM, format_filename_untruncated};
 use crate::util::{NameStyle, apply_mode, create_temp_dir, format_filename, portable_file_name, sterilize_filename};
 use crate::{log_error, log_warn};
 
@@ -72,9 +72,6 @@ impl OutputPlan {
 
 /// Windows' MAX_PATH: 260 UTF-16 units, including the terminating NUL.
 const WINDOWS_MAX_PATH: usize = 260;
-/// Room for the longest suffix added to the base name, a fragment file
-/// `.f{itag}.frag{seq}.ts`.
-const SUFFIX_ROOM: usize = 24;
 /// Random part of a `{id}__XXXX` temp dir name (see `create_temp_dir`).
 const TEMP_DIR_RANDOM: usize = 8;
 
@@ -83,16 +80,19 @@ const TEMP_DIR_RANDOM: usize = 8;
 /// so every file path (final and temporary, with any suffix) fits in MAX_PATH.
 pub fn final_location(opts: &Options, format_info: &FormatInfo) -> Result<(PathBuf, String)> {
     let style = NameStyle { lookalike: opts.lookalike_chars, windows: opts.windows_filenames };
-    let mut full = format_filename(&opts.output_format, format_info, style, None)?;
-    let mut dir = output_dir(opts, &full, style);
-    let mut room = None;
-    if style.windows && !opts.no_path_limit {
+    let (full, dir, room) = if style.windows && !opts.no_path_limit {
+        let initial = format_filename_untruncated(&opts.output_format, format_info, style)?;
+        let initial_dir = output_dir(opts, &initial, style);
         let video_id = format_info.get("id").map_or("", String::as_str);
-        let units = windows_name_room(opts, &dir, video_id);
-        full = format_filename(&opts.output_format, format_info, style, Some(units))?;
-        dir = output_dir(opts, &full, style);
-        room = Some(units);
-    }
+        let units = windows_name_room(opts, &initial_dir, video_id);
+        let full = format_filename(&opts.output_format, format_info, style, Some(units))?;
+        let dir = output_dir(opts, &full, style);
+        (full, dir, Some(units))
+    } else {
+        let full = format_filename(&opts.output_format, format_info, style, None)?;
+        let dir = output_dir(opts, &full, style);
+        (full, dir, None)
+    };
     let full_path = Path::new(&full);
 
     let mut name = sterilize_filename(
