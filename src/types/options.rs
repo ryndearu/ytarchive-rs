@@ -1,5 +1,5 @@
 //! Immutable run options, resolved once from the CLI.
-//! Mutable runtime data lives in `download_info.rs` so options can be shared freely.
+//! Mutable runtime data lives in `session.rs` and `video_info/` so options can be shared freely.
 
 use std::path::PathBuf;
 use std::time::Duration;
