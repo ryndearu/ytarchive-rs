@@ -125,6 +125,14 @@ impl Extractor {
         self.info_printed = true;
     }
 
+    pub(super) fn reject_negative_live_from(&self) -> bool {
+        if self.opts.live_from.as_deref().is_some_and(|value| value.trim().starts_with('-')) {
+            log_error!("Option --live-from with a negative duration is not valid for a scheduled stream.");
+            return true;
+        }
+        false
+    }
+
     /// Fetches stream info and selects download URLs. Returns `None` if
     /// nothing usable was found, it's too soon since the last update, or the
     /// user chose not to wait; check `live` / `unavailable` afterwards.

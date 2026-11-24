@@ -205,8 +205,7 @@ impl Extractor {
                         log_debug!("Livestream status is {PLAYABLE_OFFLINE} mid-download");
                         return Outcome::NotUsable;
                     }
-                    if self.opts.live_from.as_deref().is_some_and(|value| value.trim().starts_with('-')) {
-                        log_error!("Option --live-from with a negative duration is not valid for a scheduled stream.");
+                    if self.reject_negative_live_from() {
                         return Outcome::NotUsable;
                     }
                     if self.wait == Action::DoNot {
