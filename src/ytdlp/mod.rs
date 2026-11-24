@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use reqwest::header::ORIGIN;
+use reqwest::header::{ORIGIN, REFERER};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
@@ -16,7 +16,7 @@ use crate::types::{
     FragmentUrl, IpVersion, LiveStatus, LogLevel, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat,
     YtdlpRawInfo, is_fragmented,
 };
-use crate::util::resolve_program;
+use crate::util::{resolve_program, sleep_or_cancel};
 use crate::{log_debug, log_trace, log_warn};
 
 // Go allowed 30 seconds. A run that also solves the JavaScript challenge on a
@@ -25,6 +25,8 @@ use crate::{log_debug, log_trace, log_warn};
 const RUN_TIMEOUT: Duration = Duration::from_secs(60);
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+const PROBE_ATTEMPTS: u32 = 3;
+const PROBE_RETRY_DELAY: Duration = Duration::from_secs(1);
 pub const DEFAULT_ATTEMPTS: u32 = 3;
 
 /// Arguments for one yt-dlp invocation. `ignore_no_formats` keeps yt-dlp from
@@ -70,6 +72,10 @@ fn stderr_error_line(stderr: &str) -> &str {
 
 /// Runs yt-dlp once and returns stdout, stopping early on cancel.
 pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool, cancel: &CancellationToken) -> Result<String> {
+    #[cfg(test)]
+    if let Some(stdout) = &opts.test_ytdlp_stdout {
+        return Ok(stdout.clone());
+    }
     let args = build_args(opts, url, ignore_no_formats);
     let executable = resolve_program(&opts.ytdlp_path).unwrap_or_else(|| PathBuf::from(&opts.ytdlp_path));
     if log::enabled(LogLevel::Trace) {
@@ -174,8 +180,8 @@ pub fn is_adaptive_format(format: &YtdlpFormat) -> bool {
 }
 
 /// Converts raw yt-dlp output into an extraction, without network access.
-/// Returns the raw URL of the first adaptive format for the sequence probe.
-pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
+/// Returns the adaptive format URLs in encounter order for sequence probing.
+pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Vec<String>) {
     let live_status = LiveStatus::parse(raw.live_status.as_deref().unwrap_or(""));
     let start_unix = raw.release_timestamp.filter(|time| *time > 0).or(raw.timestamp.filter(|time| *time > 0));
 
@@ -193,7 +199,7 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
         ..Default::default()
     };
 
-    let mut probe_url = None;
+    let mut probe_urls = Vec::new();
     let mut exact_itags = HashSet::new();
     let mut fallback_target = 0u32;
     for format in raw.formats.unwrap_or_default() {
@@ -214,7 +220,9 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
         }
         let exact = !format.format_id.contains('-');
         let url = format.url.unwrap_or_default();
-        probe_url.get_or_insert_with(|| url.clone());
+        if !probe_urls.contains(&url) {
+            probe_urls.push(url.clone());
+        }
         if exact {
             exact_itags.insert(itag);
             info.urls.insert(itag, FragmentUrl::with_sq_param(&url));
@@ -225,19 +233,51 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Option<String>) {
     if info.target_duration == 0 {
         info.target_duration = fallback_target;
     }
-    (info, probe_url)
+    (info, probe_urls)
 }
 
-/// Reads the `X-Head-Seqnum` header (latest available fragment) via HEAD.
-pub async fn probe_x_head_seqnum(http: &Http, url: &str, cancel: &CancellationToken) -> Option<u64> {
-    let resp = tokio::select! {
-        biased;
-        _ = cancel.cancelled() => return None,
-        result = http.client.head(url).header(ORIGIN, "https://www.youtube.com").timeout(PROBE_TIMEOUT).send() => {
-            result.ok()?
+/// Reads the `X-Head-Seqnum` header (latest available fragment) via HEAD,
+/// rotating across candidate adaptive format URLs on retry.
+pub async fn probe_x_head_seqnum_candidates(http: &Http, urls: &[String], cancel: &CancellationToken) -> Option<u64> {
+    if urls.is_empty() {
+        return None;
+    }
+    for attempt in 1..=PROBE_ATTEMPTS {
+        let url = urls.get((attempt as usize - 1) % urls.len())?;
+        let referer = FragmentUrl::with_sq_param(url).host().map(|host| format!("https://{host}/"));
+        let mut req = http.client.head(url).header(ORIGIN, "https://www.youtube.com").timeout(PROBE_TIMEOUT);
+        if let Some(value) = &referer {
+            req = req.header(REFERER, value);
         }
-    };
-    resp.headers().get("x-head-seqnum")?.to_str().ok()?.trim().parse().ok()
+        let resp = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return None,
+            result = req.send() => result,
+        };
+        match resp {
+            Ok(response) => {
+                if let Some(head) = response
+                    .headers()
+                    .get("x-head-seqnum")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|text| text.trim().parse().ok())
+                {
+                    return Some(head);
+                }
+                log_debug!(
+                    "X-Head-Seqnum probe returned HTTP {} without header (attempt {attempt}/{PROBE_ATTEMPTS})",
+                    response.status()
+                );
+            }
+            Err(error) => {
+                log_debug!("X-Head-Seqnum probe failed (attempt {attempt}/{PROBE_ATTEMPTS}): {}", error.without_url());
+            }
+        }
+        if attempt < PROBE_ATTEMPTS && !sleep_or_cancel(cancel, PROBE_RETRY_DELAY).await {
+            return None;
+        }
+    }
+    None
 }
 
 /// Sequence boundary for downloading. Post-live, the last couple of fragments
@@ -247,10 +287,12 @@ pub fn seq_boundary(head: u64, post_live: bool) -> Option<u64> {
 }
 
 async fn finish_extraction(http: &Http, out: &str, cancel: &CancellationToken) -> Result<YtdlpExtraction> {
-    let (mut info, probe_url) = to_extraction(parse_output(out)?);
-    if let Some(part) = probe_url {
+    let (mut info, probe_urls) = to_extraction(parse_output(out)?);
+    if !probe_urls.is_empty() {
         let post_live = info.live_status == LiveStatus::PostLive;
-        info.last_sq = probe_x_head_seqnum(http, &part, cancel).await.and_then(|head| seq_boundary(head, post_live));
+        info.last_sq = probe_x_head_seqnum_candidates(http, &probe_urls, cancel)
+            .await
+            .and_then(|head| seq_boundary(head, post_live));
     }
     if !info.urls.is_empty() {
         log_debug!("Loaded {} adaptive format URLs from yt-dlp", info.urls.len());
@@ -268,6 +310,22 @@ pub async fn extract(
 ) -> Result<YtdlpExtraction> {
     let out = run_with_retry(opts, url, ignore_no_formats, DEFAULT_ATTEMPTS, cancel).await?;
     finish_extraction(http, &out, cancel).await
+}
+
+/// Extraction without the `X-Head-Seqnum` HEAD probe, for background URL
+/// refreshes that only need fresh adaptive format URLs.
+pub async fn extract_urls(
+    opts: &Options,
+    url: &str,
+    ignore_no_formats: bool,
+    cancel: &CancellationToken,
+) -> Result<YtdlpExtraction> {
+    let out = run_with_retry(opts, url, ignore_no_formats, DEFAULT_ATTEMPTS, cancel).await?;
+    let (info, _) = to_extraction(parse_output(&out)?);
+    if !info.urls.is_empty() {
+        log_debug!("Loaded {} adaptive format URLs from yt-dlp", info.urls.len());
+    }
+    Ok(info)
 }
 
 /// Single-attempt extraction without retry warnings, used while polling a

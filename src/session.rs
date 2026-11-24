@@ -185,7 +185,7 @@ impl Session {
     /// Re-runs extraction to update live status and URLs. Returns whether new
     /// URLs were applied.
     async fn run_refresh(&self, extractor: &mut Extractor) -> bool {
-        let sel = extractor.get_video_info().await;
+        let sel = extractor.refresh_urls().await;
         self.live.store(extractor.live, Ordering::Relaxed);
         self.unavailable.store(extractor.unavailable, Ordering::Relaxed);
         if extractor.target_duration > 0 {
@@ -271,18 +271,13 @@ impl Session {
             return true;
         }
         log_debug!("Refreshing download URLs in background (5-hour interval)");
-        let info = ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await;
+        let info = ytdlp::extract_urls(&self.opts, &self.page_url, true, &self.cancel).await;
         if self.is_stopping() || self.is_unavailable() {
             return true;
         }
 
         let fresh = |itag: u32| {
-            info.as_ref()
-                .ok()
-                .filter(|info| info.last_sq.is_some())
-                .and_then(|info| info.urls.get(&itag))
-                .filter(|url| url.is_fragmented())
-                .cloned()
+            info.as_ref().ok().and_then(|info| info.urls.get(&itag)).filter(|url| url.is_fragmented()).cloned()
         };
         let audio = (!self.opts.video_only).then(|| fresh(AUDIO_ITAG));
         let video = self.video_itag.map(fresh);

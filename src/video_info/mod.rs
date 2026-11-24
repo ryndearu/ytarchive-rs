@@ -167,17 +167,28 @@ impl Extractor {
         false
     }
 
-    /// Fetches stream info and selects download URLs. Returns `None` if
-    /// nothing usable was found, it's too soon since the last update, or the
-    /// user chose not to wait; check `live` / `unavailable` afterwards.
+    /// Fetches stream info and selects download URLs (probing `X-Head-Seqnum`
+    /// when needed). Returns `None` if nothing usable was found, it's too soon
+    /// since the last update, or the user chose not to wait; check `live` /
+    /// `unavailable` afterwards.
     pub async fn get_video_info(&mut self) -> Option<FormatSelection> {
+        self.fetch_video_info(true).await
+    }
+
+    /// Refreshes download URLs for an in-progress stream without probing
+    /// `X-Head-Seqnum`.
+    pub async fn refresh_urls(&mut self) -> Option<FormatSelection> {
+        self.fetch_video_info(false).await
+    }
+
+    async fn fetch_video_info(&mut self, probe_head: bool) -> Option<FormatSelection> {
         if !self.due() {
             return None;
         }
         let selection = if self.opts.ytdlp_info {
-            self.get_video_info_ytdlp().await
+            self.get_video_info_ytdlp(probe_head).await
         } else {
-            self.get_video_info_player_response().await
+            self.get_video_info_player_response(probe_head).await
         };
         // A failed extraction can take minutes, and the workers queued on the
         // refresh lock would each run another one right away.
@@ -185,7 +196,7 @@ impl Extractor {
         selection
     }
 
-    async fn get_video_info_player_response(&mut self) -> Option<FormatSelection> {
+    async fn get_video_info_player_response(&mut self, probe_head: bool) -> Option<FormatSelection> {
         let outcome = self.get_playable_player_response().await;
         let player_response = match outcome {
             player::Outcome::Found(player_response) => player_response,
@@ -207,7 +218,12 @@ impl Extractor {
             self.target_duration = format.target_duration_sec.round() as u32;
         }
 
-        let info = match ytdlp::extract(&self.http, &self.opts, &self.page_url, false, &self.cancel).await {
+        let extracted = if probe_head {
+            ytdlp::extract(&self.http, &self.opts, &self.page_url, false, &self.cancel).await
+        } else {
+            ytdlp::extract_urls(&self.opts, &self.page_url, false, &self.cancel).await
+        };
+        let info = match extracted {
             Ok(info) => info,
             Err(Error::Cancelled) => return None,
             Err(error) => {
