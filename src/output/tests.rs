@@ -126,6 +126,38 @@ fn temp_paths() {
 }
 
 #[test]
+fn preserves_distinct_temp_dirs_on_resume() {
+    let base = env::temp_dir().join(format!("ytarchive-rs-distinct-temp-{}", process::id()));
+    let dir_a = base.join("vid__aaaa");
+    let dir_b = base.join("vid__bbbb");
+    let fallback = base.join("vid__cccc");
+    fs::create_dir_all(&dir_a).unwrap();
+    fs::create_dir_all(&dir_b).unwrap();
+    fs::create_dir_all(&fallback).unwrap();
+
+    let options = Options { temp_dir: Some(base.clone()), ..Default::default() };
+    let write_state = |itag: u32, dir: &Path| {
+        let json = serde_json::json!({"StartFrag": 0, "Fragments": 2, "Size": 10, "TempDir": dir});
+        fs::write(state_file(&options, "vid", itag), json.to_string()).unwrap();
+    };
+    write_state(140, &dir_a);
+    write_state(299, &dir_b);
+    write_state(251, &base.join("vid__missing"));
+
+    let (mut states, prev) = load_states(&options, "vid", &[140, 299, 251]);
+    assert_eq!(prev.as_deref(), Some(dir_a.as_path()));
+    resolve_stream_temp_dirs(&mut states, &fallback);
+    assert_eq!(states[0].temp_dir, dir_a);
+    assert_eq!(states[1].temp_dir, dir_b);
+    assert_eq!(states[2].temp_dir, fallback);
+
+    let plan = OutputPlan { final_dir: base.clone(), file_name: "n".into(), temp_dir: dir_a.clone() };
+    assert_eq!(plan.temp_in(&states[0].temp_dir, ".f140.ts"), dir_a.join("n.f140.ts"));
+    assert_eq!(plan.temp_in(&states[1].temp_dir, ".f299.ts"), dir_b.join("n.f299.ts"));
+    fs::remove_dir_all(&base).unwrap();
+}
+
+#[test]
 fn cleanup_keeps_data_set_aside_from_an_earlier_run() {
     let base = env::temp_dir().join(format!("ytarchive-rs-cleanup-{}", process::id()));
     let temp_dir = base.join("vid__ab12");

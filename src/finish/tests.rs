@@ -241,3 +241,55 @@ async fn finish_skips_muxing_when_move_fails() {
     assert!(state_file.exists(), "state file must remain intact after failed move");
     fs::remove_dir_all(&plan.final_dir).unwrap();
 }
+
+#[tokio::test]
+async fn removes_distinct_temp_dirs_and_keeps_referenced_ones() {
+    use crate::types::DownloadState;
+
+    // Both owned temp dirs are removed when no other state references them.
+    let (plan, audio_state) = downloaded("distinct-temp-clean");
+    let video_temp = plan.final_dir.join("vid__3c4d");
+    fs::create_dir_all(&video_temp).unwrap();
+    let video_file = plan.temp_in(&video_temp, ".f299.ts");
+    fs::write(&video_file, b"video").unwrap();
+    let video_state = plan.final_dir.join("vid.f299.state");
+    fs::write(&video_state, b"{}").unwrap();
+
+    let opts = Options { temp_dir: Some(plan.final_dir.clone()), write_mux_file: true, ..Default::default() };
+    let mut finish = finish_of(&opts, &plan, &audio_state);
+    finish.video_ts = Some(Moved { temp: video_file, dest: plan.final_path(".f299.ts") });
+    finish.state_files.push(video_state.clone());
+
+    assert_eq!(finish.finish().await, 0);
+    assert_eq!(fs::read(plan.final_path(".f140.ts")).unwrap(), b"audio");
+    assert_eq!(fs::read(plan.final_path(".f299.ts")).unwrap(), b"video");
+    assert!(!plan.temp_dir.exists(), "primary temp dir should be removed");
+    assert!(!video_temp.exists(), "second stream's temp dir should also be removed");
+    assert!(!audio_state.exists() && !video_state.exists());
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+
+    // A second temp dir still referenced by another stream's state is kept.
+    let (plan, audio_state) = downloaded("distinct-temp-keep");
+    let video_temp = plan.final_dir.join("vid__3c4d");
+    fs::create_dir_all(&video_temp).unwrap();
+    let video_file = plan.temp_in(&video_temp, ".f299.ts");
+    fs::write(&video_file, b"video").unwrap();
+    let other_file = plan.temp_in(&video_temp, ".f303.ts");
+    fs::write(&other_file, b"other").unwrap();
+    let video_state = plan.final_dir.join("vid.f299.state");
+    fs::write(&video_state, b"{}").unwrap();
+    let other_state = plan.final_dir.join("vid.f303.state");
+    let other = DownloadState { fragments: 2, temp_dir: video_temp.clone(), ..Default::default() };
+    fs::write(&other_state, serde_json::to_vec(&other).unwrap()).unwrap();
+
+    let opts = Options { temp_dir: Some(plan.final_dir.clone()), write_mux_file: true, ..Default::default() };
+    let mut finish = finish_of(&opts, &plan, &audio_state);
+    finish.video_ts = Some(Moved { temp: video_file, dest: plan.final_path(".f299.ts") });
+    finish.state_files.push(video_state);
+
+    assert_eq!(finish.finish().await, 0);
+    assert!(!plan.temp_dir.exists(), "unreferenced primary temp dir should be removed");
+    assert!(video_temp.exists(), "temp dir referenced by another state must be kept");
+    assert_eq!(fs::read(&other_file).unwrap(), b"other");
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+}

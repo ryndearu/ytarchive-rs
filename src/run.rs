@@ -19,7 +19,9 @@ use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
 use crate::log::{finish_inline, report_progress};
 use crate::mux::{MuxInput, ffmpeg_args, mux_file_contents};
-use crate::output::{OutputPlan, ensure_dir, final_location, load_states, state_file, temp_dir};
+use crate::output::{
+    OutputPlan, ensure_dir, final_location, load_states, resolve_stream_temp_dirs, state_file, temp_dir,
+};
 use crate::prepare::{PrepareOutcome, Prepared, prepare, prepared_from_kept};
 use crate::session::Session;
 use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, FormatSelection, Options, PerType, SavedDownload};
@@ -204,9 +206,7 @@ async fn download(
 
     let plan =
         OutputPlan { temp_dir: temp_dir(&opts, prev_temp, &final_dir, &prepared.video_id), final_dir, file_name };
-    for state in &mut states {
-        state.temp_dir = plan.temp_dir.clone();
-    }
+    resolve_stream_temp_dirs(&mut states, &plan.temp_dir);
 
     // Thumbnail and description go to the temp dir first.
     let mut thumbnail = None;
@@ -234,10 +234,13 @@ async fn download(
         }
     }
 
-    let moved_ts =
-        |itag: u32| Moved { temp: plan.temp(&format!(".f{itag}.ts")), dest: plan.final_path(&format!(".f{itag}.ts")) };
-    let audio_ts = streams.iter().find(|stream| stream.0 == DataType::Audio).map(|stream| moved_ts(stream.1));
-    let video_ts = streams.iter().find(|stream| stream.0 == DataType::Video).map(|stream| moved_ts(stream.1));
+    let moved_ts = |kind: DataType| {
+        streams.iter().zip(&states).find(|(stream, _)| stream.0 == kind).map(|(stream, state)| {
+            let suffix = format!(".f{}.ts", stream.1);
+            Moved { temp: plan.temp_in(&state.temp_dir, &suffix), dest: plan.final_path(&suffix) }
+        })
+    };
+    let (audio_ts, video_ts) = (moved_ts(DataType::Audio), moved_ts(DataType::Video));
 
     // Computed after the thumbnail download so a failed download isn't
     // referenced (Go built the command first).
@@ -288,7 +291,8 @@ async fn download(
 
     let mut tasks = Vec::new();
     for ((data_type, itag), state) in streams.iter().copied().zip(states) {
-        let file = moved_ts(itag).temp;
+        let file = plan.temp_in(&state.temp_dir, &format!(".f{itag}.ts"));
+        let frag_prefix = plan.temp_in(&state.temp_dir, &format!(".f{itag}"));
         log_info!("Starting download to {}", file.display());
         let state_file = (!opts.disable_save_state).then(|| state.file.clone());
         tasks.push(tokio::spawn(download_stream(
@@ -296,7 +300,7 @@ async fn download(
             StreamParams {
                 data_type,
                 data_file: file,
-                frag_prefix: plan.temp(&format!(".f{itag}")),
+                frag_prefix,
                 state,
                 state_file,
                 last_sq: prepared.last_sq,

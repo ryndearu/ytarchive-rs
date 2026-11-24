@@ -20,7 +20,11 @@ pub struct OutputPlan {
 
 impl OutputPlan {
     pub fn temp(&self, suffix: &str) -> PathBuf {
-        self.temp_dir.join(format!("{}{suffix}", self.file_name))
+        self.temp_in(&self.temp_dir, suffix)
+    }
+
+    pub fn temp_in(&self, dir: &Path, suffix: &str) -> PathBuf {
+        dir.join(format!("{}{suffix}", self.file_name))
     }
 
     pub fn final_path(&self, suffix: &str) -> PathBuf {
@@ -213,6 +217,17 @@ pub fn load_states(opts: &Options, video_id: &str, itags: &[u32]) -> (Vec<Downlo
         })
         .collect();
     (states, prev_dir)
+}
+
+/// Keeps each stream's own existing temp dir from its `.state` file (e.g.
+/// combining prior `--no-video` and `--no-audio` runs), assigning `fallback`
+/// only when a state has none or its directory no longer exists.
+pub fn resolve_stream_temp_dirs(states: &mut [DownloadState], fallback: &Path) {
+    for state in states {
+        if state.temp_dir.as_os_str().is_empty() || !state.temp_dir.is_dir() {
+            state.temp_dir = fallback.to_path_buf();
+        }
+    }
 }
 
 /// Whether another `.state` file for `video_id` (not in `ignore`) still points

@@ -118,14 +118,21 @@ impl Finish<'_> {
     }
 
     fn remove_temp_dir(&self) {
-        if other_state_uses_temp_dir(self.opts, self.video_id, &self.plan.temp_dir, &self.state_files) {
-            log_warn!(
-                "Leaving {} because another stream's resume state still references it.",
-                self.plan.temp_dir.display()
-            );
-            return;
+        let mut dirs = vec![self.plan.temp_dir.clone()];
+        for moved in [&self.audio_ts, &self.video_ts].into_iter().flatten() {
+            if let Some(parent) = moved.temp.parent()
+                && !dirs.iter().any(|dir| dir == parent)
+            {
+                dirs.push(parent.to_path_buf());
+            }
         }
-        self.plan.remove_temp_dir(self.video_id);
+        for dir in dirs {
+            if other_state_uses_temp_dir(self.opts, self.video_id, &dir, &self.state_files) {
+                log_warn!("Leaving {} because another stream's resume state still references it.", dir.display());
+                continue;
+            }
+            OutputPlan { temp_dir: dir, ..self.plan.clone() }.remove_temp_dir(self.video_id);
+        }
     }
 
     fn cleanup_temp(&self, moves_ok: bool) {
