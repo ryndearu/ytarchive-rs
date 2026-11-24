@@ -301,6 +301,22 @@ pub async fn extract(
     finish_extraction(http, &out, cancel).await
 }
 
+/// Extraction without the `X-Head-Seqnum` HEAD probe, for background URL
+/// refreshes that only need fresh adaptive format URLs.
+pub async fn extract_urls(
+    opts: &Options,
+    url: &str,
+    ignore_no_formats: bool,
+    cancel: &CancellationToken,
+) -> Result<YtdlpExtraction> {
+    let out = run_with_retry(opts, url, ignore_no_formats, DEFAULT_ATTEMPTS, cancel).await?;
+    let (info, _) = to_extraction(parse_output(&out)?);
+    if !info.urls.is_empty() {
+        log_debug!("Loaded {} adaptive format URLs from yt-dlp", info.urls.len());
+    }
+    Ok(info)
+}
+
 /// Single-attempt extraction without retry warnings, used while polling a
 /// channel's `/live` URL with `-r`.
 pub async fn extract_once(
