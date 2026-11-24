@@ -39,8 +39,6 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    // Restored when main returns.
-    let _console = platform::setup();
     let cli = cli::Cli::parse_normalized();
     let mut options = match cli.into_options() {
         Ok(options) => options,
@@ -51,6 +49,9 @@ async fn main() -> ExitCode {
     };
     log::set_level(options.log_level);
     log::set_newlines(options.status_newlines);
+    // Restored when main returns; runs after log setup so --debug captures
+    // Windows setup messages and --help/--version don't alter console state.
+    let _console = platform::setup();
     // Go printed its version at startup too.
     if options.log_level > types::LogLevel::Quiet {
         eprintln!("ytarchive {VERSION}");
