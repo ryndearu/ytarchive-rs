@@ -139,7 +139,6 @@ impl FragThreadState {
 pub struct FragmentUrl {
     prefix: String,
     suffix: String,
-    host: Option<String>,
     referer: Option<HeaderValue>,
     expires_at: Option<u64>,
 }
@@ -151,12 +150,14 @@ fn base_from_prefix(prefix: &str) -> &str {
 impl FragmentUrl {
     fn build(prefix: String, suffix: String) -> Self {
         let parsed = Url::parse(base_from_prefix(&prefix)).ok();
-        let host = parsed.as_ref().and_then(|url| url.host_str().map(str::to_string));
-        let referer = host.as_deref().and_then(|value| HeaderValue::from_str(&format!("https://{value}/")).ok());
+        let referer = parsed
+            .as_ref()
+            .and_then(|url| url.host_str())
+            .and_then(|host| HeaderValue::from_str(&format!("https://{host}/")).ok());
         let expires_at = parsed.as_ref().and_then(|url| {
             url.query_pairs().find(|(key, _)| key == "expire").and_then(|(_, value)| value.parse().ok())
         });
-        Self { prefix, suffix, host, referer, expires_at }
+        Self { prefix, suffix, referer, expires_at }
     }
 
     /// URL that takes the sequence as a trailing `&sq=N` query parameter.
@@ -185,11 +186,6 @@ impl FragmentUrl {
     #[cfg(test)]
     pub fn base(&self) -> &str {
         base_from_prefix(&self.prefix)
-    }
-
-    #[cfg(test)]
-    pub fn host(&self) -> Option<&str> {
-        self.host.as_deref()
     }
 
     pub fn referer(&self) -> Option<&HeaderValue> {
@@ -236,7 +232,6 @@ mod tests {
         let url = FragmentUrl::with_sq_param("https://x.googlevideo.com/videoplayback?itag=140&noclen=1&sq=55&a=%2F");
         assert_eq!(url.for_seq(7), "https://x.googlevideo.com/videoplayback?itag=140&noclen=1&a=%2F&sq=7");
         assert_eq!(url.base(), "https://x.googlevideo.com/videoplayback?itag=140&noclen=1&a=%2F");
-        assert_eq!(url.host(), Some("x.googlevideo.com"));
         assert_eq!(url.referer().and_then(|value| value.to_str().ok()), Some("https://x.googlevideo.com/"));
         assert!(url.is_fragmented());
     }
