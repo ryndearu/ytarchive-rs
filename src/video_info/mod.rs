@@ -282,14 +282,15 @@ impl Extractor {
     }
 }
 
-/// Sleeps until `unix` (re-checking the clock, as a long sleep can drift).
+/// Sleeps until `unix` in chunks of at most 60 s, re-checking the wall clock
+/// because tokio's timer stops while the system is suspended.
 async fn sleep_until_unix(cancel: &CancellationToken, unix: i64) -> bool {
     loop {
         let left = unix - chrono::Utc::now().timestamp();
         if left <= 0 {
             return true;
         }
-        if !sleep_or_cancel(cancel, Duration::from_secs(left as u64)).await {
+        if !sleep_or_cancel(cancel, Duration::from_secs((left as u64).min(60))).await {
             return false;
         }
     }

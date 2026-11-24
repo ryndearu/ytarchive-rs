@@ -196,7 +196,12 @@ impl Extractor {
                 } else {
                     log_general!("Waiting {} before retrying yt-dlp...", seconds_to_duration_and_time_str(secs));
                 }
-                if !sleep_or_cancel(&self.cancel, interval).await {
+                let waited = if let Some(start) = (!polling).then_some(info.start_unix).flatten() {
+                    super::sleep_until_unix(&self.cancel, start).await
+                } else {
+                    sleep_or_cancel(&self.cancel, interval).await
+                };
+                if !waited {
                     return None;
                 }
                 if polling {

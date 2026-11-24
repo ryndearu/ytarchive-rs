@@ -10,3 +10,4 @@
 - **`--sqlite` on a hard disk or network share**: on NVMe limited to 5 MB/s, one insert paused up to about 3.4 s.
 - **A disk that fills up with `--sqlite`**, and a failed `--sqlite` export (without `--sqlite`, a full disk kept the data and state, and the next run resumed).
 - **Filesystems without Unix permissions** (exFAT, FAT32, SMB shares) on Linux/macOS.
+- **Waiting for a scheduled stream across system sleep/suspend.**
