@@ -143,18 +143,31 @@ pub fn posix_quote(arg: &str) -> String {
 
 /// Windows command-line quoting (the rules ffmpeg's argument parser uses),
 /// so the `.ffmpeg.txt` command can be pasted into cmd or PowerShell.
+/// Embedded newlines (e.g. in `COMMENT` metadata) are flattened to spaces so
+/// each command stays on a single line.
 pub fn windows_quote(arg: &str) -> String {
-    if !arg.is_empty() && !arg.contains([' ', '\t', '"', '&', '|', '<', '>', '^']) {
+    if !arg.is_empty() && !arg.contains([' ', '\t', '\r', '\n', '"', '&', '|', '<', '>', '^']) {
         return arg.to_string();
     }
     let mut out = String::from("\"");
     let mut backslashes = 0;
+    let mut prev_cr = false;
     for character in arg.chars() {
+        if character == '\n' && prev_cr {
+            prev_cr = false;
+            continue;
+        }
+        prev_cr = character == '\r';
         match character {
             '\\' => backslashes += 1,
             '"' => {
                 out.push_str(&"\\".repeat(backslashes * 2 + 1));
                 out.push('"');
+                backslashes = 0;
+            }
+            '\r' | '\n' => {
+                out.push_str(&"\\".repeat(backslashes));
+                out.push(' ');
                 backslashes = 0;
             }
             _ => {
@@ -322,6 +335,8 @@ mod tests {
         assert_eq!(windows_quote(r"C:\my dir\"), r#""C:\my dir\\""#);
         assert_eq!(windows_quote(r#"say "hi""#), r#""say \"hi\"""#);
         assert_eq!(windows_quote("TITLE=a&b"), r#""TITLE=a&b""#);
+        assert_eq!(windows_quote("COMMENT=line1\nline2"), r#""COMMENT=line1 line2""#);
+        assert_eq!(windows_quote("COMMENT=line1\r\nline2\rline3"), r#""COMMENT=line1 line2 line3""#);
         assert_eq!(windows_quote(""), r#""""#);
     }
 }
