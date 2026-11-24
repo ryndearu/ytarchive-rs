@@ -84,3 +84,31 @@ async fn insert_leaves_the_runtime_thread_free() {
     drop(sink);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn read_kept_recovers_wal_without_shm() {
+    let base = env::temp_dir().join(format!("ytarchive-rs-db-wal-{}", process::id()));
+    let live_dir = base.join("live");
+    let crash_dir = base.join("crash");
+    fs::create_dir_all(&live_dir).unwrap();
+    fs::create_dir_all(&crash_dir).unwrap();
+
+    let db = live_dir.join("stream.f140.sqlite");
+    let sink = DbSink::open(&db, 0o644).unwrap();
+    let saved = SavedDownload { video_id: "vid123".into(), target_duration: 5, ..Default::default() };
+    sink.set_meta("download", &serde_json::to_string(&saved).unwrap()).unwrap();
+    sink.set_meta("head", "42").unwrap();
+    let url = FragmentUrl::with_sq_param("https://r.googlevideo.com/v?itag=140&noclen=1");
+    sink.save_urls(std::slice::from_ref(&url)).unwrap();
+
+    // Copy the DB and its uncheckpointed -wal without -shm (simulating a crash).
+    fs::copy(&db, crash_dir.join("stream.f140.sqlite")).unwrap();
+    fs::copy(wal_path(&db), crash_dir.join("stream.f140.sqlite-wal")).unwrap();
+    drop(sink);
+
+    let kept = read_kept(&crash_dir, 140).expect("should recover kept metadata from WAL");
+    assert_eq!(kept.info.video_id, "vid123");
+    assert_eq!(kept.head, Some(42));
+    assert_eq!(kept.urls, [url]);
+    fs::remove_dir_all(&base).unwrap();
+}
