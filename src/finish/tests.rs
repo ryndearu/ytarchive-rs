@@ -124,3 +124,52 @@ async fn terminate_keeps_temp_files_and_state_files() {
     assert!(!plan.final_path(".f140.ts").exists());
     fs::remove_dir_all(&plan.final_dir).unwrap();
 }
+
+#[tokio::test]
+async fn write_mux_file_updates_separate_audio_command() {
+    let (plan, state_file) = downloaded("mux-separate-audio");
+    fs::write(plan.temp(".f299.ts"), b"video").unwrap();
+    let audio = plan.final_path(".f140.ts");
+    let video = plan.final_path(".f299.ts");
+    let main_mux = mux::ffmpeg_args(&MuxInput {
+        audio: Some(&audio),
+        video: Some(&video),
+        thumbnail: None,
+        mkv: false,
+        metadata: None,
+        out_dir: &plan.final_dir,
+        file_name: "out",
+    });
+    let audio_mux = mux::ffmpeg_args(&MuxInput {
+        audio: Some(&audio),
+        video: None,
+        thumbnail: None,
+        mkv: false,
+        metadata: None,
+        out_dir: &plan.final_dir,
+        file_name: "out",
+    });
+    let initial = mux::mux_file_contents("ffmpeg", &main_mux, Some(&audio_mux));
+    fs::write(plan.temp(".ffmpeg.txt"), &initial).unwrap();
+    // Simulate out.m4a appearing before finish, requiring -1 on the audio command.
+    fs::write(plan.final_path(".m4a"), b"existing").unwrap();
+
+    let opts = Options {
+        write_mux_file: true,
+        separate_audio: true,
+        ffmpeg_path: "ffmpeg".into(),
+        file_mode: 0o644,
+        ..Default::default()
+    };
+    let mut finish = finish_of(&opts, &plan, &state_file);
+    finish.mux = main_mux;
+    finish.audio_mux = Some(audio_mux);
+
+    assert_eq!(finish.finish().await, 0);
+    let written = fs::read_to_string(plan.final_path(".ffmpeg.txt")).unwrap();
+    let lines: Vec<&str> = written.lines().collect();
+    assert_eq!(lines.len(), 2, "{written}");
+    assert!(lines[0].contains("out.mp4"), "{written}");
+    assert!(lines[1].contains("out-1.m4a"), "{written}");
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+}

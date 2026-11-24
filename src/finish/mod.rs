@@ -193,7 +193,9 @@ impl Finish<'_> {
                 );
                 return Some(1);
             }
-            let ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description]).await;
+            let mux_file = Some(self.mux_file.clone());
+            let ok =
+                self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]).await;
             self.cleanup_temp(ok);
             if ok {
                 self.delete_state_files();
@@ -234,8 +236,10 @@ impl Finish<'_> {
         // Go kept the output name it chose before the download started.
         let mux = self.mux.with_unused_output();
         let audio_mux = self.audio_mux.as_ref().map(MuxCommand::with_unused_output);
-        if mux.output != self.mux.output {
-            let command = mux::command_line(&options.ffmpeg_path, &mux.args);
+        let output_changed = mux.output != self.mux.output
+            || audio_mux.as_ref().zip(self.audio_mux.as_ref()).is_some_and(|(next, prev)| next.output != prev.output);
+        if output_changed {
+            let command = mux::mux_file_contents(&options.ffmpeg_path, &mux, audio_mux.as_ref());
             if let Err(error) = write_file_with_mode(&self.mux_file.dest, command.as_bytes(), options.file_mode).await {
                 log_warn!("Failed to update the mux file: {error}");
             }
@@ -296,6 +300,13 @@ impl Finish<'_> {
                 code = audio_code;
                 log_error!("ffmpeg returned code {audio_code} for the separate audio file.");
                 log_error!("The .ts files will not be deleted in case the final file is broken.");
+                let commands = mux::mux_file_contents(&options.ffmpeg_path, &mux, Some(audio_mux));
+                if let Err(error) =
+                    write_file_with_mode(&self.mux_file.dest, commands.as_bytes(), options.file_mode).await
+                {
+                    log_warn!("Failed to update the mux file: {error}");
+                }
+                log_error!("The ffmpeg commands were written to {}", self.mux_file.dest.display());
             }
         }
 

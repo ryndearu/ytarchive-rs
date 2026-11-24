@@ -52,7 +52,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - **Mid-download `ERROR`, `UNPLAYABLE`, or unknown (such as `LOGIN_REQUIRED`) playability statuses consistently mark the stream both not-live and unavailable.** Go left `Unavailable` unset on `ERROR`/unknown statuses and `Live` set on `UNPLAYABLE`.
 - SQLite inserts (with batched `head`/URL metadata updates), queries, and exports, saving the resume state, and moving finished files to another filesystem run off the async runtime thread so they no longer hold up the download. The state file can be a few fragments behind the data; resuming cuts the data file back to it. SQLite exports are skipped after a storage error and deferred until after Ctrl-C prompts so discarding a cancelled download does not write a `.ts` file first.
 - A temp directory named in a state file is reused only if it still exists.
-- `--separate-audio` makes the extra file only when both audio and video were downloaded. Go also duplicated audio-only downloads.
+- `--separate-audio` makes the extra file only when both audio and video were downloaded (Go also duplicated audio-only downloads), and includes both commands in `.ffmpeg.txt` (for `--write-mux-file`, `--save` on cancel, output name updates, and mux failures; Go wrote only the main command).
 
 ### Files and cleanup
 
@@ -62,6 +62,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - The final file's name (`name.mp4`, `name-1.mp4`, …) is picked right before muxing, and the `.ffmpeg.txt` command is updated to match. Go picked it before the download, so a file that appeared meanwhile made ffmpeg fail.
 - When `name.mp4` to `name-10.mp4` all exist, ffmpeg isn't run and the `.ts` files are kept. Go ran ffmpeg and reported only its exit code.
 - Resume state files are deleted only after moving temporary files succeeds, and partial cross-filesystem copies are deleted on failure.
+- Saving created files on cancel (`--save`) also moves the `.ffmpeg.txt` command file to the output directory instead of deleting it with the temporary directory.
 - Failures when applying `--file-permissions` or `--directory-permissions` (for example on filesystems without Unix permissions such as exFAT, FAT32, or SMB) are logged at debug level instead of failing or deleting written files.
 - `publish_date` is always `YYYYMMDD`. Go kept the raw value, which can include a time and offset.
 
