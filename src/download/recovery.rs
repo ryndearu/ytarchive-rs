@@ -123,22 +123,22 @@ async fn fetch(session: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, off
     (seq, None)
 }
 
-/// Runs recovery rounds for `span`, storing fragments in `db`. `on_stored`
-/// gets the size of each fragment stored. Returns the span with the newest
-/// known head.
+/// Runs recovery rounds for `span`, storing fragments in `database` and
+/// updating `stored` in place. `on_stored` gets the size of each fragment
+/// stored. Returns the span with the newest known head.
 pub async fn recover(
     session: &Arc<Session>,
     data_type: DataType,
     database: &mut DbSink,
     mut span: Span,
+    stored: &mut HashSet<u64>,
     mut on_stored: impl FnMut(u64),
 ) -> Result<Span> {
     let name = format!("{}-recovery", data_type.as_str());
     let threads = session.opts.threads.max(1);
     let (mut round, mut idle) = (0usize, 0u32);
     loop {
-        let stored = database.stored_async().await?;
-        let missing = span.missing(&stored);
+        let missing = span.missing(stored);
         if missing.is_empty() {
             if round > 0 {
                 log_info!("{name}: All missing fragments were recovered");
@@ -172,7 +172,7 @@ pub async fn recover(
         }
         round += 1;
 
-        let targets = span.unstored(&stored);
+        let targets = span.unstored(stored);
         log_debug!("{name}: Round {round}: {} fragment(s), {} URL(s)", targets.len(), urls.len());
         let urls = Arc::new(urls);
         let mut queue = targets.into_iter();
@@ -200,6 +200,7 @@ pub async fn recover(
             }
             for event in database.push(seq, Some(frag)).await? {
                 if let Event::Wrote(bytes) = event {
+                    stored.insert(seq);
                     recovered += 1;
                     on_stored(bytes);
                 }

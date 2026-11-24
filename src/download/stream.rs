@@ -278,8 +278,17 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
             && let Some(head_seq) = head
         {
             let mut span = Span { start: cur, head: head_seq, end: end_seq };
-            if session.is_unavailable() {
-                match recover(&session, data_type, database, span, |bytes| {
+            let mut stored = match database.stored_async().await {
+                Ok(stored) => Some(stored),
+                Err(error) => {
+                    store_err = Some(error);
+                    None
+                }
+            };
+            if session.is_unavailable()
+                && let Some(stored) = stored.as_mut()
+            {
+                match recover(&session, data_type, database, span, stored, |bytes| {
                     record(&mut params, saver.as_ref(), Some(head_seq), bytes)
                 })
                 .await
@@ -292,9 +301,8 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
                 }
             }
             head = Some(span.head);
-            match database.stored_async().await {
-                Ok(stored) => skipped = span.missing(&stored),
-                Err(error) => store_err = store_err.or(Some(error)),
+            if let Some(stored) = stored {
+                skipped = span.missing(&stored);
             }
         }
         if let Err(error) = save_end_async(&session, data_type, database, head).await {

@@ -196,8 +196,8 @@ pub async fn open(
     }
     if use_db {
         let mut sink = DbSink::open_async(database_path.clone(), mode).await?;
-        let mut skip = sink.stored_async().await?;
-        let (mut fragments, mut size) = sink.totals_async().await?;
+        let (mut skip, mut size) = sink.stored_and_size_async().await?;
+        let mut fragments = skip.len() as u64;
         let cur = if fragments > 0 && state.fragments > 0 {
             log_info!("{name}: Resuming from {}: {fragments} fragment(s) stored", sink.path().display());
             state.start_frag
