@@ -87,6 +87,34 @@ fn storage_error_keeps_what_can_be_resumed() {
 }
 
 #[tokio::test]
+async fn keeps_temp_dir_when_another_stream_state_references_it() {
+    use crate::types::DownloadState;
+
+    let (plan, state_file) = downloaded("shared-temp");
+    let other_db = plan.temp(".f299.sqlite");
+    fs::write(&other_db, b"video-db").unwrap();
+    let other_state_file = plan.final_dir.join("vid.f299.state");
+    let other_state = DownloadState { fragments: 5, temp_dir: plan.temp_dir.clone(), ..Default::default() };
+    fs::write(&other_state_file, serde_json::to_vec(&other_state).unwrap()).unwrap();
+
+    let opts = Options {
+        temp_dir: Some(plan.final_dir.clone()),
+        write_mux_file: true,
+        audio_only: true,
+        ..Default::default()
+    };
+    let mut finish = finish_of(&opts, &plan, &state_file);
+    finish.video_ts = None;
+
+    assert_eq!(finish.finish().await, 0);
+    assert!(!state_file.exists(), "finished stream's state file should be deleted");
+    assert!(other_state_file.exists(), "other stream's state file must remain");
+    assert!(plan.temp_dir.exists(), "shared temp dir must not be deleted while another state references it");
+    assert_eq!(fs::read(&other_db).unwrap(), b"video-db");
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+}
+
+#[tokio::test]
 async fn cancel_discard_skips_pending_sqlite_export() {
     let (plan, state_file) = downloaded("cancel-discard-db");
     fs::remove_file(plan.temp(".f140.ts")).unwrap();

@@ -202,8 +202,8 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
             .find(|(kept_itag, _)| *kept_itag == itag)
             .and_then(|(_, kept_stream)| kept_stream.urls.last().cloned())
     };
-    let audio_url = url(AUDIO_ITAG);
-    let video_url = info.video_itag.and_then(url);
+    let audio_url = (!opts.video_only).then(|| url(AUDIO_ITAG)).flatten();
+    let video_url = (!opts.audio_only).then(|| info.video_itag.and_then(url)).flatten();
     if audio_url.is_none() && video_url.is_none() {
         return None;
     }
@@ -247,6 +247,54 @@ mod tests {
         }
         assert_eq!(state_itags(&dir, "abc"), [140, 299]);
         assert!(state_itags(&dir, "zzz").is_empty());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn prepared_from_kept_honors_stream_filters() {
+        use crate::download::DbSink;
+        use crate::types::{DownloadState, SavedDownload};
+
+        let dir = std::env::temp_dir().join(format!("ytarchive-rs-kept-filter-{}", std::process::id()));
+        let temp_dir = dir.join("vid__abcd");
+        if dir.exists() {
+            fs::remove_dir_all(&dir).unwrap();
+        }
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let saved = SavedDownload {
+            video_id: "vid".into(),
+            target_duration: 5,
+            label: "1080p60".into(),
+            video_itag: Some(299),
+            ..Default::default()
+        };
+        let saved_json = serde_json::to_string(&saved).unwrap();
+        for (itag, raw_url) in [
+            (140u32, "https://r.googlevideo.com/v?itag=140&noclen=1"),
+            (299u32, "https://r.googlevideo.com/v?itag=299&noclen=1"),
+        ] {
+            let db = DbSink::open(&temp_dir.join(format!("out.f{itag}.sqlite")), 0o644).unwrap();
+            db.set_meta("download", &saved_json).unwrap();
+            db.set_meta("head", "10").unwrap();
+            db.save_urls(&[FragmentUrl::with_sq_param(raw_url)]).unwrap();
+            let state = DownloadState { fragments: 1, temp_dir: temp_dir.clone(), ..Default::default() };
+            fs::write(dir.join(format!("vid.f{itag}.state")), serde_json::to_vec(&state).unwrap()).unwrap();
+        }
+
+        let base = Options { recover_private: true, temp_dir: Some(dir.clone()), ..Default::default() };
+        let both = prepared_from_kept(&base, "vid").unwrap();
+        assert!(both.sel.audio_url.is_some() && both.sel.video_url.is_some());
+
+        let video_only = prepared_from_kept(&Options { video_only: true, ..base.clone() }, "vid").unwrap();
+        assert!(video_only.sel.audio_url.is_none());
+        assert!(video_only.sel.video_url.is_some());
+
+        let audio_only = prepared_from_kept(&Options { audio_only: true, ..base }, "vid").unwrap();
+        assert!(audio_only.sel.audio_url.is_some());
+        assert!(audio_only.sel.video_url.is_none());
+        assert!(audio_only.sel.video_itag.is_none());
+
         fs::remove_dir_all(&dir).unwrap();
     }
 }

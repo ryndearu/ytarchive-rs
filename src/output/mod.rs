@@ -205,6 +205,35 @@ pub fn load_states(opts: &Options, video_id: &str, itags: &[u32]) -> (Vec<Downlo
     (states, prev_dir)
 }
 
+/// Whether another `.state` file for `video_id` (not in `ignore`) still points
+/// to `temp_dir`, so deleting `temp_dir` would lose that stream's data.
+pub fn other_state_uses_temp_dir(opts: &Options, video_id: &str, temp_dir: &Path, ignore: &[PathBuf]) -> bool {
+    let dir = opts.temp_dir.as_deref().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let prefix = format!("{video_id}.f");
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    let abs_temp = std::path::absolute(temp_dir).ok();
+    entries.flatten().any(|entry| {
+        let file_name = entry.file_name();
+        let name = file_name.to_string_lossy();
+        let Some(itag_str) = name.strip_prefix(&prefix).and_then(|rest| rest.strip_suffix(".state")) else {
+            return false;
+        };
+        if itag_str.parse::<u32>().is_err() {
+            return false;
+        }
+        if ignore.iter().any(|ignored| ignored.file_name() == Some(file_name.as_os_str())) {
+            return false;
+        }
+        load_state(&entry.path()).is_some_and(|state| {
+            !state.temp_dir.as_os_str().is_empty()
+                && (state.temp_dir == temp_dir
+                    || (abs_temp.is_some() && std::path::absolute(&state.temp_dir).ok() == abs_temp))
+        })
+    })
+}
+
 /// Picks the temp dir: the previous run's, else a new `{id}__XXXX` under the
 /// temp-dir option (or the final dir). Falls back to the final dir.
 pub fn temp_dir(opts: &Options, prev: Option<PathBuf>, final_dir: &Path, video_id: &str) -> PathBuf {

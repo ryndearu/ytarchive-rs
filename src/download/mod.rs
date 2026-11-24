@@ -10,6 +10,8 @@ mod stream;
 mod tests;
 mod worker;
 
+#[cfg(test)]
+pub use db_sink::DbSink;
 pub use db_sink::{KeptStream, read_kept};
 pub use recovery::local_time;
 pub use sink::PendingExport;

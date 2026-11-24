@@ -8,7 +8,7 @@ use tokio::task::spawn_blocking;
 
 use crate::download::{PendingExport, local_time};
 use crate::mux::{self, MuxCommand};
-use crate::output::OutputPlan;
+use crate::output::{OutputPlan, other_state_uses_temp_dir};
 use crate::prompt::read_yes_no;
 use crate::types::{Action, Options};
 use crate::util::{apply_mode, try_delete, try_move, write_file_with_mode};
@@ -117,9 +117,20 @@ impl Finish<'_> {
         log_warn!("Delete that folder if you don't want to retry.");
     }
 
+    fn remove_temp_dir(&self) {
+        if other_state_uses_temp_dir(self.opts, self.video_id, &self.plan.temp_dir, &self.state_files) {
+            log_warn!(
+                "Leaving {} because another stream's resume state still references it.",
+                self.plan.temp_dir.display()
+            );
+            return;
+        }
+        self.plan.remove_temp_dir(self.video_id);
+    }
+
     fn cleanup_temp(&self, moves_ok: bool) {
         if moves_ok {
-            self.plan.remove_temp_dir(self.video_id);
+            self.remove_temp_dir();
         } else {
             log_error!("At least one error occurred when moving files. Will not delete them.");
         }
@@ -140,7 +151,7 @@ impl Finish<'_> {
             );
         } else {
             log_error!("Nothing was downloaded because a download's storage couldn't be opened.");
-            self.plan.remove_temp_dir(self.video_id);
+            self.remove_temp_dir();
             self.delete_state_files();
         }
         1
@@ -212,7 +223,7 @@ impl Finish<'_> {
         } else {
             self.pending_exports.clear();
             if !save_state {
-                self.plan.remove_temp_dir(self.video_id);
+                self.remove_temp_dir();
                 self.delete_state_files();
             }
         }
