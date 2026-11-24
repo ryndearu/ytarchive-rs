@@ -31,6 +31,11 @@ pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) ->
     if opts.monitor_channel && !monitor {
         log_warn!("--monitor-channel only works with channel URLs; downloading this video once.");
     }
+    if opts.members_only && !matches!(input, InputUrl::Channel { .. }) {
+        log_warn!("--members-only only works with channel URLs; downloading this video normally.");
+    } else if opts.members_only && opts.cookies_file.is_none() {
+        log_warn!("--members-only needs a cookies file (--cookies) to see members-only streams.");
+    }
     let interval = opts.retry_stream.unwrap_or(Duration::from_secs(DEFAULT_MONITOR_SECS));
     // Go re-ran /live right after a stream ended and could download the same
     // stream again; remember what was recorded instead.
