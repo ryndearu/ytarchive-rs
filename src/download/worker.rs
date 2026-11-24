@@ -25,6 +25,8 @@ pub(super) struct Dispatch {
     pub next: u64,
     pub max_seq: Option<u64>,
     pub end_seq: Option<u64>,
+    /// Sequence at or after which an ended stream stopped having fragments.
+    pub stop_from: Option<u64>,
     pub in_flight: usize,
     /// Fragments downloaded so far; shows a worker stuck on one fragment
     /// that the others are still getting through.
@@ -50,6 +52,9 @@ impl Dispatch {
         }
         if self.end_seq.is_some_and(|end| self.next >= end) {
             log_debug!("Reached the maximum duration specified by --capture-duration.");
+            return Take::Done;
+        }
+        if self.stop_from.is_some_and(|stop| self.next >= stop) {
             return Take::Done;
         }
         if let Some(max) = self.max_seq {
@@ -80,7 +85,11 @@ impl Dispatch {
         // fragment, so nothing else downloads to show that the ones still
         // being tried are stuck.
         let none_left = self.end_seq.is_some_and(|end| self.next >= end);
-        StreamProgress { downloaded: self.downloaded, held: self.held() || none_left }
+        StreamProgress { downloaded: self.downloaded, held: self.held() || none_left, max_seq: self.max_seq }
+    }
+
+    fn stop_from(&mut self, seq: u64) {
+        self.stop_from = Some(self.stop_from.map_or(seq, |prev| prev.min(seq)));
     }
 
     fn complete(&mut self, downloaded: bool, head: Option<u64>) {
@@ -136,15 +145,22 @@ pub(super) async fn worker(
         state.reset_for(seq, max, downloaded);
         let frag_file = frag_prefix.as_ref().map(|path| PathBuf::from(format!("{}.frag{seq}.ts", path.display())));
         let outcome = download_fragment(&session, &mut state, frag_file, &|| lock(&dispatch).progress()).await;
-        let (downloaded, head) = match &outcome {
-            FragOutcome::Downloaded(fragment) => (true, fragment.x_head_seqnum),
-            FragOutcome::Missing | FragOutcome::Stopped | FragOutcome::StorageError(..) => (false, None),
+        let (downloaded, head, end_at) = match &outcome {
+            FragOutcome::Downloaded(fragment) => (true, fragment.x_head_seqnum, None),
+            FragOutcome::EndOfStream => (false, None, Some(seq)),
+            FragOutcome::Missing | FragOutcome::Stopped | FragOutcome::StorageError(..) => (false, None, None),
         };
-        lock(&dispatch).complete(downloaded, head);
+        {
+            let mut dispatch = lock(&dispatch);
+            if let Some(stop) = end_at {
+                dispatch.stop_from(stop);
+            }
+            dispatch.complete(downloaded, head);
+        }
         let is_storage_error = matches!(outcome, FragOutcome::StorageError(..));
         let msg = match outcome {
             FragOutcome::Downloaded(fragment) => Msg::Done(fragment),
-            FragOutcome::Missing => Msg::Missing(seq),
+            FragOutcome::Missing | FragOutcome::EndOfStream => Msg::Missing(seq),
             FragOutcome::Stopped => break,
             FragOutcome::StorageError(error) => Msg::StorageError(seq, error),
         };

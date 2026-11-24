@@ -61,6 +61,8 @@ pub struct StreamProgress {
     /// behind one that is missing, or every fragment of the capture has
     /// been handed out.
     pub held: bool,
+    /// Newest known head sequence number across the stream.
+    pub max_seq: Option<u64>,
 }
 
 /// Per-worker retry state for a single fragment.

@@ -153,6 +153,7 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         next: cur,
         max_seq: params.last_sq,
         end_seq,
+        stop_from: None,
         in_flight: 0,
         downloaded: 0,
         skip: opened.skip,
