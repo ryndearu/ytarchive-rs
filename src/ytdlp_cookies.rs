@@ -11,7 +11,7 @@
 
 use std::borrow::Cow;
 use std::env;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, ErrorKind, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -20,14 +20,61 @@ use std::process;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::log_warn;
 use crate::util::lock;
+use crate::{log_debug, log_warn};
 
 const HEADER: &str = "# Netscape HTTP Cookie File";
 const HTTPONLY_PREFIX: &str = "#HttpOnly_";
 
+struct ActiveCookies {
+    path: PathBuf,
+    lock_path: PathBuf,
+    /// Held for the lifetime of this process so another instance's stale-file
+    /// cleanup never deletes a repaired cookies file still in use.
+    _lock: Option<File>,
+}
+
 /// The copy in use, removed on exit (also before `process::exit`).
-static ACTIVE: Mutex<Option<PathBuf>> = Mutex::new(None);
+static ACTIVE: Mutex<Option<ActiveCookies>> = Mutex::new(None);
+
+fn lock_path_for(cookie_path: &Path) -> PathBuf {
+    let mut name = cookie_path.as_os_str().to_os_string();
+    name.push(".lock");
+    PathBuf::from(name)
+}
+
+fn acquire_lock(lock_path: &Path) -> Option<File> {
+    let mut opts = OpenOptions::new();
+    opts.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    opts.mode(0o600);
+    let file = opts
+        .open(lock_path)
+        .inspect_err(|error| log_debug!("Could not open cookies lock file {}: {error}", lock_path.display()))
+        .ok()?;
+    match file.try_lock() {
+        Ok(()) => Some(file),
+        Err(error) => {
+            log_debug!("Could not lock cookies file {}: {error}", lock_path.display());
+            None
+        }
+    }
+}
+
+/// Returns `true` if `cookie_path` has a companion lock file currently held by
+/// a running process (or whose lock state could not be checked).
+fn is_locked_by_live_process(cookie_path: &Path) -> bool {
+    let lock_path = lock_path_for(cookie_path);
+    let file = match OpenOptions::new().read(true).write(true).open(&lock_path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    };
+    match file.try_lock() {
+        Ok(()) => false,
+        Err(TryLockError::WouldBlock) | Err(TryLockError::Error(_)) => true,
+    }
+}
 
 /// Python's universal newlines: `\r\n`, `\r`, and `\n` all end a line.
 fn lines(text: &str) -> impl Iterator<Item = &str> {
@@ -191,7 +238,9 @@ pub fn prepare(original: &Path, data: &[u8]) -> io::Result<Option<PathBuf>> {
         }
     }
     let path = created.ok_or_else(|| io::Error::other("could not create a unique temporary cookies file"))?;
-    *lock(&ACTIVE) = Some(path.clone());
+    let lock_path = lock_path_for(&path);
+    let active_lock = acquire_lock(&lock_path);
+    *lock(&ACTIVE) = Some(ActiveCookies { path: path.clone(), lock_path, _lock: active_lock });
     if let Some(cutoff) = SystemTime::now().checked_sub(Duration::from_secs(24 * 60 * 60)) {
         cleanup_stale_cookie_files(&temp_dir, &path, cutoff);
     }
@@ -205,18 +254,21 @@ pub fn prepare(original: &Path, data: &[u8]) -> io::Result<Option<PathBuf>> {
 fn cleanup_stale_cookie_files(dir: &Path, current: &Path, cutoff: SystemTime) {
     #[cfg(unix)]
     let owner_uid = fs::symlink_metadata(current).ok().map(|meta| meta.uid());
+    let current_lock = lock_path_for(current);
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let entry_path = entry.path();
-        if entry_path == current {
+        if entry_path == current || entry_path == current_lock {
             continue;
         }
         let Some(name) = entry_path.file_name().and_then(|file| file.to_str()) else {
             continue;
         };
-        if !(name.starts_with("ytarchive-cookies-") && name.ends_with(".txt")) {
+        let is_cookie = name.starts_with("ytarchive-cookies-") && name.ends_with(".txt");
+        let is_orphan_lock = name.starts_with("ytarchive-cookies-") && name.ends_with(".txt.lock");
+        if !is_cookie && !is_orphan_lock {
             continue;
         }
         let Ok(meta) = fs::symlink_metadata(&entry_path) else {
@@ -229,16 +281,31 @@ fn cleanup_stale_cookie_files(dir: &Path, current: &Path, cutoff: SystemTime) {
         if owner_uid != Some(meta.uid()) {
             continue;
         }
-        if meta.modified().is_ok_and(|mtime| mtime <= cutoff) {
+        if !meta.modified().is_ok_and(|mtime| mtime <= cutoff) {
+            continue;
+        }
+        if is_cookie {
+            if is_locked_by_live_process(&entry_path) {
+                continue;
+            }
             delete(&entry_path);
+            delete(&lock_path_for(&entry_path));
+        } else if let Some(cookie_name) = name.strip_suffix(".lock") {
+            let cookie_path = dir.join(cookie_name);
+            if !cookie_path.exists() && !is_locked_by_live_process(&cookie_path) {
+                delete(&entry_path);
+            }
         }
     }
 }
 
 /// Deletes the repaired copy, if any.
 pub fn remove() {
-    if let Some(path) = lock(&ACTIVE).take() {
-        delete(&path);
+    if let Some(active) = lock(&ACTIVE).take() {
+        // Release the lock handle before removing the lock file (required on Windows).
+        drop(active._lock);
+        delete(&active.path);
+        delete(&active.lock_path);
     }
 }
 
@@ -299,21 +366,31 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let current = dir.join("ytarchive-cookies-1-current.txt");
         let stale = dir.join("ytarchive-cookies-1-stale.txt");
+        let live = dir.join("ytarchive-cookies-2-live.txt");
         let unrelated = dir.join("other.txt");
         fs::write(&current, b"cur").unwrap();
         fs::write(&stale, b"old").unwrap();
+        fs::write(&live, b"active").unwrap();
         fs::write(&unrelated, b"keep").unwrap();
+        let live_lock = acquire_lock(&lock_path_for(&live)).unwrap();
 
         let minute = Duration::from_secs(60);
         let past_cutoff = SystemTime::now() - minute;
         cleanup_stale_cookie_files(&dir, &current, past_cutoff);
         assert!(stale.exists());
+        assert!(live.exists());
 
         let future_cutoff = SystemTime::now() + minute;
         cleanup_stale_cookie_files(&dir, &current, future_cutoff);
         assert!(current.exists());
         assert!(!stale.exists());
+        assert!(live.exists(), "a locked cookie file from a running process must be kept");
         assert!(unrelated.exists());
+
+        drop(live_lock);
+        cleanup_stale_cookie_files(&dir, &current, future_cutoff);
+        assert!(!live.exists());
+        assert!(!lock_path_for(&live).exists());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -58,7 +58,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 
 - Only temp directories named `{video_id}__*` are ever deleted. Go deleted whatever directory a state file named.
 - Title truncation reserves room for leading `-` or Windows reserved-name `_` prefixes added afterward as well as fragment/SQLite suffixes (`.f{itag}.frag{seq}.ts`, `.f{itag}.sqlite-wal`) within the 255-byte component limit.
-- Repaired yt-dlp cookies files use randomized temporary filenames (`0600` on Unix), are removed via an exit guard, and stale copies older than a day are cleaned up when creating a new copy.
+- Repaired yt-dlp cookies files use randomized temporary filenames (`0600` on Unix), are removed via an exit guard, and stale copies older than a day are cleaned up when creating a new copy (skipping any copy locked by a running `ytarchive` process).
 - The final file's name (`name.mp4`, `name-1.mp4`, …) is picked right before muxing, and the `.ffmpeg.txt` command is updated to match. Go picked it before the download, so a file that appeared meanwhile made ffmpeg fail.
 - When `name.mp4` to `name-10.mp4` all exist, ffmpeg isn't run and the `.ts` files are kept. Go ran ffmpeg and reported only its exit code.
 - Resume state files are deleted only after moving temporary files succeeds, and partial cross-filesystem copies are deleted on failure.
