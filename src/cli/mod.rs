@@ -2,6 +2,7 @@
 //! work, including Go-style single-dash long flags (`-threads 4`, `-td DIR`).
 //! Options are grouped under headings like yt-dlp's help output.
 
+mod normalize;
 mod resolve;
 #[cfg(test)]
 mod tests;
@@ -10,7 +11,7 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
 
-pub use resolve::normalize_args;
+pub use normalize::normalize_args;
 
 use crate::types::{DEFAULT_FILENAME_FORMAT, DEFAULT_FRAG_MAX_TRIES, VideoCodec, parse_codec_list};
 
@@ -279,9 +280,6 @@ fn parse_codecs(text: &str) -> std::result::Result<CodecList, String> {
 
 impl Cli {
     pub fn parse_normalized() -> Self {
-        // Arguments that aren't valid UTF-8 (e.g. typed in a legacy code
-        // page) are converted lossily instead of being rejected.
-        let args = std::env::args_os().map(|arg| arg.to_string_lossy().into_owned().into());
-        Cli::parse_from(normalize_args(args))
+        Cli::parse_from(normalize_args(std::env::args_os()))
     }
 }

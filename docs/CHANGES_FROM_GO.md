@@ -22,7 +22,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - `--ytdlp-info` asks for the quality while waiting for a scheduled stream. Go asked once the stream started.
 - When none of the chosen qualities are available, `best` is used. Go asked again, which stalled an unattended download. With `--no-audio`, `audio_only` is never selected (even if requested or when no video formats exist).
 - The version includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)`, `v0.1.0+abc1234 (2026-11-07)`.
-- Arguments that aren't valid UTF-8 are converted instead of rejected.
+- Text arguments that aren't valid UTF-8 are converted instead of rejected, while `--cookies` and `--temporary-dir` preserve raw non-UTF-8 OS path bytes.
 - yt-dlp gets a repaired copy (in the temp folder, deleted on exit) of a cookies file it can't read: not UTF-8, no `# Netscape HTTP Cookie File` header, a second column that doesn't match the domain's leading `.`, or a stray line starting like JSON. Go passed the file as it was, and yt-dlp failed.
 - `--members-only` warns and is ignored for video URLs (Go skipped fetching the watch page and failed), and warns on channel URLs when `--cookies` is not given.
 - `--proxy` accepts `socks5h://` (remote DNS resolution) in addition to `http`, `https`, and `socks5` (Go rejected `socks5h`).

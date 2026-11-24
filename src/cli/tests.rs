@@ -194,3 +194,54 @@ fn googlevideo_flags_override_positionals() {
     assert_eq!(options.url.as_deref(), Some(video_url));
     assert_eq!(options.quality, None);
 }
+
+#[cfg(unix)]
+#[test]
+fn preserves_non_utf8_path_arguments() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::PathBuf;
+
+    let raw_bytes = b"/tmp/dir-\xff/cookies.txt";
+    let raw_os = OsStr::from_bytes(raw_bytes);
+    let expected = PathBuf::from(raw_os);
+
+    let parse = |args: Vec<OsString>| Cli::try_parse_from(normalize_args(args)).unwrap().into_options().unwrap();
+
+    let mut inline_cookies = b"--cookies=".to_vec();
+    inline_cookies.extend_from_slice(raw_bytes);
+    let mut single_dash_cookies = b"-cookies=".to_vec();
+    single_dash_cookies.extend_from_slice(raw_bytes);
+    let mut attached_short = b"-c".to_vec();
+    attached_short.extend_from_slice(raw_bytes);
+    let mut inline_td = b"-td=".to_vec();
+    inline_td.extend_from_slice(raw_bytes);
+    let mut inline_temp_dir = b"-temporary-dir=".to_vec();
+    inline_temp_dir.extend_from_slice(raw_bytes);
+
+    for cookie_args in [
+        vec![OsString::from("y"), OsString::from("--cookies"), raw_os.to_os_string(), OsString::from("u")],
+        vec![OsString::from("y"), OsString::from("-c"), raw_os.to_os_string(), OsString::from("u")],
+        vec![OsString::from("y"), OsString::from("-cookies"), raw_os.to_os_string(), OsString::from("u")],
+        vec![OsString::from("y"), OsStr::from_bytes(&inline_cookies).to_os_string(), OsString::from("u")],
+        vec![OsString::from("y"), OsStr::from_bytes(&single_dash_cookies).to_os_string(), OsString::from("u")],
+        vec![OsString::from("y"), OsStr::from_bytes(&attached_short).to_os_string(), OsString::from("u")],
+    ] {
+        let options = parse(cookie_args);
+        assert_eq!(options.cookies_file.as_ref(), Some(&expected));
+    }
+
+    for temp_args in [
+        vec![OsString::from("y"), OsString::from("-td"), raw_os.to_os_string(), OsString::from("u")],
+        vec![OsString::from("y"), OsStr::from_bytes(&inline_td).to_os_string(), OsString::from("u")],
+        vec![OsString::from("y"), OsStr::from_bytes(&inline_temp_dir).to_os_string(), OsString::from("u")],
+    ] {
+        let options = parse(temp_args);
+        assert_eq!(options.temp_dir.as_ref(), Some(&expected));
+    }
+
+    // Non-path text arguments still convert lossily rather than failing parse.
+    let lossy_out = OsStr::from_bytes(b"out-\xff").to_os_string();
+    let options = parse(vec![OsString::from("y"), OsString::from("-o"), lossy_out, OsString::from("u")]);
+    assert_eq!(options.output_format, "out-\u{fffd}");
+}
