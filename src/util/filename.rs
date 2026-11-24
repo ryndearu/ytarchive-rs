@@ -167,8 +167,12 @@ pub fn format_filename(
     let mut fname_vals = sanitized_vals(vals, style);
 
     let out = format_python_map(format, &fname_vals)?;
-    let base = Path::new(&out).file_name().map_or("", |name| name.to_str().unwrap_or(""));
-    let extra = usize::from(base.starts_with('-') || (style.windows && is_windows_reserved(base)));
+    let raw_base = Path::new(&out).file_name().map_or("", |name| name.to_str().unwrap_or(""));
+    // Literal characters in the template (e.g. `:` with --lookalike-chars)
+    // expand when `final_location` sterilizes the base name, so measure after
+    // sterilizing.
+    let base = sterilize_filename(raw_base, style);
+    let extra = usize::from(base.starts_with('-') || (style.windows && is_windows_reserved(&base)));
     let mut over_bytes = (base.len() + extra).saturating_sub(MAX_FILENAME_LEN);
     let mut over_units = max_units.map_or(0, |limit| (base.encode_utf16().count() + extra).saturating_sub(limit));
     if over_bytes == 0 && over_units == 0 {

@@ -56,6 +56,12 @@ fn leading_dash_and_empty_names() {
     let long_dash = format!("-{}", "a".repeat(MAX_FILENAME_LEN));
     let (_, long_name) = final_location(&options, &format_info(&long_dash)).unwrap();
     assert!(long_name.starts_with("_-") && long_name.len() <= MAX_FILENAME_LEN, "{}", long_name.len());
+
+    // Literal forbidden chars in the template expand to 3-byte UTF-8 lookalikes.
+    let lookalike = Options { lookalike_chars: true, no_path_limit: true, ..opts("%(title)s: ?%(id)s", true) };
+    let (_, name) = final_location(&lookalike, &format_info(&"a".repeat(MAX_FILENAME_LEN))).unwrap();
+    assert!(name.contains("： ？vid"), "{name}");
+    assert!(name.len() <= MAX_FILENAME_LEN, "{}", name.len());
 }
 
 #[test]
