@@ -249,3 +249,69 @@ async fn sqlite_resumes_when_output_name_changes() {
     assert_eq!(fs::read(dir.join("new-title.f140.ts")).unwrap(), want);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn sqlite_mid_download_write_failure_resumes_cleanly() {
+    let dir = temp_dir("sqlite-full-resume");
+    let database_path = dir.join("out.f140.sqlite");
+    let conn = Connection::open(&database_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE segments (seq INTEGER PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL);
+         CREATE TRIGGER fail_at_three BEFORE INSERT ON segments WHEN NEW.seq >= 3 BEGIN
+             SELECT RAISE(ABORT, 'database or disk is full');
+         END;",
+    )
+    .unwrap();
+    drop(conn);
+
+    // First run stores fragments 0..3, then fails on fragment 3.
+    let url = serve(6, vec![]).await;
+    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (stream_params, _rx) = params(&dir, 6, DownloadState::default());
+    let err = download_stream(session.clone(), stream_params).await.unwrap_err();
+    assert!(matches!(err, Error::Sqlite(_)), "{err}");
+    assert!(session.is_stopping());
+    assert!(!dir.join("out.f140.ts").exists(), "failed download must not export .ts");
+    let saved = load_state(&dir.join("out.f140.state")).unwrap();
+    assert_eq!(saved.fragments, 3);
+
+    // Space freed: drop the trigger and resume; only fragments 3..6 are fetched.
+    let conn = Connection::open(&database_path).unwrap();
+    conn.execute_batch("DROP TRIGGER fail_at_three;").unwrap();
+    drop(conn);
+
+    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (stream_params, mut receiver) = params(&dir, 6, saved);
+    let resumed = download_stream(session, stream_params).await.unwrap();
+    assert_eq!(resumed.state.fragments, 6);
+    assert_eq!(progress_counts(&mut receiver), [3, 1, 1, 1]);
+
+    resumed.pending_export.unwrap().export().await.unwrap();
+    let want: Vec<u8> = (0..6).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_failed_export_keeps_database_for_retry() {
+    let dir = temp_dir("sqlite-export-retry");
+    let url = serve(4, vec![]).await;
+    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (stream_params, _rx) = params(&dir, 4, DownloadState::default());
+    let out = download_stream(session, stream_params).await.unwrap();
+
+    // Block the .ts target with a directory so export fails.
+    let blocked = dir.join("out.f140.ts");
+    fs::create_dir(&blocked).unwrap();
+    assert!(out.pending_export.unwrap().export().await.is_err());
+    fs::remove_dir(&blocked).unwrap();
+
+    // The database remains intact and exports cleanly on retry.
+    let database = DbSink::open(&dir.join("out.f140.sqlite"), 0o644).unwrap();
+    let (count, _) = database.export(&blocked, 0o644).unwrap();
+    assert_eq!(count, 4);
+    let want: Vec<u8> = (0..4).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(&blocked).unwrap(), want);
+    drop(database);
+    fs::remove_dir_all(&dir).unwrap();
+}
