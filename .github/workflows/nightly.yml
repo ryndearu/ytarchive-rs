@@ -1,7 +1,7 @@
 name: Nightly
 
-# Replaces the nightly pre-release with a build of main and the commits since
-# the last v* release.
+# Tests and builds main, then updates the nightly pre-release in place with the
+# new zips, SHA256SUMS, and the commits since the last v* release.
 on:
   workflow_dispatch:
 
@@ -16,8 +16,12 @@ env:
   TAG: nightly
 
 jobs:
-  build:
+  test:
     if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: test
     uses: ./.github/workflows/build.yml
 
   publish:
@@ -37,7 +41,7 @@ jobs:
           # Same string build.rs stamps for nightly builds.
           version="v$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)+${SHA:0:7} ($(git log -1 --format=%cs "$SHA"))"
           {
-            echo "Automated nightly build of [\`${SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SHA): \`ytarchive $version\`."
+            echo "Automated nightly build of [\`${SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SHA): \`ytarchive $version\`. Checksums are in \`SHA256SUMS\`."
             echo
             bash .github/changelog.sh "$SHA" "$SHA"
           } > notes.md
@@ -49,12 +53,35 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: Replace nightly pre-release
+      - name: Generate checksums
+        shell: bash
+        run: (cd dist && sha256sum *.zip > SHA256SUMS)
+
+      - name: Update nightly pre-release
         shell: bash
         run: |
-          gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
-          gh release create "$TAG" dist/* \
-            --prerelease \
-            --target "$SHA" \
-            --title "Nightly $(date -u +%Y-%m-%d) (${SHA:0:7})" \
-            --notes-file notes.md
+          title="Nightly $(date -u +%Y-%m-%d) (${SHA:0:7})"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            # Drop leftover assets from older target lists after uploading the new ones.
+            gh release view "$TAG" --json assets --jq '.assets[].name' | while IFS= read -r asset; do
+              if [ -n "$asset" ] && [ ! -e "dist/$asset" ]; then
+                gh release delete-asset "$TAG" "$asset" --yes
+              fi
+            done
+            git tag -f "$TAG" "$SHA"
+            git push origin "refs/tags/$TAG" --force
+            gh release edit "$TAG" \
+              --prerelease \
+              --target "$SHA" \
+              --title "$title" \
+              --notes-file notes.md
+          else
+            git tag -f "$TAG" "$SHA"
+            git push origin "refs/tags/$TAG" --force
+            gh release create "$TAG" dist/* \
+              --prerelease \
+              --verify-tag \
+              --title "$title" \
+              --notes-file notes.md
+          fi
