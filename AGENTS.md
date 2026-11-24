@@ -14,7 +14,7 @@ A Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork
 - **Windows, Linux, and macOS**, each as x64 and arm64, and nothing else. Every change must build and pass tests on all three.
 - **File names**: anything that becomes a file or folder name goes through `util::sterilize_filename` with a `NameStyle`, and through `util::portable_file_name` when `--windows-filenames` is on. A suffix longer than `.f{itag}.frag{seq}.ts` needs a larger `SUFFIX_ROOM` (`output::final_location` keeps paths within MAX_PATH).
 - Don't assume Unix in code or tests: no hard-coded `/tmp`, `sh`, or unescaped paths in JSON. Gate platform code with `#[cfg(windows)]` / `#[cfg(unix)]` (see `src/platform.rs`, `util::set_mode`).
-- `rust-toolchain.toml` pins the Rust version; raise it in its own commit. When a dependency needs a newer Rust, update the oldest version named in the README ("Building from source").
+- `rust-toolchain.toml` pins the Rust version; raise it in its own commit. When a dependency needs a newer Rust, update `rust-version` in `Cargo.toml` and the oldest version named in the README ("Building from source").
 - TLS is rustls with `ring` and the OS certificate store; no OpenSSL.
 - No custom allocator without measuring (mimalloc used two to four times the memory).
 - Keep panic unwinding (no `panic = "abort"`): the download code catches a panicked worker, and `ConsoleGuard` restores the Windows console.
