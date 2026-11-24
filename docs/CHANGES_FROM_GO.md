@@ -57,6 +57,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - The final file's name (`name.mp4`, `name-1.mp4`, …) is picked right before muxing, and the `.ffmpeg.txt` command is updated to match. Go picked it before the download, so a file that appeared meanwhile made ffmpeg fail.
 - When `name.mp4` to `name-10.mp4` all exist, ffmpeg isn't run and the `.ts` files are kept. Go ran ffmpeg and reported only its exit code.
 - Resume state files are deleted only after moving temporary files succeeds, and partial cross-filesystem copies are deleted on failure.
+- Failures when applying `--file-permissions` or `--directory-permissions` (for example on filesystems without Unix permissions such as exFAT, FAT32, or SMB) are logged at debug level instead of failing or deleting written files.
 - `publish_date` is always `YYYYMMDD`. Go kept the raw value, which can include a time and offset.
 
 ### Output and signals
