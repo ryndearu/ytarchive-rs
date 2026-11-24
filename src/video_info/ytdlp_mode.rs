@@ -1,5 +1,7 @@
 //! `--ytdlp-info` mode: yt-dlp provides status, metadata, and URLs.
 
+use std::time::Duration;
+
 use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES};
 use crate::error::Error;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_ytdlp, local_unix_timestamp};
@@ -36,6 +38,18 @@ fn is_transient_error(error: &Error) -> bool {
         }
         _ => false,
     }
+}
+
+fn is_unrecoverable_start_error(error: &Error) -> bool {
+    matches!(error, Error::Ytdlp(message) if message.starts_with("failed to start '"))
+}
+
+fn is_channel_offline_error(error: &Error) -> bool {
+    let Error::Ytdlp(message) = error else {
+        return false;
+    };
+    let lower = message.to_ascii_lowercase();
+    ["not currently live", "not live", "no live", "live event will begin"].iter().any(|needle| lower.contains(needle))
 }
 
 impl Extractor {
@@ -75,13 +89,20 @@ impl Extractor {
     /// configured) and has usable URLs and a sequence boundary.
     async fn extract_usable(&mut self) -> Option<YtdlpExtraction> {
         let newlines = self.opts.status_newlines;
+        let waiting_on_channel = self.is_channel && !self.in_progress && self.retry_secs.is_some();
         let mut retries = 0u32;
         let mut poll_count = 0u32;
         let mut total_waited = 0u64;
         let mut polling_announced = false;
+        let mut last_warned: Option<String> = None;
 
         loop {
-            let info = match ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await {
+            let extracted = if waiting_on_channel {
+                ytdlp::extract_once(&self.http, &self.opts, &self.page_url, true, &self.cancel).await
+            } else {
+                ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await
+            };
+            let info = match extracted {
                 Ok(info) => info,
                 // Unparsable output is retried; yt-dlp itself failing (after its
                 // own retries) means the stream is gone, as in Go.
@@ -93,14 +114,46 @@ impl Extractor {
                     }
                 }
                 Err(error) => {
-                    if !self.cancel.is_cancelled() {
-                        if is_transient_error(&error) {
-                            log_warn!("Temporary yt-dlp extraction failure: {error}");
-                        } else {
-                            log_debug!("yt-dlp extraction failed: {error}");
-                            self.live = false;
-                            self.unavailable = true;
+                    if self.cancel.is_cancelled() {
+                        return None;
+                    }
+                    if waiting_on_channel && let Some(secs) = self.retry_secs {
+                        if is_unrecoverable_start_error(&error) {
+                            log_error!("yt-dlp extraction failed: {error}");
+                            return None;
                         }
+                        if !is_channel_offline_error(&error) && !is_transient_error(&error) {
+                            let text = error.to_string();
+                            if last_warned.as_deref() != Some(text.as_str()) {
+                                log_warn!("yt-dlp failed while waiting on channel: {text}");
+                                last_warned = Some(text);
+                            } else {
+                                log_debug!("yt-dlp extraction failed while waiting on channel: {text}");
+                            }
+                        } else {
+                            log_debug!("yt-dlp extraction failed while waiting on channel: {error}");
+                        }
+                        if poll_count == 0 {
+                            eprintln!();
+                            self.ask_ahead().await;
+                            log_general!(
+                                "You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds."
+                            );
+                        }
+                        if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
+                            return None;
+                        }
+                        poll_count += 1;
+                        total_waited += secs;
+                        log::retry_status(poll_count, total_waited, newlines);
+                        continue;
+                    }
+                    if is_transient_error(&error) {
+                        log_warn!("Temporary yt-dlp extraction failure: {error}");
+                    } else {
+                        log_debug!("yt-dlp extraction failed: {error}");
+                        self.live = false;
+                        self.unavailable = true;
                     }
                     return None;
                 }
@@ -110,6 +163,13 @@ impl Extractor {
             }
 
             if info.live_status == LiveStatus::IsUpcoming {
+                if self.in_progress {
+                    log_debug!("Livestream status is upcoming mid-download");
+                    return None;
+                }
+                if self.reject_negative_live_from() {
+                    return None;
+                }
                 self.print_info(&info.channel, &info.title);
                 let interval = self.upcoming_wait_interval(info.start_unix).await?;
                 if !polling_announced {

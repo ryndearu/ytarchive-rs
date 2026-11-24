@@ -225,6 +225,18 @@ pub fn seq_boundary(head: u64, post_live: bool) -> Option<u64> {
     if post_live { (head > 1).then(|| head - 1) } else { Some(head) }
 }
 
+async fn finish_extraction(http: &Http, out: &str, cancel: &CancellationToken) -> Result<YtdlpExtraction> {
+    let (mut info, probe_url) = to_extraction(parse_output(out)?);
+    if let Some(part) = probe_url {
+        let post_live = info.live_status == LiveStatus::PostLive;
+        info.last_sq = probe_x_head_seqnum(http, &part, cancel).await.and_then(|head| seq_boundary(head, post_live));
+    }
+    if !info.urls.is_empty() {
+        log_debug!("Loaded {} adaptive format URLs from yt-dlp", info.urls.len());
+    }
+    Ok(info)
+}
+
 /// Full extraction: run yt-dlp (with retries), parse, and probe the last sequence.
 pub async fn extract(
     http: &Http,
@@ -234,15 +246,20 @@ pub async fn extract(
     cancel: &CancellationToken,
 ) -> Result<YtdlpExtraction> {
     let out = run_with_retry(opts, url, ignore_no_formats, DEFAULT_ATTEMPTS, cancel).await?;
-    let (mut info, probe_url) = to_extraction(parse_output(&out)?);
-    if let Some(part) = probe_url {
-        let post_live = info.live_status == LiveStatus::PostLive;
-        info.last_sq = probe_x_head_seqnum(http, &part, cancel).await.and_then(|head| seq_boundary(head, post_live));
-    }
-    if !info.urls.is_empty() {
-        log_debug!("Loaded {} adaptive format URLs from yt-dlp", info.urls.len());
-    }
-    Ok(info)
+    finish_extraction(http, &out, cancel).await
+}
+
+/// Single-attempt extraction without retry warnings, used while polling a
+/// channel's `/live` URL with `-r`.
+pub async fn extract_once(
+    http: &Http,
+    opts: &Options,
+    url: &str,
+    ignore_no_formats: bool,
+    cancel: &CancellationToken,
+) -> Result<YtdlpExtraction> {
+    let out = run(opts, url, ignore_no_formats, cancel).await?;
+    finish_extraction(http, &out, cancel).await
 }
 
 #[cfg(test)]
