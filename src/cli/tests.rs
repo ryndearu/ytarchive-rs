@@ -102,11 +102,15 @@ fn codec_selection() {
     use VideoCodec::*;
     let codecs = |args: &[&str]| opts(args).unwrap().codecs;
     assert_eq!(codecs(&["y", "--codec", "vp9/h264", "u"]), Some(vec![Vp9, H264, Av1]));
+    assert_eq!(codecs(&["y", "--codec", "vp9/best", "u"]), Some(vec![Vp9, Av1, H264]));
+    assert_eq!(codecs(&["y", "--codec", "h264/best", "u"]), Some(vec![H264, Av1, Vp9]));
     assert_eq!(codecs(&["y", "--codec", "H264", "u"]), Some(vec![H264, Av1, Vp9]));
     assert_eq!(codecs(&["y", "--codec", "best", "u"]), Some(vec![Av1, Vp9, H264]));
     // Go's flags still work: flagged first, av1 > vp9 > h264.
     assert_eq!(codecs(&["y", "--h264", "--vp9", "u"]), Some(vec![Vp9, H264, Av1]));
     assert!(Cli::try_parse_from(os_args(&["y", "--codec", "hevc", "u"])).is_err());
+    assert!(Cli::try_parse_from(os_args(&["y", "--codec", "hevc/best", "u"])).is_err());
+    assert!(Cli::try_parse_from(os_args(&["y", "--codec", "best/hevc", "u"])).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "--codec", "vp9", "--h264", "u"])).is_err());
 }
 

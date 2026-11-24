@@ -69,13 +69,18 @@ pub fn complete_codec_order(preferred: &[VideoCodec]) -> Vec<VideoCodec> {
 /// mean the default order.
 pub fn parse_codec_list(text: &str) -> Option<Vec<VideoCodec>> {
     let parts: Vec<&str> = text.split('/').map(str::trim).filter(|part| !part.is_empty()).collect();
-    if parts.is_empty()
-        || parts.iter().any(|part| part.eq_ignore_ascii_case("best") || part.eq_ignore_ascii_case("any"))
-    {
+    if parts.is_empty() {
         return Some(BEST_CODEC_ORDER.to_vec());
     }
-    let codecs: Option<Vec<VideoCodec>> = parts.iter().map(|part| VideoCodec::parse(part)).collect();
-    codecs.map(|list| complete_codec_order(&list))
+    let mut preferred = Vec::new();
+    for part in parts {
+        if part.eq_ignore_ascii_case("best") || part.eq_ignore_ascii_case("any") {
+            preferred.extend(BEST_CODEC_ORDER);
+        } else {
+            preferred.push(VideoCodec::parse(part)?);
+        }
+    }
+    Some(complete_codec_order(&preferred))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
