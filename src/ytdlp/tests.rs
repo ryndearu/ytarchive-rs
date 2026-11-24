@@ -34,13 +34,22 @@ fn args() {
         ]
     );
     assert_eq!(&args[args.len() - 2..], ["--", "https://youtu.be/x"]);
-    assert!(!build_args(&Options::default(), "u", false).contains(&"--ignore-no-formats-error".to_string()));
+    assert!(!build_args(&Options::default(), "u", false).contains(&OsString::from("--ignore-no-formats-error")));
     let repaired = Options { ytdlp_cookies_file: Some("fixed.txt".into()), ..opts };
     assert_eq!(&build_args(&repaired, "u", false)[3..5], ["--cookies", "fixed.txt"]);
     let v4 = Options { ip_version: IpVersion::V4, ..Options::default() };
-    assert!(build_args(&v4, "u", false).contains(&"--force-ipv4".to_string()));
+    assert!(build_args(&v4, "u", false).contains(&OsString::from("--force-ipv4")));
     let v6 = Options { ip_version: IpVersion::V6, ..Options::default() };
-    assert!(build_args(&v6, "u", false).contains(&"--force-ipv6".to_string()));
+    assert!(build_args(&v6, "u", false).contains(&OsString::from("--force-ipv6")));
+
+    #[cfg(unix)]
+    {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let raw = PathBuf::from(OsStr::from_bytes(b"/tmp/cookies-\xff.txt"));
+        let non_utf8 = Options { cookies_file: Some(raw.clone()), ..Options::default() };
+        assert_eq!(build_args(&non_utf8, "u", false)[4], raw.as_os_str());
+    }
 }
 
 #[test]

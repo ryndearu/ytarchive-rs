@@ -1,6 +1,7 @@
 //! Stream info extraction by running yt-dlp and parsing its `--print` JSON.
 
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -31,17 +32,17 @@ pub const DEFAULT_ATTEMPTS: u32 = 3;
 
 /// Arguments for one yt-dlp invocation. `ignore_no_formats` keeps yt-dlp from
 /// failing on upcoming streams so we can still read their status.
-pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<String> {
+pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<OsString> {
     // UTF-8 output regardless of the console code page (Windows), so titles
     // aren't mangled; user --ytdlp-opts come later and can override it.
-    let mut args = vec!["--encoding".to_string(), "utf-8".into(), "--live-from-start".into()];
+    let mut args: Vec<OsString> = vec!["--encoding".into(), "utf-8".into(), "--live-from-start".into()];
     if let Some(path) = opts.ytdlp_cookies_file.as_ref().or(opts.cookies_file.as_ref()) {
         args.push("--cookies".into());
-        args.push(path.to_string_lossy().into_owned());
+        args.push(path.as_os_str().to_os_string());
     }
     if let Some(url) = &opts.proxy {
         args.push("--proxy".into());
-        args.push(url.to_string());
+        args.push(url.as_str().into());
     }
     match opts.ip_version {
         IpVersion::Any => {}
@@ -51,7 +52,7 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
     if ignore_no_formats {
         args.push("--ignore-no-formats-error".into());
     }
-    args.extend(opts.ytdlp_opts.iter().cloned());
+    args.extend(opts.ytdlp_opts.iter().map(OsString::from));
     args.push("--print".into());
     args.push(YTDLP_INFO_PRINT_TEMPLATE.into());
     // `--` so a URL can never be read as an option.
@@ -65,7 +66,8 @@ pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool, cancel: &Ca
     let args = build_args(opts, url, ignore_no_formats);
     let executable = resolve_program(&opts.ytdlp_path).unwrap_or_else(|| PathBuf::from(&opts.ytdlp_path));
     if log::enabled(LogLevel::Trace) {
-        log_trace!("Running {} {:?}", executable.display(), redact_proxy_args(&args));
+        let display_args: Vec<String> = args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        log_trace!("Running {} {:?}", executable.display(), redact_proxy_args(&display_args));
     }
 
     let child = Command::new(&executable)

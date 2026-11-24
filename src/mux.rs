@@ -1,6 +1,7 @@
 //! Building and running the ffmpeg command that muxes the downloaded
 //! audio/video into the final file.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
@@ -25,7 +26,7 @@ pub struct MuxInput<'a> {
 
 pub struct MuxCommand {
     /// The output path is the last argument.
-    pub args: Vec<String>,
+    pub args: Vec<OsString>,
     pub output: PathBuf,
     out_dir: PathBuf,
     file_name: String,
@@ -40,7 +41,7 @@ impl MuxCommand {
         let output = unused_output(&self.out_dir, &self.file_name, self.extension);
         let mut args = self.args.clone();
         if let Some(last) = args.last_mut() {
-            *last = path_text(&output);
+            *last = output.as_os_str().to_os_string();
         }
         Self {
             args,
@@ -50,10 +51,6 @@ impl MuxCommand {
             extension: self.extension,
         }
     }
-}
-
-fn path_text(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
 }
 
 /// First of `name.ext`, `name-1.ext` ... `name-10.ext` that doesn't exist.
@@ -70,12 +67,13 @@ fn unused_output(dir: &Path, name: &str, ext: &str) -> PathBuf {
 pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
     let audio_only = mux_input.video.is_none();
     let mkv = mux_input.mkv && !audio_only;
-    let mut args: Vec<String> = ["-hide_banner", "-nostdin", "-loglevel", "fatal", "-stats"].map(String::from).to_vec();
+    let mut args: Vec<OsString> =
+        ["-hide_banner", "-nostdin", "-loglevel", "fatal", "-stats"].map(OsString::from).to_vec();
 
     // mp4/m4a take the thumbnail as an input stream; mkv attaches it.
     let thumb_input = mux_input.thumbnail.filter(|_| !mkv);
     if let Some(thumbnail) = thumb_input {
-        args.extend(["-i".into(), path_text(thumbnail)]);
+        args.extend(["-i".into(), thumbnail.as_os_str().to_os_string()]);
     }
 
     let ext = if audio_only {
@@ -88,8 +86,8 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
     let output = unused_output(mux_input.out_dir, mux_input.file_name, ext);
 
     for input in [mux_input.audio, mux_input.video].into_iter().flatten() {
-        args.extend(["-seekable", "0", "-thread_queue_size", "1024", "-i"].map(String::from));
-        args.push(path_text(input));
+        args.extend(["-seekable", "0", "-thread_queue_size", "1024", "-i"].map(OsString::from));
+        args.push(input.as_os_str().to_os_string());
     }
     if mux_input.video.is_some() {
         if !mkv {
@@ -98,7 +96,7 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
         if thumb_input.is_some() {
             let inputs = 1 + usize::from(mux_input.audio.is_some()) + 1;
             for index in 0..inputs {
-                args.extend(["-map".into(), index.to_string()]);
+                args.extend(["-map".into(), index.to_string().into()]);
             }
         }
     }
@@ -108,7 +106,7 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
         if mkv {
             args.extend([
                 "-attach".into(),
-                path_text(thumbnail),
+                thumbnail.as_os_str().to_os_string(),
                 "-metadata:s:t".into(),
                 "filename=cover_land.jpg".into(),
                 "-metadata:s:t".into(),
@@ -120,10 +118,10 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
     }
     if let Some(meta) = mux_input.metadata {
         for (key, value) in meta.iter().filter(|(_, value)| !value.is_empty()) {
-            args.extend(["-metadata".into(), format!("{}={value}", key.to_uppercase())]);
+            args.extend(["-metadata".into(), format!("{}={value}", key.to_uppercase()).into()]);
         }
     }
-    args.push(path_text(&output));
+    args.push(output.as_os_str().to_os_string());
     MuxCommand {
         args,
         output,
@@ -169,9 +167,12 @@ pub fn windows_quote(arg: &str) -> String {
     out
 }
 
-pub fn command_line(program: &str, args: &[String]) -> String {
+pub fn command_line(program: &str, args: &[OsString]) -> String {
     let quote = if cfg!(windows) { windows_quote } else { posix_quote };
-    std::iter::once(program).chain(args.iter().map(String::as_str)).map(quote).collect::<Vec<_>>().join(" ")
+    std::iter::once(quote(program))
+        .chain(args.iter().map(|arg| quote(&arg.to_string_lossy())))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Contents of `.ffmpeg.txt`: the main mux command, plus the separate audio
@@ -191,7 +192,7 @@ pub fn program_exists(program: &str) -> bool {
 
 /// Runs ffmpeg, passing its stderr (progress stats) through. Returns the exit
 /// code, or -1 if it couldn't be run.
-pub async fn execute(program: &str, args: &[String]) -> i32 {
+pub async fn execute(program: &str, args: &[OsString]) -> i32 {
     log_debug!("Executing command: {}", command_line(program, args));
     let executable = resolve_program(program).unwrap_or_else(|| PathBuf::from(program));
     let stderr = if log::level() <= LogLevel::Quiet { Stdio::null() } else { Stdio::inherit() };
@@ -216,6 +217,10 @@ mod tests {
         std::env::temp_dir().join(format!("ytarchive-rs-mux-{}-{test}", std::process::id()))
     }
 
+    fn join_args(args: &[OsString]) -> String {
+        args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>().join(" ")
+    }
+
     #[test]
     fn audio_and_video_mp4_with_thumbnail_and_metadata() {
         let out_dir = dir("mp4");
@@ -229,7 +234,7 @@ mod tests {
             out_dir: &out_dir,
             file_name: "out",
         });
-        let joined = cmd.args.join(" ");
+        let joined = join_args(&cmd.args);
         assert!(joined.starts_with("-hide_banner -nostdin -loglevel fatal -stats -i t.jpg -seekable 0"));
         assert!(joined.contains("-i a.ts -seekable 0 -thread_queue_size 1024 -i v.ts -movflags faststart -map 0 -map 1 -map 2 -c copy -disposition:v:0 attached_pic"));
         assert!(joined.contains("-metadata TITLE=T"));
@@ -249,7 +254,7 @@ mod tests {
             out_dir: &out_dir,
             file_name: "out",
         });
-        let joined = cmd.args.join(" ");
+        let joined = join_args(&cmd.args);
         assert!(!joined.contains("-i t.jpg"));
         assert!(!joined.contains("faststart"));
         assert!(joined.contains("-attach t.jpg"));
@@ -269,8 +274,8 @@ mod tests {
             file_name: "out",
         });
         assert!(cmd.output.ends_with("out.m4a"));
-        let joined = cmd.args.join(" ");
-        assert!(!cmd.args.contains(&"-movflags".to_string()));
+        let joined = join_args(&cmd.args);
+        assert!(!cmd.args.contains(&OsString::from("-movflags")));
         assert!(joined.contains("-i t.jpg"));
         assert!(joined.contains("-disposition:v:0 attached_pic"));
         assert!(!joined.contains("-attach"));
@@ -303,9 +308,29 @@ mod tests {
         fs::write(&cmd.output, b"").unwrap();
         let later = cmd.with_unused_output();
         assert_eq!(later.output, out_dir.join("out-1.mp4"));
-        assert_eq!(later.args.last(), Some(&path_text(&later.output)));
+        assert_eq!(later.args.last(), Some(&later.output.as_os_str().to_os_string()));
         assert_eq!(later.args[..later.args.len() - 1], cmd.args[..cmd.args.len() - 1]);
         fs::remove_dir_all(&out_dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_non_utf8_paths() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let out_dir = PathBuf::from(OsStr::from_bytes(b"/tmp/dir-\xff"));
+        let audio = out_dir.join("a.ts");
+        let cmd = ffmpeg_args(&MuxInput {
+            audio: Some(&audio),
+            video: None,
+            thumbnail: None,
+            mkv: false,
+            metadata: None,
+            out_dir: &out_dir,
+            file_name: "out",
+        });
+        assert!(cmd.args.contains(&audio.as_os_str().to_os_string()));
+        assert_eq!(cmd.args.last(), Some(&out_dir.join("out.m4a").as_os_str().to_os_string()));
     }
 
     #[test]

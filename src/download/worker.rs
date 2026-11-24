@@ -145,7 +145,11 @@ pub(super) async fn worker(
             Take::Seq(seq, max) => (seq, max),
         };
         state.reset_for(seq, max, downloaded);
-        let frag_file = frag_prefix.as_ref().map(|path| PathBuf::from(format!("{}.frag{seq}.ts", path.display())));
+        let frag_file = frag_prefix.as_ref().map(|path| {
+            let mut name = path.as_os_str().to_os_string();
+            name.push(format!(".frag{seq}.ts"));
+            PathBuf::from(name)
+        });
         let outcome = download_fragment(&session, &mut state, frag_file, &|| lock(&dispatch).progress()).await;
         let (downloaded, head, end_at) = match &outcome {
             FragOutcome::Downloaded(fragment) => (true, fragment.x_head_seqnum, None),
