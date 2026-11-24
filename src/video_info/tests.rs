@@ -141,3 +141,41 @@ async fn channel_wait_resets_to_live_after_watch_error_empty_or_offline() {
         );
     }
 }
+
+#[tokio::test]
+async fn channel_monitor_returns_to_live_when_playable_stream_has_not_started() {
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let live_hits = Arc::new(Mutex::new(0usize));
+    let base = serve_pages(Arc::new({
+        let seen = seen.clone();
+        let live_hits = live_hits.clone();
+        move |path| {
+            seen.lock().unwrap().push(path.to_string());
+            match path {
+                "/@chan/streams" => ("404 Not Found", String::new()),
+                "/@chan/live" => {
+                    let mut hits = live_hits.lock().unwrap();
+                    *hits += 1;
+                    if *hits == 1 {
+                        ("200 OK", watch_html("vid1", "OK", false, ""))
+                    } else {
+                        ("200 OK", watch_html("vid2", "OK", true, ""))
+                    }
+                }
+                "/watch?v=vid1" => ("200 OK", watch_html("vid1", "OK", false, "")),
+                "/watch?v=vid2" => ("200 OK", watch_html("vid2", "OK", true, "")),
+                other => panic!("unexpected path: {other}"),
+            }
+        }
+    }))
+    .await;
+
+    let mut extractor = channel_extractor(&base);
+    match extractor.get_playable_player_response().await {
+        Outcome::Found(response) => assert_eq!(response.video_details.video_id, "vid2"),
+        _ => panic!("expected Found(vid2)"),
+    }
+    let paths = seen.lock().unwrap().clone();
+    assert_eq!(paths.iter().filter(|path| path.as_str() == "/watch?v=vid1").count(), 1, "{paths:?}");
+    assert!(paths.iter().filter(|path| path.as_str() == "/@chan/live").count() >= 2, "{paths:?}");
+}
