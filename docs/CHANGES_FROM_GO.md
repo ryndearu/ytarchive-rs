@@ -70,6 +70,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - `ffmpeg` inherits stderr directly (or silences it under `--quiet`) rather than reading chunks through lossy UTF-8 decoding.
 - A second Ctrl-C exits immediately, like Go's `signal.Reset`.
 - On Linux and macOS, `SIGTERM` stops the download gracefully without interactive prompts, leaves the temporary folder and state files intact for resuming, and exits with 143 (a second signal exits immediately). Interactive prompts coordinate with the main signal listener instead of registering a second handler.
+- On Ctrl-C with closed stdin while waiting on an interactive cancel prompt, temporary files and resume state are left intact for resuming instead of deleting the download (Go treated EOF as "no" to every prompt).
 - Interrupting cancels in-flight HTTP requests and kills running `yt-dlp` subprocesses right away instead of waiting for timeouts.
 
 ## Platform support

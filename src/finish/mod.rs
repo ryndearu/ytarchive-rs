@@ -9,7 +9,7 @@ use tokio::task::spawn_blocking;
 use crate::download::{PendingExport, local_time};
 use crate::mux::{self, MuxCommand};
 use crate::output::OutputPlan;
-use crate::prompt::get_yes_no;
+use crate::prompt::read_yes_no;
 use crate::types::{Action, Options};
 use crate::util::{apply_mode, try_delete, try_move, write_file_with_mode};
 use crate::{log_error, log_general, log_warn};
@@ -44,11 +44,11 @@ pub struct Finish<'a> {
     pub pending_exports: Vec<PendingExport>,
 }
 
-async fn decide(action: Action, question: &str) -> bool {
+async fn decide(action: Action, question: &str) -> Option<bool> {
     match action {
-        Action::Do => true,
-        Action::DoNot => false,
-        Action::Ask => get_yes_no(question).await,
+        Action::Do => Some(true),
+        Action::DoNot => Some(false),
+        Action::Ask => read_yes_no(question).await,
     }
 }
 
@@ -144,22 +144,46 @@ impl Finish<'_> {
         143
     }
 
+    fn keep_for_resume(&mut self) -> i32 {
+        self.pending_exports.clear();
+        log_warn!(
+            "No answer could be read because stdin is closed. Files were left in {} to resume later.",
+            self.plan.temp_dir.display()
+        );
+        2
+    }
+
     /// Handles a user interrupt. Returns `Some(exit code)` if done, `None`
     /// if the user chose to merge what was downloaded.
     pub async fn on_cancel(&mut self) -> Option<i32> {
         let options = self.opts;
-        if decide(
+        let Some(merge) = decide(
             options.merge_on_cancel,
             "\nDownload stopped prematurely. Would you like to merge the currently downloaded data?",
         )
         .await
-        {
+        else {
+            return Some(self.keep_for_resume());
+        };
+        if merge {
             return None;
         }
-        let save_files = decide(options.save_files_on_cancel, "\nWould you like to save any created files?").await;
-        let save_state = !save_files
-            && decide(options.save_state_on_cancel, "\nWould you like to leave files to resume downloading later?")
-                .await;
+        let Some(save_files) =
+            decide(options.save_files_on_cancel, "\nWould you like to save any created files?").await
+        else {
+            return Some(self.keep_for_resume());
+        };
+        let save_state = if save_files {
+            false
+        } else {
+            let Some(answer) =
+                decide(options.save_state_on_cancel, "\nWould you like to leave files to resume downloading later?")
+                    .await
+            else {
+                return Some(self.keep_for_resume());
+            };
+            answer
+        };
 
         if save_files {
             if !self.export_pending().await {
