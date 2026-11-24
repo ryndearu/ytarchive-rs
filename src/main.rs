@@ -97,6 +97,9 @@ async fn main() -> ExitCode {
 
     if log::enabled(types::LogLevel::Debug) {
         let mut logged = options.clone();
+        logged.url = logged.url.as_deref().map(http::redact_url_for_log);
+        logged.video_url = logged.video_url.as_deref().map(http::redact_url_for_log);
+        logged.audio_url = logged.audio_url.as_deref().map(http::redact_url_for_log);
         logged.proxy = logged.proxy.as_ref().map(http::redact_proxy);
         logged.ytdlp_opts = http::redact_proxy_args(&logged.ytdlp_opts);
         log_debug!("{logged:#?}");
