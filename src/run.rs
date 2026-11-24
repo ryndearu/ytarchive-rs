@@ -18,7 +18,7 @@ use crate::input_url::InputUrl;
 use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
 use crate::log::report_progress;
-use crate::mux::{MuxInput, command_line, ffmpeg_args};
+use crate::mux::{MuxInput, ffmpeg_args, mux_file_contents};
 use crate::output::{OutputPlan, ensure_dir, final_location, load_states, state_file, temp_dir};
 use crate::prepare::{PrepareOutcome, Prepared, prepare, prepared_from_kept};
 use crate::session::Session;
@@ -256,10 +256,8 @@ async fn download(
     let audio_mux = (opts.separate_audio && audio_ts.is_some() && video_ts.is_some())
         .then(|| ffmpeg_args(&MuxInput { video: None, ..main_input }));
     let mux_file = Moved { temp: plan.temp(".ffmpeg.txt"), dest: plan.final_path(".ffmpeg.txt") };
-    if let Err(error) =
-        write_file_with_mode(&mux_file.temp, command_line(&opts.ffmpeg_path, &mux.args).as_bytes(), opts.file_mode)
-            .await
-    {
+    let mux_text = mux_file_contents(&opts.ffmpeg_path, &mux, audio_mux.as_ref());
+    if let Err(error) = write_file_with_mode(&mux_file.temp, mux_text.as_bytes(), opts.file_mode).await {
         log_warn!("Failed to write initial mux file: {error}");
     }
 

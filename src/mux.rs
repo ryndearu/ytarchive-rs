@@ -174,6 +174,15 @@ pub fn command_line(program: &str, args: &[String]) -> String {
     std::iter::once(program).chain(args.iter().map(String::as_str)).map(quote).collect::<Vec<_>>().join(" ")
 }
 
+/// Contents of `.ffmpeg.txt`: the main mux command, plus the separate audio
+/// command on a second line when `--separate-audio` is active.
+pub fn mux_file_contents(program: &str, mux: &MuxCommand, audio_mux: Option<&MuxCommand>) -> String {
+    match audio_mux {
+        Some(audio) => format!("{}\n{}", command_line(program, &mux.args), command_line(program, &audio.args)),
+        None => command_line(program, &mux.args),
+    }
+}
+
 /// Whether `program` can be run: a path that exists, a file next to the
 /// ytarchive executable, or a name on PATH.
 pub fn program_exists(program: &str) -> bool {
