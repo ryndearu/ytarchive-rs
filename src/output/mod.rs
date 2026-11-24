@@ -162,13 +162,23 @@ fn windows_name_room(opts: &Options, final_dir: &Path, video_id: &str) -> usize 
 }
 
 /// Creates `dir`, falling back to the current directory on failure.
+/// Applies `mode` to every newly created directory (not pre-existing parents).
 pub fn ensure_dir(dir: PathBuf, mode: u32, what: &str) -> PathBuf {
     if dir == Path::new(".") || dir.is_dir() {
         return dir;
     }
+    let created: Vec<PathBuf> = dir
+        .ancestors()
+        .take_while(|path| !path.as_os_str().is_empty() && !path.exists())
+        .map(Path::to_path_buf)
+        .collect();
     match fs::create_dir_all(&dir) {
         Ok(()) => {
-            apply_mode(&dir, mode);
+            // Apply bottom-up so restrictive modes (e.g. 0555) on parents don't
+            // block setting modes on children.
+            for path in created {
+                apply_mode(&path, mode);
+            }
             dir
         }
         Err(error) => {

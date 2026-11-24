@@ -159,3 +159,27 @@ fn state_paths_and_loading() {
     assert_eq!(load_states(&disabled, "vid", &[140]).0[0].fragments, 0);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[cfg(unix)]
+#[test]
+fn ensure_dir_sets_mode_on_newly_created_parents() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let base = env::temp_dir().join(format!("ytarchive-rs-ensure-dir-{}", process::id()));
+    if base.exists() {
+        fs::remove_dir_all(&base).unwrap();
+    }
+    fs::create_dir_all(&base).unwrap();
+    fs::set_permissions(&base, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let parent = base.join("new-parent");
+    let leaf = parent.join("new-leaf");
+    let created = ensure_dir(leaf.clone(), 0o700, "test");
+    assert_eq!(created, leaf);
+
+    let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&base), 0o755);
+    assert_eq!(mode(&parent), 0o700);
+    assert_eq!(mode(&leaf), 0o700);
+    fs::remove_dir_all(&base).unwrap();
+}
