@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 
 use super::db_sink::{MetaUpdate, Saved, save_end_async, save_info_async};
 use super::recovery::{Span, recover, usable_until};
@@ -162,6 +162,7 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     let end_seq = params
         .capture_duration
         .map(|duration| params.state.start_frag.saturating_add(duration.as_secs().div_ceil(u64::from(target))));
+    let wake = Arc::new(Notify::new());
     let dispatch = Arc::new(Mutex::new(Dispatch {
         next: cur,
         max_seq: params.last_sq,
@@ -172,6 +173,7 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         skip: opened.skip,
         waiting_bytes: 0,
         memory_limit: params.memory_limit,
+        wake: wake.clone(),
     }));
 
     // A kept download whose stream can't be looked up anymore goes straight
@@ -226,7 +228,16 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         };
         let events = match sink.push(seq, frag, meta).await {
             Ok(events) => {
-                lock(&dispatch).waiting_bytes = sink.waiting_bytes();
+                let waiting = sink.waiting_bytes();
+                let released = {
+                    let mut dispatch = lock(&dispatch);
+                    let was_held = dispatch.held();
+                    dispatch.waiting_bytes = waiting;
+                    was_held && !dispatch.held()
+                };
+                if released {
+                    wake.notify_waiters();
+                }
                 if let Some((url_count, head_seq)) = next_saved {
                     saved.urls = url_count;
                     saved.head = head_seq;

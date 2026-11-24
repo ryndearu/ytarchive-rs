@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::SendError;
+use tokio::sync::{Notify, mpsc};
 
 use super::fragment::{FragOutcome, download_fragment};
 use super::sink::remove_frag_file;
@@ -16,9 +16,6 @@ use crate::log_debug;
 use crate::session::Session;
 use crate::types::{DataType, FragThreadState, Fragment, StreamProgress};
 use crate::util::lock;
-
-/// How long a worker waits when it's ahead of the newest fragment.
-const AHEAD_WAIT: Duration = Duration::from_millis(500);
 
 /// Hands out sequence numbers to workers, never running more than one
 /// fragment past the newest known one.
@@ -39,6 +36,8 @@ pub(super) struct Dispatch {
     /// missing one, and how many are allowed before no more are started.
     pub waiting_bytes: u64,
     pub memory_limit: u64,
+    /// Wakes workers waiting ahead of the live head or behind `memory_limit`.
+    pub wake: Arc<Notify>,
 }
 
 enum Take {
@@ -78,7 +77,7 @@ impl Dispatch {
         Take::Seq(seq, self.max_seq)
     }
 
-    fn held(&self) -> bool {
+    pub(super) fn held(&self) -> bool {
         self.waiting_bytes >= self.memory_limit
     }
 
@@ -120,14 +119,23 @@ pub(super) async fn worker(
     frag_prefix: Option<PathBuf>,
     retry_sleep: Duration,
 ) {
+    let wake = lock(&dispatch).wake.clone();
     let mut state = FragThreadState::new(name.clone(), data_type, retry_sleep);
     loop {
         if session.is_stopping() || session.is_finished(data_type) {
             break;
         }
+        // Register the waiter while holding the dispatch lock so no
+        // `notify_waiters` from `complete` or a released memory hold is missed.
+        let notified = wake.notified();
+        tokio::pin!(notified);
         let (take, downloaded) = {
             let mut dispatch = lock(&dispatch);
-            (dispatch.take(session.is_live()), dispatch.downloaded)
+            let take = dispatch.take(session.is_live());
+            if matches!(take, Take::Wait) {
+                notified.as_mut().enable();
+            }
+            (take, dispatch.downloaded)
         };
         let (seq, max) = match take {
             // Only this worker stops. Go marked the whole stream finished here,
@@ -138,8 +146,9 @@ pub(super) async fn worker(
             }
             Take::Wait => {
                 tokio::select! {
+                    biased;
                     _ = session.cancel.cancelled() => break,
-                    _ = tokio::time::sleep(AHEAD_WAIT) => continue,
+                    _ = notified => continue,
                 }
             }
             Take::Seq(seq, max) => (seq, max),
@@ -163,6 +172,7 @@ pub(super) async fn worker(
             }
             dispatch.complete(downloaded, head);
         }
+        wake.notify_waiters();
         let is_storage_error = matches!(outcome, FragOutcome::StorageError(..));
         let msg = match outcome {
             FragOutcome::Downloaded(fragment) => Msg::Done(fragment),
