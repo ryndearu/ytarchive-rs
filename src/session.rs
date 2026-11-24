@@ -123,6 +123,11 @@ impl Session {
         lock(self.known.get(data_type)).clone()
     }
 
+    /// Number of distinct URLs recorded for `data_type`.
+    pub fn known_url_count(&self, data_type: DataType) -> usize {
+        lock(self.known.get(data_type)).len()
+    }
+
     pub fn is_live(&self) -> bool {
         self.live.load(Ordering::Relaxed)
     }
