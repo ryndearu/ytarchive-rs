@@ -1,7 +1,7 @@
 name: Nightly
 
-# Tests and builds main, then updates the nightly pre-release in place with the
-# new zips, SHA256SUMS, and the commits since the last v* release.
+# Builds main, stages the new zips and SHA256SUMS as a draft release, then
+# replaces the nightly pre-release so its publish timestamp refreshes.
 on:
   workflow_dispatch:
 
@@ -16,12 +16,8 @@ env:
   TAG: nightly
 
 jobs:
-  test:
-    if: github.ref == 'refs/heads/main'
-    uses: ./.github/workflows/ci.yml
-
   build:
-    needs: test
+    if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/build.yml
 
   publish:
@@ -57,31 +53,43 @@ jobs:
         shell: bash
         run: (cd dist && sha256sum *.zip > SHA256SUMS)
 
-      - name: Update nightly pre-release
+      - name: Publish nightly pre-release
         shell: bash
         run: |
           title="Nightly $(date -u +%Y-%m-%d) (${SHA:0:7})"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-            # Drop leftover assets from older target lists after uploading the new ones.
-            gh release view "$TAG" --json assets --jq '.assets[].name' | while IFS= read -r asset; do
-              if [ -n "$asset" ] && [ ! -e "dist/$asset" ]; then
-                gh release delete-asset "$TAG" "$asset" --yes
-              fi
-            done
-            git tag -f "$TAG" "$SHA"
-            git push origin "refs/tags/$TAG" --force
-            gh release edit "$TAG" \
-              --prerelease \
-              --target "$SHA" \
-              --title "$title" \
-              --notes-file notes.md
-          else
-            git tag -f "$TAG" "$SHA"
-            git push origin "refs/tags/$TAG" --force
-            gh release create "$TAG" dist/* \
-              --prerelease \
-              --verify-tag \
-              --title "$title" \
-              --notes-file notes.md
-          fi
+          draft_tag="nightly-draft-${GITHUB_RUN_ID}"
+          cleanup_draft() {
+            local id
+            id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" \
+              --jq ".[] | select(.draft and .tag_name == \"$draft_tag\") | .id" | head -n1) || true
+            if [ -n "$id" ]; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_draft ERR
+
+          # Stage the new release and upload all assets as a draft first so a
+          # failed upload never deletes the existing nightly pre-release.
+          gh release create "$draft_tag" dist/* \
+            --draft \
+            --prerelease \
+            --target "$SHA" \
+            --title "$title" \
+            --notes-file notes.md
+
+          draft_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=20" \
+            --jq ".[] | select(.draft and .tag_name == \"$draft_tag\") | .id" | head -n1)
+          test -n "$draft_id"
+
+          git tag -f "$TAG" "$SHA"
+          git push origin "refs/tags/$TAG" --force
+
+          # Delete the old release object (keeping the updated tag) and publish
+          # the staged draft so GitHub refreshes published_at.
+          trap - ERR
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$draft_id" \
+            -f tag_name="$TAG" \
+            -f target_commitish="$SHA" \
+            -F draft=false \
+            -F prerelease=true
