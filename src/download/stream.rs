@@ -288,8 +288,8 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
             if session.is_unavailable()
                 && let Some(stored) = stored.as_mut()
             {
-                match recover(&session, data_type, database, span, stored, |bytes| {
-                    record(&mut params, saver.as_ref(), Some(head_seq), bytes)
+                match recover(&session, data_type, database, span, stored, |bytes, latest_head| {
+                    record(&mut params, saver.as_ref(), Some(latest_head), bytes)
                 })
                 .await
                 {

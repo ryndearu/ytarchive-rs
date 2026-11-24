@@ -124,15 +124,15 @@ async fn fetch(session: Arc<Session>, urls: Arc<Vec<FragmentUrl>>, seq: u64, off
 }
 
 /// Runs recovery rounds for `span`, storing fragments in `database` and
-/// updating `stored` in place. `on_stored` gets the size of each fragment
-/// stored. Returns the span with the newest known head.
+/// updating `stored` in place. `on_stored` gets `(bytes, head)` for each
+/// fragment stored. Returns the span with the newest known head.
 pub async fn recover(
     session: &Arc<Session>,
     data_type: DataType,
     database: &mut DbSink,
     mut span: Span,
     stored: &mut HashSet<u64>,
-    mut on_stored: impl FnMut(u64),
+    mut on_stored: impl FnMut(u64, u64),
 ) -> Result<Span> {
     let name = format!("{}-recovery", data_type.as_str());
     let threads = session.opts.threads.max(1);
@@ -202,7 +202,7 @@ pub async fn recover(
                 if let Event::Wrote(bytes) = event {
                     stored.insert(seq);
                     recovered += 1;
-                    on_stored(bytes);
+                    on_stored(bytes, span.head);
                 }
             }
         }
