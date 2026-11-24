@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use tokio::sync::mpsc;
 
-use crate::types::{DataType, LogLevel, ProgressInfo};
+use crate::types::{DataType, LogLevel, PerType, ProgressInfo};
 use crate::util::format_size;
 
 /// The "Video Fragments: N; Audio Fragments: M; ..." status line.
@@ -19,7 +19,7 @@ pub struct Totals {
     pub video_frags: u64,
     pub bytes: u64,
     pub max_seq: Option<u64>,
-    pub start_frag: u64,
+    pub start_frag: PerType<Option<u64>>,
 }
 
 impl Totals {
@@ -32,16 +32,14 @@ impl Totals {
         if progress.max_seq > self.max_seq {
             self.max_seq = progress.max_seq;
         }
-        self.start_frag = progress.start_frag;
+        *self.start_frag.get_mut(progress.data_type) = Some(progress.start_frag);
     }
 
     pub fn line(&self, verbose: bool) -> String {
         let mut text = format!("Video Fragments: {}; Audio Fragments: {}; ", self.video_frags, self.audio_frags);
         if verbose && let Some(max) = self.max_seq {
-            text.push_str(&format!(
-                "Max Fragments: {}; Max Sequence: {max}; ",
-                (max + 1).saturating_sub(self.start_frag)
-            ));
+            let start_frag = [self.start_frag.audio, self.start_frag.video].into_iter().flatten().min().unwrap_or(0);
+            text.push_str(&format!("Max Fragments: {}; Max Sequence: {max}; ", (max + 1).saturating_sub(start_frag)));
         }
         text.push_str(&format!("Total Downloaded: {}", format_size(self.bytes)));
         text
