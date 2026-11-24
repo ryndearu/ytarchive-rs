@@ -57,7 +57,8 @@ pub struct StreamOutcome {
     /// database has a download URL that hasn't expired): until when, in
     /// Unix seconds (`u64::MAX` if the URLs don't say).
     pub retry_until: Option<u64>,
-    /// Deferred SQLite export when interrupted so cancel prompts run first.
+    /// Deferred SQLite export, run by `Finish` once all streams succeed (and
+    /// past Ctrl-C prompts).
     pub pending_export: Option<PendingExport>,
 }
 
@@ -306,7 +307,7 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
         sink.abort().await;
         return Err(error);
     }
-    let pending_export = sink.into_pending_or_finish(&name, mode, session.is_stopping()).await?;
+    let pending_export = sink.finish(&name, mode).await?;
     skipped.sort_unstable();
     log_debug!("{name} thread closing");
     Ok(StreamOutcome { state: params.state, skipped, retry_until, pending_export })

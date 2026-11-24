@@ -32,6 +32,8 @@ async fn sqlite_resume_fills_gap() {
     assert_eq!(first.skipped, [3]);
     assert_eq!(first.state.fragments, 9);
     assert!(dir.join("out.f140.sqlite").exists());
+    // Dropping PendingExport closes the DB without exporting yet.
+    drop(first.pending_export);
     // No temp fragment files are used in SQLite mode.
     assert!(!fs::read_dir(&dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".frag")));
 
@@ -47,6 +49,7 @@ async fn sqlite_resume_fills_gap() {
     // The 9 stored fragments, then only the gap downloaded again.
     assert_eq!(progress_counts(&mut receiver), [9, 1]);
 
+    second.pending_export.unwrap().export().await.unwrap();
     let want: Vec<u8> = (0..10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     fs::remove_dir_all(&dir).unwrap();
@@ -100,6 +103,7 @@ async fn recovers_fragments_after_the_stream_goes_private() {
     assert!(out.skipped.is_empty(), "{:?}", out.skipped);
     assert_eq!(out.retry_until, None);
     assert_eq!(out.state.fragments, 12);
+    out.pending_export.unwrap().export().await.unwrap();
     let want: Vec<u8> = (0..12).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     fs::remove_dir_all(&dir).unwrap();
@@ -126,11 +130,12 @@ async fn recovery_gives_up_and_a_later_run_retries() {
     assert_eq!(out.skipped, [5, 6, 7, 8, 9]);
     // The fake server's URLs have no expire parameter.
     assert_eq!(out.retry_until, Some(u64::MAX));
+    out.pending_export.unwrap().export().await.unwrap();
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
 
     // The database has what a later run needs.
-    let kept = read_kept(&dir, 140, 0o644).unwrap();
+    let kept = read_kept(&dir, 140).unwrap();
     assert_eq!(kept.info, *saved);
     assert_eq!(kept.head, Some(12));
     assert_eq!(kept.urls, [FragmentUrl::with_sq_param(&url)]);
@@ -146,6 +151,7 @@ async fn recovery_gives_up_and_a_later_run_retries() {
     assert!(out.skipped.is_empty(), "{:?}", out.skipped);
     // 0..=4 were stored; 5..=11 are fetched again, nothing else.
     assert_eq!(progress_counts(&mut receiver), [5, 1, 1, 1, 1, 1, 1, 1]);
+    out.pending_export.unwrap().export().await.unwrap();
     let want: Vec<u8> = (0..12).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
     fs::remove_dir_all(&dir).unwrap();
@@ -166,7 +172,7 @@ async fn a_killed_download_keeps_the_head() {
     }
     task.abort();
     assert!(task.await.unwrap_err().is_cancelled(), "the download ended before the kill");
-    let kept = read_kept(&dir, 140, 0o644).unwrap();
+    let kept = read_kept(&dir, 140).unwrap();
     assert_eq!(kept.head, Some(200));
     // A blocking write that outlives the abort can still be adding files here.
     fs::remove_dir_all(&dir).ok();
@@ -183,6 +189,7 @@ async fn no_recovery_while_the_stream_is_available() {
     let out = download_stream(session, stream_params).await.unwrap();
     assert_eq!(out.skipped, [5, 6, 7, 8, 9]);
     assert!(started.elapsed() < Duration::from_secs(5));
+    drop(out);
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -200,9 +207,10 @@ async fn no_recovery_without_the_flag() {
     let out = download_stream(session, stream_params).await.unwrap();
     assert_eq!(out.skipped, [5]);
     assert_eq!(out.retry_until, None);
+    out.pending_export.unwrap().export().await.unwrap();
     let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
     assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    assert!(read_kept(&dir, 140, 0o644).is_none());
+    assert!(read_kept(&dir, 140).is_none());
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -252,5 +260,110 @@ async fn push_with_meta_batches_and_skips_empty_updates() {
     assert_eq!(sink.meta("head").unwrap().as_deref(), Some("42"));
     assert_eq!(sink.urls().unwrap(), [url]);
     drop(sink);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn sqlite_sets_aside_unresumable_database_when_state_is_empty() {
+    use super::super::db_sink::DbSink;
+    use crate::types::{FragData, Fragment};
+
+    let dir = temp_dir("sqlite-unresumable");
+    let database_path = dir.join("out.f140.sqlite");
+    let mut old = DbSink::open(&database_path, 0o644).unwrap();
+    let frag = Fragment {
+        seq: 0,
+        x_head_seqnum: None,
+        data: FragData::Memory(bytes::Bytes::from(fragment_body(0))),
+        mime_type: "video/mp4".into(),
+    };
+    old.push(0, Some(frag)).await.unwrap();
+    drop(old);
+
+    let url = serve(6, vec![]).await;
+    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, _rx) = params(&dir, 6, DownloadState::default());
+    stream_params.start_sq = Some(4);
+    let out = download_stream(session, stream_params).await.unwrap();
+    assert_eq!(out.state.start_frag, 4);
+    assert_eq!(out.state.fragments, 2);
+    assert!(dir.join("out.f140.sqlite.old").exists(), "old database should be kept as .old");
+
+    out.pending_export.unwrap().export().await.unwrap();
+    let want: Vec<u8> = (4..6).flat_map(|sequence| expected(sequence, sequence == 4)).collect();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn keep_existing_db_preserves_uncheckpointed_wal() {
+    use super::super::sink::keep_existing_db;
+
+    let dir = temp_dir("sqlite-keep-wal");
+    let live_db = dir.join("live.sqlite");
+    let conn = Connection::open(&live_db).unwrap();
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA wal_autocheckpoint = 0;
+         CREATE TABLE segments (seq INTEGER PRIMARY KEY, data BLOB NOT NULL);",
+    )
+    .unwrap();
+    // Flush the schema into the main DB, then write a row that stays in -wal only.
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
+    conn.execute("INSERT INTO segments (seq, data) VALUES (7, X'DEADBEEF')", []).unwrap();
+
+    // Snapshot the DB and its uncheckpointed WAL while still open (skip -shm,
+    // which SQLite byte-range-locks on Windows and rebuilds from -wal on open).
+    let target_db = dir.join("out.f140.sqlite");
+    fs::copy(&live_db, &target_db).unwrap();
+    fs::copy(dir.join("live.sqlite-wal"), dir.join("out.f140.sqlite-wal")).unwrap();
+    drop(conn);
+
+    keep_existing_db(&target_db, "audio").await.unwrap();
+
+    assert!(!target_db.exists());
+    assert!(!dir.join("out.f140.sqlite-wal").exists());
+    assert!(dir.join("out.f140.sqlite.old").exists());
+    assert!(dir.join("out.f140.sqlite.old-wal").exists());
+
+    // The uncheckpointed row must still be readable from the .old backup.
+    let old_conn = Connection::open(dir.join("out.f140.sqlite.old")).unwrap();
+    let data: Vec<u8> = old_conn.query_row("SELECT data FROM segments WHERE seq = 7", [], |row| row.get(0)).unwrap();
+    assert_eq!(data, [0xDE, 0xAD, 0xBE, 0xEF]);
+    drop(old_conn);
+
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn aborts_when_unresumable_sqlite_cannot_be_moved_aside() {
+    use super::super::db_sink::DbSink;
+    use crate::types::{FragData, Fragment};
+
+    let dir = temp_dir("sqlite-keep-old-fail");
+    let database_path = dir.join("out.f140.sqlite");
+    let mut old = DbSink::open(&database_path, 0o644).unwrap();
+    let frag = Fragment {
+        seq: 0,
+        x_head_seqnum: None,
+        data: FragData::Memory(bytes::Bytes::from(fragment_body(0))),
+        mime_type: "video/mp4".into(),
+    };
+    old.push(0, Some(frag)).await.unwrap();
+    drop(old);
+
+    let blocker = dir.join("out.f140.sqlite.old");
+    fs::create_dir(&blocker).unwrap();
+    fs::write(blocker.join("keep"), b"x").unwrap();
+
+    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param("http://127.0.0.1:1/x?")), false);
+    let (stream_params, _rx) = params(&dir, 6, DownloadState::default());
+    let err = download_stream(session, stream_params).await.unwrap_err();
+    assert!(matches!(err, Error::OpenStorage(_)), "{err}");
+
+    let conn = Connection::open(&database_path).unwrap();
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM segments", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 1);
+    drop(conn);
     fs::remove_dir_all(&dir).unwrap();
 }

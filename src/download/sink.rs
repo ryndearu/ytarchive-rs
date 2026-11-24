@@ -191,13 +191,23 @@ pub async fn open(
         log_info!("{name}: Resuming {} {how}, as it was started", data_file.display());
     }
     if use_db {
-        let sink = DbSink::open_async(database_path, mode).await?;
-        let skip = sink.stored_async().await?;
-        let (fragments, size) = sink.totals_async().await?;
+        let mut sink = DbSink::open_async(database_path.clone(), mode).await?;
+        let mut skip = sink.stored_async().await?;
+        let (mut fragments, mut size) = sink.totals_async().await?;
         let cur = if fragments > 0 && state.fragments > 0 {
             log_info!("{name}: Resuming from {}: {fragments} fragment(s) stored", sink.path().display());
             state.start_frag
         } else {
+            if fragments > 0 {
+                // Unresumable database (e.g. reused temp dir whose state has 0
+                // fragments): set it aside rather than splicing two runs.
+                drop(sink);
+                keep_existing_db(&database_path, name).await?;
+                sink = DbSink::open_async(database_path, mode).await?;
+                skip.clear();
+                fragments = 0;
+                size = 0;
+            }
             let start = fresh_start();
             state.start_frag = start;
             start
@@ -216,7 +226,7 @@ pub async fn open(
     state = DownloadState { temp_dir, file: state.file, ..Default::default() };
     let start = fresh_start();
     state.start_frag = start;
-    keep_existing_data(data_file, name).await;
+    keep_existing_data(data_file, name).await?;
     let sink = TsSink::create(data_file, start, mode).await?;
     Ok(Opened { sink: Sink::Ts(sink), cur: start, skip: Default::default(), state })
 }
@@ -227,25 +237,52 @@ pub async fn open(
 /// other stream's state was still good, or the file is shorter than its
 /// state says. With no usable state at all the run gets a new folder, and
 /// the old one is left as it is.
-async fn keep_existing_data(data_file: &Path, name: &str) {
+async fn keep_existing_data(data_file: &Path, name: &str) -> io::Result<bool> {
     let has_data = tokio::fs::metadata(data_file).await.is_ok_and(|metadata| metadata.len() > 0);
     if !has_data {
-        return;
+        return Ok(false);
     }
     let mut old_name = data_file.as_os_str().to_os_string();
     old_name.push(".old");
     let old_file = PathBuf::from(old_name);
-    match tokio::fs::rename(data_file, &old_file).await {
-        Ok(()) => log_warn!(
-            "{name}: {} has data that can't be resumed; kept it as {}",
-            data_file.display(),
-            old_file.display()
-        ),
-        Err(error) => log_warn!("{name}: Could not keep the existing {}: {error}", data_file.display()),
-    }
+    tokio::fs::rename(data_file, &old_file).await?;
+    log_warn!("{name}: {} has data that can't be resumed; kept it as {}", data_file.display(), old_file.display());
+    Ok(true)
 }
 
-/// A SQLite database ready to export to `.ts`, deferred past Ctrl-C prompts.
+pub(super) async fn keep_existing_db(database_path: &Path, name: &str) -> io::Result<()> {
+    if !keep_existing_data(database_path, name).await? {
+        return Ok(());
+    }
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = database_path.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        let sidecar_path = PathBuf::from(sidecar);
+        let mut old_sidecar = database_path.as_os_str().to_os_string();
+        old_sidecar.push(".old");
+        old_sidecar.push(suffix);
+        let old_sidecar_path = PathBuf::from(old_sidecar);
+        match tokio::fs::rename(&sidecar_path, &old_sidecar_path).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                // Remove any stale sidecar from an earlier backup so SQLite
+                // never replays an unrelated WAL onto the newly saved DB.
+                if let Err(remove_error) = tokio::fs::remove_file(&old_sidecar_path).await
+                    && remove_error.kind() != io::ErrorKind::NotFound
+                {
+                    log_debug!("{name}: Could not delete stale {}: {remove_error}", old_sidecar_path.display());
+                }
+            }
+            Err(error) => {
+                log_warn!("{name}: Could not keep {}: {error}", sidecar_path.display());
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A SQLite database ready to export to `.ts`, deferred until all streams finish.
 pub struct PendingExport {
     database: DbSink,
     out: PathBuf,
@@ -312,9 +349,10 @@ impl Sink {
         }
     }
 
-    /// Finalizes storage; for SQLite when `defer_db` is set (Ctrl-C), returns
-    /// a `PendingExport` without running the full export until needed.
-    pub async fn into_pending_or_finish(self, name: &str, mode: u32, defer_db: bool) -> Result<Option<PendingExport>> {
+    /// Finalizes storage; for SQLite, returns a `PendingExport` so exporting
+    /// waits until every stream finishes without storage errors (and past
+    /// Ctrl-C prompts).
+    pub async fn finish(self, name: &str, mode: u32) -> Result<Option<PendingExport>> {
         match self {
             Sink::Ts(ts_sink) => {
                 let leftover = ts_sink.finish().await?;
@@ -323,14 +361,7 @@ impl Sink {
                 }
                 Ok(None)
             }
-            Sink::Db(database, out) => {
-                let pending = PendingExport { database, out, name: name.to_string(), mode };
-                if defer_db {
-                    return Ok(Some(pending));
-                }
-                pending.export().await?;
-                Ok(None)
-            }
+            Sink::Db(database, out) => Ok(Some(PendingExport { database, out, name: name.to_string(), mode })),
         }
     }
 

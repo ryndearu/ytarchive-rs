@@ -121,11 +121,19 @@ fn cleanup_keeps_data_set_aside_from_an_earlier_run() {
     let plan = OutputPlan { final_dir: base.clone(), file_name: "n".into(), temp_dir: temp_dir.clone() };
     fs::write(plan.temp(".f140.ts"), b"new").unwrap();
     fs::write(plan.temp(".f140.ts.old"), b"earlier").unwrap();
+    fs::write(plan.temp(".f140.sqlite.old"), b"db").unwrap();
+    fs::write(plan.temp(".f140.sqlite.old-wal"), b"wal").unwrap();
+    fs::write(plan.temp(".f140.sqlite.old-shm"), b"shm").unwrap();
     plan.remove_temp_dir("vid");
     assert!(!plan.temp(".f140.ts").exists());
     assert_eq!(fs::read(plan.temp(".f140.ts.old")).unwrap(), b"earlier");
+    assert_eq!(fs::read(plan.temp(".f140.sqlite.old")).unwrap(), b"db");
+    assert_eq!(fs::read(plan.temp(".f140.sqlite.old-wal")).unwrap(), b"wal");
+    assert_eq!(fs::read(plan.temp(".f140.sqlite.old-shm")).unwrap(), b"shm");
 
-    fs::remove_file(plan.temp(".f140.ts.old")).unwrap();
+    for suffix in [".f140.ts.old", ".f140.sqlite.old", ".f140.sqlite.old-wal", ".f140.sqlite.old-shm"] {
+        fs::remove_file(plan.temp(suffix)).unwrap();
+    }
     plan.remove_temp_dir("vid");
     assert!(!temp_dir.exists());
     fs::remove_dir_all(&base).unwrap();

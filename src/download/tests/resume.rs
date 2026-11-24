@@ -19,6 +19,24 @@ async fn keeps_data_that_has_no_usable_state() {
 }
 
 #[tokio::test]
+async fn aborts_when_unresumable_ts_cannot_be_moved_aside() {
+    let dir = temp_dir("keep-old-fail");
+    let data_file = dir.join("out.f140.ts");
+    fs::write(&data_file, b"earlier download").unwrap();
+    // A directory at `.old` blocks renaming the file on every OS.
+    let blocker = dir.join("out.f140.ts.old");
+    fs::create_dir(&blocker).unwrap();
+    fs::write(blocker.join("keep"), b"x").unwrap();
+
+    let session = Session::for_test(opts(1, false), Some(FragmentUrl::with_sq_param("http://127.0.0.1:1/x?")), false);
+    let (stream_params, _receiver) = params(&dir, 3, DownloadState::default());
+    let err = download_stream(session, stream_params).await.unwrap_err();
+    assert!(matches!(err, Error::OpenStorage(_)), "{err}");
+    assert_eq!(fs::read(&data_file).unwrap(), b"earlier download");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
 async fn resumes_from_saved_state() {
     let url = serve(10, vec![]).await;
     let dir = temp_dir("resume");

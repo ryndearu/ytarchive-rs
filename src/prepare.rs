@@ -173,9 +173,7 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
         if state.fragments == 0 || !state.temp_dir.is_dir() {
             continue;
         }
-        if let Some(kept_stream) =
-            read_kept(&state.temp_dir, itag, opts.file_mode).filter(|found| found.info.video_id == video_id)
-        {
+        if let Some(kept_stream) = read_kept(&state.temp_dir, itag).filter(|found| found.info.video_id == video_id) {
             temp_dir = state.temp_dir;
             kept.push((itag, kept_stream));
         }
