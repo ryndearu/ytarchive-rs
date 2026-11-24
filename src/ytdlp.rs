@@ -10,10 +10,11 @@ use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::{Error, Result};
-use crate::http::Http;
+use crate::http::{Http, redact_proxy_args};
+use crate::log;
 use crate::types::{
-    FragmentUrl, IpVersion, LiveStatus, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat, YtdlpRawInfo,
-    is_fragmented,
+    FragmentUrl, IpVersion, LiveStatus, LogLevel, Options, YTDLP_INFO_PRINT_TEMPLATE, YtdlpExtraction, YtdlpFormat,
+    YtdlpRawInfo, is_fragmented,
 };
 use crate::util::{resolve_program, sleep_or_cancel};
 use crate::{log_debug, log_trace, log_warn};
@@ -63,7 +64,9 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
 pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool, cancel: &CancellationToken) -> Result<String> {
     let args = build_args(opts, url, ignore_no_formats);
     let executable = resolve_program(&opts.ytdlp_path).unwrap_or_else(|| PathBuf::from(&opts.ytdlp_path));
-    log_trace!("Running {} {:?}", executable.display(), args);
+    if log::enabled(LogLevel::Trace) {
+        log_trace!("Running {} {:?}", executable.display(), redact_proxy_args(&args));
+    }
 
     let child = Command::new(&executable)
         .args(&args)

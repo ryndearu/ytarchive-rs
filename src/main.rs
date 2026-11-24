@@ -95,7 +95,12 @@ async fn main() -> ExitCode {
         }
     };
 
-    log_debug!("{options:#?}");
+    if log::enabled(types::LogLevel::Debug) {
+        let mut logged = options.clone();
+        logged.proxy = logged.proxy.as_ref().map(http::redact_proxy);
+        logged.ytdlp_opts = http::redact_proxy_args(&logged.ytdlp_opts);
+        log_debug!("{logged:#?}");
+    }
     let interrupt = interrupt::Interrupt::install();
     monitor::start(Arc::new(options), http, interrupt).await
 }

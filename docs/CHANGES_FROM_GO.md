@@ -40,7 +40,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - Netscape cookie parsing accepts fractional expiry timestamps instead of treating them as session cookies.
 - **A download from a channel URL stays on the stream it started on** in `--ytdlp-info` mode too: URL refreshes use the stream's watch URL. Go kept refreshing through `/live` and could switch streams mid-download.
 - **Waiting on a channel keeps checking `/live`** (`--monitor-channel`, or a channel URL with `-r`). When `/live` showed a playable stream that hadn't started, Go switched to its watch URL and missed another stream that started first.
-- Non-2xx responses are errors (Go's page and thumbnail fetches accepted any). Error and `--debug` messages omit URL query strings, which hold signatures and your IP.
+- Non-2xx responses are errors (Go's page and thumbnail fetches accepted any). Error, `--debug`, and `--trace` messages omit URL query strings (which hold signatures and your IP) and proxy credentials.
 - A connection that sends nothing for 30 seconds is dropped. Go had no limit.
 - **Retries slow down when the server is the problem.** After a connection error, a 5xx, or a 429, the wait doubles for each such failure in a row (up to 15 seconds, or the fragment duration if longer), and `Retry-After` is followed up to 60 seconds. Go always waited one fragment duration; the port still does for 404s, empty responses, and 403s.
 - **A live fragment that never downloads is skipped.** Go retried it for as long as the stream was live, holding back everything after it. The port gives up once its tries (`--retry-frags`) have run out 4 times while at least 30 other fragments downloaded. During an outage, and with `--retry-frags 0`, fragments are retried without limit.

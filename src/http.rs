@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use reqwest::cookie::Jar;
-use reqwest::{Client, Proxy};
+use reqwest::{Client, Proxy, Url};
 use tokio_util::sync::CancellationToken;
 
 use crate::cookies;
@@ -81,7 +81,7 @@ impl Http {
         let resp = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err(Error::Cancelled),
-            result = self.client.get(url).send() => result?,
+            result = self.client.get(url).send() => result.map_err(without_query)?,
         };
         let status = resp.status();
         if !status.is_success() {
@@ -90,7 +90,7 @@ impl Http {
         tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(Error::Cancelled),
-            body = resp.bytes() => Ok(body?),
+            body = resp.bytes() => Ok(body.map_err(without_query)?),
         }
     }
 
@@ -107,6 +107,52 @@ impl Http {
         log_debug!("Writing {} bytes to {}", data.len(), path.display());
         write_file_with_mode(path, &data, mode).await
     }
+}
+
+/// Drops the query string from a request error, which for googlevideo URLs
+/// holds the signature and the user's IP address.
+pub fn without_query(mut error: reqwest::Error) -> reqwest::Error {
+    if let Some(url) = error.url_mut() {
+        url.set_query(None);
+    }
+    error
+}
+
+/// Clears embedded credentials from a proxy URL before logging it.
+pub fn redact_proxy(url: &Url) -> Url {
+    let mut redacted = url.clone();
+    if !redacted.username().is_empty() && redacted.set_username("").is_err() {
+        log_trace!("Could not redact username from proxy URL");
+    }
+    if redacted.password().is_some() && redacted.set_password(None).is_err() {
+        log_trace!("Could not redact password from proxy URL");
+    }
+    redacted
+}
+
+/// Returns `args` with credentials removed from any `--proxy <URL>` or
+/// `--proxy=<URL>` arguments, for `--debug`/`--trace` logging.
+pub fn redact_proxy_args(args: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut expect_proxy = false;
+    for arg in args {
+        if expect_proxy {
+            expect_proxy = false;
+            out.push(Url::parse(arg).map(|url| redact_proxy(&url).to_string()).unwrap_or_else(|_| arg.clone()));
+            continue;
+        }
+        if arg == "--proxy" {
+            expect_proxy = true;
+            out.push(arg.clone());
+        } else if let Some(raw) = arg.strip_prefix("--proxy=") {
+            let safe =
+                Url::parse(raw).map(|url| format!("--proxy={}", redact_proxy(&url))).unwrap_or_else(|_| arg.clone());
+            out.push(safe);
+        } else {
+            out.push(arg.clone());
+        }
+    }
+    out
 }
 
 /// Drops the query string, which for googlevideo URLs carries signatures and IPs.
