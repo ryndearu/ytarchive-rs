@@ -9,7 +9,7 @@ use reqwest::header::{CONTENT_TYPE, HeaderMap, ORIGIN, REFERER};
 
 use crate::error::Error;
 use crate::session::Session;
-use crate::types::{FragData, FragThreadState, Fragment, FragmentUrl, StreamProgress};
+use crate::types::{DEFAULT_FRAG_MAX_TRIES, FragData, FragThreadState, Fragment, FragmentUrl, StreamProgress};
 use crate::util::{sleep_or_cancel, write_file_with_mode};
 use crate::{log_debug, log_trace, log_warn};
 
@@ -118,14 +118,20 @@ pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState
     false
 }
 
-/// After a failure that used up the try limit, refresh URLs (unless the
-/// limit is 0, i.e. unlimited). Returns whether a new URL is now active.
+/// After a failure that used up the try limit (or every `DEFAULT_FRAG_MAX_TRIES`
+/// failures when `--retry-frags 0` is set), refresh URLs. Returns whether a
+/// new URL is now active.
 async fn retry_fragment_url(session: &Session, state: &FragThreadState, url: &FragmentUrl) -> bool {
     if session.is_finished(state.data_type) || session.is_stopping() {
         return false;
     }
     let max = session.opts.frag_max_tries;
-    if max > 0 && state.tries >= max {
+    let should_refresh = if max > 0 {
+        state.tries >= max
+    } else {
+        state.tries > 0 && state.tries.is_multiple_of(DEFAULT_FRAG_MAX_TRIES)
+    };
+    if should_refresh {
         return session.refresh_url_if_unchanged(state.data_type, url).await;
     }
     false
