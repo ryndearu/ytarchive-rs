@@ -288,6 +288,7 @@ async fn download(
 
     let mut tasks = Vec::new();
     for ((data_type, itag), state) in streams.iter().copied().zip(states) {
+        let adopt_renamed = plan.owns_temp_dir(&prepared.video_id);
         let file = moved_ts(itag).temp;
         log_info!("Starting download to {}", file.display());
         let state_file = (!opts.disable_save_state).then(|| state.file.clone());
@@ -306,6 +307,7 @@ async fn download(
                 progress: sender.clone(),
                 saved: Some(saved.clone()),
                 memory_limit: MEMORY_LIMIT,
+                adopt_renamed,
             },
         )));
     }

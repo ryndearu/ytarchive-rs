@@ -1,153 +1,27 @@
 //! Where downloaded fragments are stored: the in-order `.ts` writer
 //! (default) or the SQLite store (`--sqlite`).
 
-use std::collections::{BTreeMap, HashSet};
+mod ts;
+
+use std::collections::HashSet;
 use std::fmt;
-use std::io::{self, SeekFrom};
+use std::io;
 use std::mem;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
 use bytes::Bytes;
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::task::spawn_blocking;
+
+pub use ts::{TsSink, fragment_bytes, remove_frag_file};
 
 use super::db_sink::{DbSink, MetaUpdate, db_path};
 use crate::error::Result;
-use crate::mp4_atoms::strip_for_concat;
-use crate::types::{DownloadState, FragData, Fragment};
-use crate::util::apply_mode;
+#[cfg(test)]
+use crate::types::FragData;
+use crate::types::{DownloadState, Fragment};
 use crate::{log_debug, log_info, log_warn};
-
-/// Default storage: fragments appended in sequence order to the `.ts` file;
-/// out-of-order arrivals wait in memory (or as temp files) until their turn.
-pub struct TsSink {
-    file: tokio::fs::File,
-    path: PathBuf,
-    next_write: u64,
-    /// True once at least one fragment has been written, so only the first
-    /// written fragment keeps its `ftyp` box even if `start_frag` was skipped.
-    wrote_any: bool,
-    pending: BTreeMap<u64, Option<Fragment>>,
-    /// Bytes of `pending` held in memory (fragment files don't count).
-    waiting_bytes: u64,
-}
-
-fn memory_bytes(entry: Option<&Fragment>) -> u64 {
-    match entry.map(|fragment| &fragment.data) {
-        Some(FragData::Memory(bytes)) => bytes.len() as u64,
-        _ => 0,
-    }
-}
-
-pub async fn fragment_bytes(data: &FragData) -> io::Result<Bytes> {
-    match data {
-        // Shares the downloaded buffer instead of copying it.
-        FragData::Memory(bytes) => Ok(bytes.clone()),
-        FragData::File(path) => Ok(tokio::fs::read(path).await?.into()),
-    }
-}
-
-pub async fn remove_frag_file(data: &FragData) {
-    if let FragData::File(path) = data
-        && let Err(error) = tokio::fs::remove_file(path).await
-        && error.kind() != io::ErrorKind::NotFound
-    {
-        log_debug!("Could not delete the fragment file {}: {error}", path.display());
-    }
-}
-
-impl TsSink {
-    /// Continues the file from `state` if it is consistent, else returns
-    /// `None` so the caller starts fresh.
-    pub async fn resume(path: &Path, state: &DownloadState, name: &str) -> io::Result<Option<(Self, u64)>> {
-        match tokio::fs::OpenOptions::new().read(true).write(true).open(path).await {
-            Ok(mut file) => {
-                if file.metadata().await?.len() < state.size {
-                    log_warn!(
-                        "{name}: {} is smaller than the saved state; starting from the beginning",
-                        path.display()
-                    );
-                    return Ok(None);
-                }
-                // Drop anything written after the last saved state.
-                file.set_len(state.size).await?;
-                file.seek(SeekFrom::End(0)).await?;
-                let cur = state.start_frag + state.fragments + state.skipped;
-                log_info!("{name}: Resuming download from sequence {cur}");
-                Ok(Some((Self::new(file, path, cur, state.fragments > 0), cur)))
-            }
-            Err(error) => {
-                log_warn!("{name}: Failed to open {} to resume download: {error}", path.display());
-                log_warn!("{name}: Will start from the beginning");
-                Ok(None)
-            }
-        }
-    }
-
-    pub async fn create(path: &Path, start: u64, mode: u32) -> io::Result<Self> {
-        let file = tokio::fs::File::create(path).await?;
-        apply_mode(path, mode);
-        Ok(Self::new(file, path, start, false))
-    }
-
-    fn new(file: tokio::fs::File, path: &Path, next_write: u64, wrote_any: bool) -> Self {
-        Self { file, path: path.to_path_buf(), next_write, wrote_any, pending: BTreeMap::new(), waiting_bytes: 0 }
-    }
-
-    /// Queues `frag` (`None` = given up) and writes everything now in order.
-    pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> io::Result<Vec<Event>> {
-        self.waiting_bytes += memory_bytes(frag.as_ref());
-        if let Some(replaced) = self.pending.insert(seq, frag) {
-            self.waiting_bytes = self.waiting_bytes.saturating_sub(memory_bytes(replaced.as_ref()));
-        }
-        let mut events = Vec::new();
-        while let Some(entry) = self.pending.remove(&self.next_write) {
-            self.waiting_bytes = self.waiting_bytes.saturating_sub(memory_bytes(entry.as_ref()));
-            let Some(frag) = entry else {
-                events.push(Event::Gap(self.next_write));
-                self.next_write += 1;
-                continue;
-            };
-            let written = async {
-                let raw = fragment_bytes(&frag.data).await?;
-                let data = strip_for_concat(&raw, &frag.mime_type, !self.wrote_any).map_or(raw, Bytes::from);
-                self.file.write_all(&data).await?;
-                // tokio writes in the background and reports a failure only
-                // on the next call; without this a fragment that never
-                // reached the file (full disk) is counted in the saved
-                // state, and the next run can't resume from it.
-                self.file.flush().await?;
-                Ok::<_, io::Error>(data.len() as u64)
-            }
-            .await;
-            remove_frag_file(&frag.data).await;
-            match written {
-                Ok(bytes) => {
-                    self.wrote_any = true;
-                    events.push(Event::Wrote(bytes));
-                }
-                Err(error) => {
-                    log_warn!("Error writing fragment {} to {}: {error}", self.next_write, self.path.display());
-                    return Err(error);
-                }
-            }
-            self.next_write += 1;
-        }
-        Ok(events)
-    }
-
-    /// Flushes; returns how many downloaded fragments never got written
-    /// (stuck behind a gap when the download stopped).
-    pub async fn finish(mut self) -> io::Result<usize> {
-        let mut leftover = 0;
-        for fragment in mem::take(&mut self.pending).into_values().flatten() {
-            remove_frag_file(&fragment.data).await;
-            leftover += 1;
-        }
-        self.file.flush().await?;
-        Ok(leftover)
-    }
-}
 
 /// What happened to fragments handed to a sink.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,17 +46,116 @@ pub struct Opened {
     pub state: DownloadState,
 }
 
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// Extracts `.f{itag}` from a `{base}.f{itag}.ts` data file path.
+fn itag_suffix(data_file: &Path) -> Option<String> {
+    let stem = data_file.file_stem()?.to_str()?;
+    let (_, itag) = stem.rsplit_once(".f")?;
+    (!itag.is_empty() && itag.bytes().all(|byte| byte.is_ascii_digit())).then(|| format!(".f{itag}"))
+}
+
+/// Returns the sole file in `dir` whose name ends with `suffix`, or `None` if
+/// zero or multiple match.
+async fn find_unique_by_suffix(dir: &Path, suffix: &str) -> io::Result<Option<PathBuf>> {
+    let mut entries = match tokio::fs::read_dir(dir).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let mut found = None;
+    while let Some(entry) = entries.next_entry().await? {
+        if !entry.file_name().to_string_lossy().ends_with(suffix) {
+            continue;
+        }
+        if !entry.file_type().await.is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        if found.is_some() {
+            return Ok(None);
+        }
+        found = Some(entry.path());
+    }
+    Ok(found)
+}
+
+/// Renames SQLite `-wal` and `-shm` sidecars alongside a moved database,
+/// removing any stale destination sidecar when the source has none.
+async fn rename_db_sidecars(from: &Path, to: &Path, name: &str) -> io::Result<()> {
+    for suffix in ["-wal", "-shm"] {
+        let sidecar_path = with_suffix(from, suffix);
+        let dest_sidecar = with_suffix(to, suffix);
+        match tokio::fs::rename(&sidecar_path, &dest_sidecar).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                // Remove any stale sidecar from an earlier file so SQLite
+                // never replays an unrelated WAL onto the moved DB.
+                if let Err(remove_error) = tokio::fs::remove_file(&dest_sidecar).await
+                    && remove_error.kind() != io::ErrorKind::NotFound
+                {
+                    log_debug!("{name}: Could not delete stale {}: {remove_error}", dest_sidecar.display());
+                }
+            }
+            Err(error) => {
+                log_warn!("{name}: Could not move {}: {error}", sidecar_path.display());
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// When resuming inside an owned temp dir after the stream title or `-o`
+/// template changed, renames the existing `*.f{itag}.sqlite` (plus sidecars)
+/// or `*.f{itag}.ts` to the new base name so resuming continues instead of
+/// starting over.
+async fn adopt_renamed_storage(data_file: &Path, database_path: &Path, name: &str) -> io::Result<()> {
+    let (Some(dir), Some(itag)) = (data_file.parent(), itag_suffix(data_file)) else {
+        return Ok(());
+    };
+    if let Some(found) = find_unique_by_suffix(dir, &format!("{itag}.sqlite")).await? {
+        tokio::fs::rename(&found, database_path).await?;
+        rename_db_sidecars(&found, database_path, name).await?;
+        log_info!(
+            "{name}: Found previous database {} under a different name; resuming as {}",
+            found.display(),
+            database_path.display()
+        );
+        return Ok(());
+    }
+    if let Some(found) = find_unique_by_suffix(dir, &format!("{itag}.ts")).await? {
+        tokio::fs::rename(&found, data_file).await?;
+        log_info!(
+            "{name}: Found previous data file {} under a different name; resuming as {}",
+            found.display(),
+            data_file.display()
+        );
+    }
+    Ok(())
+}
+
 /// Opens storage for `data_file`, resuming if `state` says there is
 /// something to resume. `fresh_start` is the sequence for a new download.
+/// When `adopt_renamed` is true (an owned `{id}__*` temp dir), an existing
+/// `.f{itag}.sqlite` or `.f{itag}.ts` under an older filename is renamed to
+/// match `data_file` before resuming.
 pub async fn open(
     sqlite: bool,
     data_file: &Path,
     mut state: DownloadState,
     fresh_start: impl FnOnce() -> u64,
     mode: u32,
+    adopt_renamed: bool,
     name: &str,
 ) -> Result<Opened> {
     let database_path = db_path(data_file);
+    if state.fragments > 0 && adopt_renamed && !database_path.exists() && !data_file.exists() {
+        adopt_renamed_storage(data_file, &database_path, name).await?;
+    }
     // A download is resumed in the storage it was started with, whatever
     // the flags say now: a .ts download isn't replaced by an empty
     // database's export (e.g. when rerun with --recover-private), and a
@@ -246,9 +219,7 @@ async fn keep_existing_data(data_file: &Path, name: &str) -> io::Result<bool> {
     if !has_data {
         return Ok(false);
     }
-    let mut old_name = data_file.as_os_str().to_os_string();
-    old_name.push(".old");
-    let old_file = PathBuf::from(old_name);
+    let old_file = with_suffix(data_file, ".old");
     tokio::fs::rename(data_file, &old_file).await?;
     log_warn!("{name}: {} has data that can't be resumed; kept it as {}", data_file.display(), old_file.display());
     Ok(true)
@@ -258,32 +229,7 @@ pub(super) async fn keep_existing_db(database_path: &Path, name: &str) -> io::Re
     if !keep_existing_data(database_path, name).await? {
         return Ok(());
     }
-    for suffix in ["-wal", "-shm"] {
-        let mut sidecar = database_path.as_os_str().to_os_string();
-        sidecar.push(suffix);
-        let sidecar_path = PathBuf::from(sidecar);
-        let mut old_sidecar = database_path.as_os_str().to_os_string();
-        old_sidecar.push(".old");
-        old_sidecar.push(suffix);
-        let old_sidecar_path = PathBuf::from(old_sidecar);
-        match tokio::fs::rename(&sidecar_path, &old_sidecar_path).await {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                // Remove any stale sidecar from an earlier backup so SQLite
-                // never replays an unrelated WAL onto the newly saved DB.
-                if let Err(remove_error) = tokio::fs::remove_file(&old_sidecar_path).await
-                    && remove_error.kind() != io::ErrorKind::NotFound
-                {
-                    log_debug!("{name}: Could not delete stale {}: {remove_error}", old_sidecar_path.display());
-                }
-            }
-            Err(error) => {
-                log_warn!("{name}: Could not keep {}: {error}", sidecar_path.display());
-                return Err(error);
-            }
-        }
-    }
-    Ok(())
+    rename_db_sidecars(database_path, &with_suffix(database_path, ".old"), name).await
 }
 
 /// A SQLite database ready to export to `.ts`, deferred until all streams finish.
