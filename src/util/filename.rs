@@ -7,8 +7,12 @@ use crate::error::{Error, Result};
 use crate::log_warn;
 use crate::types::FILENAME_FORMAT_BLACKLIST;
 
-/// Max bytes for the final path component: 255 minus room for `.description`.
-pub const MAX_FILENAME_LEN: usize = 243;
+/// Room for the longest suffix added to the base name, a fragment file
+/// `.f{itag}.frag{seq}.ts` (or `.f{itag}.sqlite-wal`).
+pub const SUFFIX_ROOM: usize = 24;
+/// Max bytes for the final path component: 255 minus room for the longest
+/// suffix appended to the base name.
+pub const MAX_FILENAME_LEN: usize = 255 - SUFFIX_ROOM;
 
 const FORBIDDEN: [(char, char); 9] =
     [('<', '＜'), ('>', '＞'), (':', '：'), ('"', '″'), ('/', '⧸'), ('\\', '⧹'), ('|', '｜'), ('?', '？'), ('*', '＊')];
@@ -128,6 +132,27 @@ fn pieces(format: &str) -> Vec<Piece<'_>> {
     out
 }
 
+fn sanitized_vals(vals: &BTreeMap<String, String>, style: NameStyle) -> BTreeMap<String, String> {
+    vals.iter()
+        .map(|(key, value)| {
+            let blacklisted = FILENAME_FORMAT_BLACKLIST.iter().any(|blocked| blocked.eq_ignore_ascii_case(key.trim()));
+            let safe = if blacklisted {
+                String::new()
+            } else {
+                let cleaned = sterilize_filename(value, style);
+                if cleaned == ".." { "__".to_string() } else { cleaned }
+            };
+            (key.clone(), safe)
+        })
+        .collect()
+}
+
+/// Fills the output template with sanitized values without truncating or
+/// warning, used to measure directory length before choosing a path budget.
+pub fn format_filename_untruncated(format: &str, vals: &BTreeMap<String, String>, style: NameStyle) -> Result<String> {
+    format_python_map(format, &sanitized_vals(vals, style))
+}
+
 /// Fills the output template with sanitized values. Blacklisted keys expand to
 /// an empty string. If the resulting file name is longer than
 /// `MAX_FILENAME_LEN` bytes, or than `max_units` UTF-16 units (the room
@@ -139,19 +164,7 @@ pub fn format_filename(
     style: NameStyle,
     max_units: Option<usize>,
 ) -> Result<String> {
-    let mut fname_vals: BTreeMap<String, String> = vals
-        .iter()
-        .map(|(key, value)| {
-            let blacklisted = FILENAME_FORMAT_BLACKLIST.iter().any(|blocked| blocked.eq_ignore_ascii_case(key.trim()));
-            let safe = if blacklisted {
-                String::new()
-            } else {
-                let cleaned = sterilize_filename(value, style);
-                if cleaned == ".." { "__".to_string() } else { cleaned }
-            };
-            (key.clone(), safe)
-        })
-        .collect();
+    let mut fname_vals = sanitized_vals(vals, style);
 
     let out = format_python_map(format, &fname_vals)?;
     let base = Path::new(&out).file_name().map_or("", |name| name.to_str().unwrap_or(""));
@@ -257,6 +270,8 @@ mod tests {
         let out = format_filename("out/%(title)s [%(id)s]", &values, WIN, None).unwrap();
         let base = Path::new(&out).file_name().unwrap().to_str().unwrap();
         assert!(base.len() <= MAX_FILENAME_LEN, "{}", base.len());
+        assert!(base.len() + ".f315.frag1234567.ts".len() <= 255);
+        assert!(base.len() + ".f315.sqlite-wal".len() <= 255);
         assert!(base.ends_with(" [abcdefghijk]"));
 
         let values = vals(&[("title", &title)]);
