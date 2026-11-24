@@ -173,3 +173,43 @@ async fn write_mux_file_updates_separate_audio_command() {
     assert!(lines[1].contains("out-1.m4a"), "{written}");
     fs::remove_dir_all(&plan.final_dir).unwrap();
 }
+
+#[tokio::test]
+async fn failed_second_sqlite_export_removes_first_exported_ts() {
+    let (plan, state_file) = downloaded("export-partial-cleanup");
+    fs::remove_file(plan.temp(".f140.ts")).unwrap();
+    let first_out = plan.temp(".f140.ts");
+    let blocked_out = plan.temp(".f299.ts");
+    // A directory at the export target forces File::create to fail.
+    fs::create_dir(&blocked_out).unwrap();
+    let first = PendingExport::for_test(&plan.temp(".f140.sqlite"), first_out.clone()).await;
+    let second = PendingExport::for_test(&plan.temp(".f299.sqlite"), blocked_out).await;
+
+    let opts = Options::default();
+    let mut finish = finish_of(&opts, &plan, &state_file);
+    finish.pending_exports.push(first);
+    finish.pending_exports.push(second);
+
+    assert_eq!(finish.finish().await, 1);
+    assert!(!first_out.exists(), "earlier exported .ts must be deleted when a later export fails");
+    assert!(plan.temp(".f140.sqlite").exists());
+    assert!(plan.temp(".f299.sqlite").exists());
+    assert!(state_file.exists());
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+}
+
+#[tokio::test]
+async fn finish_skips_muxing_when_move_fails() {
+    let (plan, state_file) = downloaded("move-fail-skip-mux");
+    // Block moving .f140.ts by placing a non-empty directory at its destination.
+    fs::create_dir(plan.final_path(".f140.ts")).unwrap();
+    fs::write(plan.final_path(".f140.ts").join("blocker"), b"x").unwrap();
+
+    let opts = Options { ffmpeg_path: "nonexistent-ffmpeg-binary".into(), ..Default::default() };
+    let mut finish = finish_of(&opts, &plan, &state_file);
+
+    assert_eq!(finish.finish().await, 1);
+    assert!(plan.temp(".f140.ts").exists(), "temp file must remain intact after failed move");
+    assert!(state_file.exists(), "state file must remain intact after failed move");
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+}
