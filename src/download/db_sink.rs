@@ -14,6 +14,7 @@ use tokio::task::spawn_blocking;
 
 use super::sink::{Event, fragment_bytes, remove_frag_file};
 use crate::error::Result;
+use crate::log_debug;
 use crate::mp4_atoms::strip_for_concat;
 use crate::session::Session;
 use crate::types::{DataType, Fragment, FragmentUrl, SavedDownload};
@@ -206,7 +207,19 @@ impl DbSink {
 
     /// Writes all stored fragments in order to `out` (replacing it). The
     /// first fragment keeps its `ftyp` box. Returns (fragments, bytes).
+    /// Deletes a partial `out` if writing fails.
     pub fn export(&self, out: &Path, mode: u32) -> Result<(u64, u64)> {
+        let res = self.write_export(out, mode);
+        if res.is_err()
+            && let Err(error) = fs::remove_file(out)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            log_debug!("Could not delete the partial export {}: {error}", out.display());
+        }
+        res
+    }
+
+    fn write_export(&self, out: &Path, mode: u32) -> Result<(u64, u64)> {
         let mut file = BufWriter::new(File::create(out)?);
         apply_mode(out, mode);
         let conn = lock(&self.conn);
