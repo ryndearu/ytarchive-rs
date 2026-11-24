@@ -41,7 +41,7 @@ impl Extractor {
     async fn wait_on_idle_channel(&mut self, live_waited: &mut u64, retry_count: &mut u32, newlines: bool) -> bool {
         let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
         if *live_waited == 0 {
-            eprintln!();
+            log::finish_inline();
             self.ask_ahead().await;
             log_general!("You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds.");
         }
@@ -116,7 +116,7 @@ impl Extractor {
                         }
                         continue;
                     }
-                    eprintln!();
+                    log::finish_inline();
                     if all_transient {
                         if self.in_progress {
                             log_warn!("Temporary error retrieving player response; continuing with current URLs.");
@@ -357,7 +357,7 @@ impl Extractor {
                 }
                 other => {
                     if secs_late > 0 {
-                        eprintln!();
+                        log::finish_inline();
                     }
                     log_error!("Unknown playability status: {other}");
                     if self.in_progress {
@@ -369,7 +369,7 @@ impl Extractor {
             }
 
             if secs_late > 0 {
-                eprintln!();
+                log::finish_inline();
             }
             return Outcome::Found(Box::new(player_response));
         }

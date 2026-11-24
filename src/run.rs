@@ -17,7 +17,7 @@ use crate::http::Http;
 use crate::input_url::InputUrl;
 use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
-use crate::log::report_progress;
+use crate::log::{finish_inline, report_progress};
 use crate::mux::{MuxInput, ffmpeg_args, mux_file_contents};
 use crate::output::{OutputPlan, ensure_dir, final_location, load_states, state_file, temp_dir};
 use crate::prepare::{PrepareOutcome, Prepared, prepare, prepared_from_kept};
@@ -358,7 +358,7 @@ async fn download(
     if let Some(handle) = refresher {
         handle.abort();
     }
-    eprintln!();
+    finish_inline();
 
     let mut fin = Finish {
         opts: &opts,
