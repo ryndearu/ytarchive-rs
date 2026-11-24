@@ -266,6 +266,20 @@ pub fn resolve_program(program: &str) -> Option<PathBuf> {
     exe_dir.into_iter().chain(path_dirs).find_map(|dir| find_executable(dir.join(program)))
 }
 
+/// Copies `src` to `dst` without failing when setting Unix permissions is
+/// rejected (e.g. exFAT, FAT32, or SMB mounts).
+fn copy_file_data(src: &Path, dst: &Path) -> io::Result<()> {
+    let mut reader = fs::File::open(src)?;
+    let mut writer = fs::File::create(dst)?;
+    io::copy(&mut reader, &mut writer)?;
+    #[cfg(unix)]
+    if let Ok(metadata) = reader.metadata() {
+        use std::os::unix::fs::PermissionsExt;
+        apply_mode(dst, metadata.permissions().mode() & 0o7777);
+    }
+    Ok(())
+}
+
 /// Moves `src` to `dst`, copying across filesystems if rename fails.
 /// A missing `src` is not an error (nothing to move).
 pub fn try_move(src: &Path, dst: &Path) -> io::Result<()> {
@@ -276,11 +290,11 @@ pub fn try_move(src: &Path, dst: &Path) -> io::Result<()> {
         return Ok(());
     }
     crate::log_info!("Moving file {} to {}", src.display(), dst.display());
-    match fs::rename(src, dst) {
+    match rename_atomic(src, dst) {
         Ok(()) => return Ok(()),
         Err(error) => crate::log_debug!("Rename failed ({error}); copying {} instead", src.display()),
     }
-    if let Err(error) = fs::copy(src, dst) {
+    if let Err(error) = copy_file_data(src, dst) {
         if let Err(remove_err) = fs::remove_file(dst)
             && remove_err.kind() != io::ErrorKind::NotFound
         {
@@ -324,73 +338,4 @@ pub fn create_temp_dir(parent: &Path, prefix: &str, mode: u32) -> io::Result<Pat
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn writes_with_mode() {
-        let dir = env::temp_dir().join(format!("ytarchive-rs-fs-{}", process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("x.bin");
-        write_file_with_mode(&file, b"hello", 0o600).await.unwrap();
-        assert_eq!(fs::read(&file).unwrap(), b"hello");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
-        }
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn atomic_write_replaces_and_leaves_no_temp_file() {
-        let dir = env::temp_dir().join(format!("ytarchive-rs-atomic-{}", process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let file = dir.join("x.state");
-        write_atomic(&file, b"old", 0o644).unwrap();
-        write_atomic(&file, b"new", 0o644).unwrap();
-        assert_eq!(fs::read(&file).unwrap(), b"new");
-        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            write_atomic(&file, b"newer", 0o600).unwrap();
-            assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
-        }
-
-        // A failed write keeps the old contents and leaves no temp file.
-        let blocked = dir.join("y.state");
-        fs::create_dir(dir.join("y.state.tmp")).unwrap();
-        fs::write(&blocked, b"old").unwrap();
-        assert!(write_atomic(&blocked, b"new", 0o644).is_err());
-        assert_eq!(fs::read(&blocked).unwrap(), b"old");
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn move_replaces_the_destination_and_skips_a_missing_source() {
-        let dir = env::temp_dir().join(format!("ytarchive-rs-move-{}", process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let (source, destination) = (dir.join("a.ts"), dir.join("b.ts"));
-        fs::write(&source, b"data").unwrap();
-        fs::write(&destination, b"stale").unwrap();
-        try_move(&source, &destination).unwrap();
-        assert!(!source.exists());
-        assert_eq!(fs::read(&destination).unwrap(), b"data");
-        try_move(&source, &destination).unwrap();
-        assert_eq!(fs::read(&destination).unwrap(), b"data");
-        fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn windows_candidates_follow_pathext_and_skip_extensionless_shims() {
-        let bare = windows_executable_candidates(Path::new("yt-dlp"), Some(".EXE;.CMD"));
-        assert_eq!(bare, [PathBuf::from("yt-dlp.EXE"), PathBuf::from("yt-dlp.CMD")]);
-
-        let explicit = windows_executable_candidates(Path::new("yt-dlp.cmd"), Some(".EXE;.CMD"));
-        assert_eq!(explicit, [PathBuf::from("yt-dlp.cmd")]);
-
-        let dotted = windows_executable_candidates(Path::new("yt-dlp.nightly"), Some(".EXE"));
-        assert_eq!(dotted, [PathBuf::from("yt-dlp.nightly.EXE"), PathBuf::from("yt-dlp.nightly")]);
-    }
-}
+mod tests;
