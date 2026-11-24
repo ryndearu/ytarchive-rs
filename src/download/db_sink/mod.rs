@@ -13,7 +13,7 @@ use rusqlite::{Connection, OpenFlags, params};
 use tokio::task::spawn_blocking;
 
 use super::sink::{Event, fragment_bytes, remove_frag_file};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::log_debug;
 use crate::mp4_atoms::strip_for_concat;
 use crate::session::Session;
@@ -313,9 +313,22 @@ fn wal_path(database_path: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
+fn read_kept_from(conn: &Connection) -> Result<Option<KeptStream>> {
+    let Some(raw) = meta_with(conn, "download")? else {
+        return Ok(None);
+    };
+    let Ok(info) = serde_json::from_str::<SavedDownload>(&raw) else {
+        return Ok(None);
+    };
+    let head = meta_with(conn, "head")?.and_then(|text| text.parse().ok());
+    let urls = urls_with(conn)?;
+    Ok(Some(KeptStream { info, head, urls }))
+}
+
 /// Reads the `*.f{itag}.sqlite` database in `temp_dir`, if it has the info
 /// a later run needs. Opens read-only so inspection never modifies files or
-/// permissions, falling back to read-write only when WAL recovery is needed.
+/// permissions, falling back to read-write only when WAL recovery is needed
+/// (which SQLite can reject at query time as well as open time).
 pub fn read_kept(temp_dir: &Path, itag: u32) -> Option<KeptStream> {
     let suffix = format!(".f{itag}.sqlite");
     let path = fs::read_dir(temp_dir)
@@ -325,19 +338,17 @@ pub fn read_kept(temp_dir: &Path, itag: u32) -> Option<KeptStream> {
         .find(|path| path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(&suffix)))?;
     // Closed again on return, before the download reopens it (Windows
     // can't share it otherwise).
-    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .or_else(|error| {
-            if wal_path(&path).exists() {
-                Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-            } else {
-                Err(error)
-            }
-        })
-        .ok()?;
-    let info: SavedDownload = serde_json::from_str(&meta_with(&conn, "download").ok()??).ok()?;
-    let head = meta_with(&conn, "head").ok()?.and_then(|text| text.parse().ok());
-    let urls = urls_with(&conn).ok()?;
-    Some(KeptStream { info, head, urls })
+    let read_only = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(Error::from)
+        .and_then(|conn| read_kept_from(&conn));
+    match read_only {
+        Ok(kept) => kept,
+        Err(_) if wal_path(&path).exists() => {
+            let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).ok()?;
+            read_kept_from(&conn).ok().flatten()
+        }
+        Err(_) => None,
+    }
 }
 
 #[cfg(test)]
