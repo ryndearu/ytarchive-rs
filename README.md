@@ -215,7 +215,7 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 - `--no-path-limit` keeps full titles; ffmpeg and other programs may then need Windows' `LongPathsEnabled` setting to open them.
 - `--no-windows-filenames` (default on Linux and macOS) only replaces path separators. On Windows a title with `?` or `:` then can't be saved, and ytarchive stops without merging.
 - Resume state (`{id}.f{itag}.state`) goes to `--temporary-dir`, or the current folder. Resume from the same folder; a different `-o` still finds it by video ID.
-- Data that can't be continued is kept as `{name}.f{itag}.ts.old` in the temporary folder, which is then left for you to delete.
+- Data that can't be continued is kept as `{name}.f{itag}.ts.old` (or `{name}.f{itag}.sqlite.old` with `--sqlite`) in the temporary folder, which is then left for you to delete.
 - If data can't be stored (full disk, failed `--sqlite` export), ytarchive exits with code 1 without merging and keeps everything; run the same command again to continue.
 - An existing final file gets the new one named `{name}-1` … `{name}-10`; past that the `.ts` files are kept unmuxed.
 
