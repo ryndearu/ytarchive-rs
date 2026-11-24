@@ -9,7 +9,7 @@ use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OpenFlags, params};
 use tokio::task::spawn_blocking;
 
 use super::sink::{Event, fragment_bytes, remove_frag_file};
@@ -73,6 +73,15 @@ fn urls_with(conn: &Connection) -> Result<Vec<FragmentUrl>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+fn meta_with(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare("SELECT value FROM meta WHERE key = ?1")?;
+    let mut rows = stmt.query(params![key])?;
+    Ok(match rows.next()? {
+        Some(row) => Some(row.get(0)?),
+        None => None,
+    })
+}
+
 impl DbSink {
     pub fn open(path: &Path, mode: u32) -> Result<Self> {
         let conn = Connection::open(path)?;
@@ -131,6 +140,7 @@ impl DbSink {
     }
 
     /// Stored download URLs, oldest first.
+    #[cfg(test)]
     pub fn urls(&self) -> Result<Vec<FragmentUrl>> {
         urls_with(&lock(&self.conn))
     }
@@ -141,14 +151,9 @@ impl DbSink {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn meta(&self, key: &str) -> Result<Option<String>> {
-        let conn = lock(&self.conn);
-        let mut stmt = conn.prepare("SELECT value FROM meta WHERE key = ?1")?;
-        let mut rows = stmt.query(params![key])?;
-        Ok(match rows.next()? {
-            Some(row) => Some(row.get(0)?),
-            None => None,
-        })
+        meta_with(&lock(&self.conn), key)
     }
 
     /// (fragment count, total bytes) stored.
@@ -302,9 +307,16 @@ pub struct KeptStream {
     pub urls: Vec<FragmentUrl>,
 }
 
+fn wal_path(database_path: &Path) -> PathBuf {
+    let mut name = database_path.as_os_str().to_os_string();
+    name.push("-wal");
+    PathBuf::from(name)
+}
+
 /// Reads the `*.f{itag}.sqlite` database in `temp_dir`, if it has the info
-/// a later run needs.
-pub fn read_kept(temp_dir: &Path, itag: u32, mode: u32) -> Option<KeptStream> {
+/// a later run needs. Opens read-only so inspection never modifies files or
+/// permissions, falling back to read-write only when WAL recovery is needed.
+pub fn read_kept(temp_dir: &Path, itag: u32) -> Option<KeptStream> {
     let suffix = format!(".f{itag}.sqlite");
     let path = fs::read_dir(temp_dir)
         .ok()?
@@ -313,10 +325,18 @@ pub fn read_kept(temp_dir: &Path, itag: u32, mode: u32) -> Option<KeptStream> {
         .find(|path| path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(&suffix)))?;
     // Closed again on return, before the download reopens it (Windows
     // can't share it otherwise).
-    let database = DbSink::open(&path, mode).ok()?;
-    let info: SavedDownload = serde_json::from_str(&database.meta("download").ok()??).ok()?;
-    let head = database.meta("head").ok()?.and_then(|text| text.parse().ok());
-    let urls = database.urls().ok()?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .or_else(|error| {
+            if wal_path(&path).exists() {
+                Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            } else {
+                Err(error)
+            }
+        })
+        .ok()?;
+    let info: SavedDownload = serde_json::from_str(&meta_with(&conn, "download").ok()??).ok()?;
+    let head = meta_with(&conn, "head").ok()?.and_then(|text| text.parse().ok());
+    let urls = urls_with(&conn).ok()?;
     Some(KeptStream { info, head, urls })
 }
 
