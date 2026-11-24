@@ -98,6 +98,15 @@ fn audio_only_and_video_only() {
     assert!(selection.audio_url.is_none());
     assert!(validate(&selection, true).is_ok());
     assert!(validate(&selection, false).is_err());
+
+    // --no-audio skips audio_only and fails if no video formats are offered.
+    assert!(try_select(&offered, &sel(&["audio_only"]), None, true).is_none());
+    let selection = try_select(&offered, &sel(&["audio", "720p"]), None, true).unwrap();
+    assert_eq!(selection.label, "720p");
+    assert!(selection.audio_url.is_none());
+    assert!(try_select(&urls(&[140]), &sel(&["best"]), None, true).is_none());
+    let audio_only = try_select(&urls(&[140]), &sel(&["audio"]), None, false).unwrap();
+    assert!(validate(&audio_only, true).is_err());
 }
 
 #[test]
