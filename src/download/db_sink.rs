@@ -220,7 +220,7 @@ impl DbSink {
     }
 
     fn write_export(&self, out: &Path, mode: u32) -> Result<(u64, u64)> {
-        let mut file = BufWriter::new(File::create(out)?);
+        let mut file = BufWriter::with_capacity(1 << 20, File::create(out)?);
         apply_mode(out, mode);
         let conn = lock(&self.conn);
         let mut stmt = conn.prepare("SELECT mime, data FROM segments ORDER BY seq")?;
