@@ -160,7 +160,7 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
 ### Network Options:
     -4, --ipv4         Force IPv4
     -6, --ipv6         Force IPv6
-        --proxy <URL>  Proxy URL (http, https, or socks5)
+        --proxy <URL>  Proxy URL (http, https, socks5, or socks5h)
 
 ### Verbosity Options:
     -q, --quiet    Print nothing except prompts

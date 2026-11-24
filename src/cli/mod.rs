@@ -228,7 +228,7 @@ pub struct Cli {
     /// Force IPv6.
     #[arg(short = '6', long, help_heading = NETWORK)]
     pub ipv6: bool,
-    /// Proxy URL (http, https, or socks5).
+    /// Proxy URL (http, https, socks5, or socks5h).
     #[arg(long, value_name = "URL", value_parser = parse_proxy, help_heading = NETWORK)]
     pub proxy: Option<reqwest::Url>,
 
@@ -266,8 +266,8 @@ fn parse_octal(text: &str) -> std::result::Result<u32, String> {
 fn parse_proxy(text: &str) -> std::result::Result<reqwest::Url, String> {
     let url = reqwest::Url::parse(text).map_err(|_| "invalid proxy URL".to_string())?;
     match url.scheme() {
-        "http" | "https" | "socks5" => Ok(url),
-        _ => Err("the proxy URL scheme must be http, https, or socks5".into()),
+        "http" | "https" | "socks5" | "socks5h" => Ok(url),
+        _ => Err("the proxy URL scheme must be http, https, socks5, or socks5h".into()),
     }
 }
 
