@@ -245,3 +245,44 @@ async fn unlimited_retries_still_enter_private_recovery_on_403() {
     drop(out);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn recovery_storage_error_stops_session() {
+    use rusqlite::Connection;
+
+    use super::super::db_sink::DbSink;
+    use crate::types::{FragData, Fragment};
+
+    let dir = temp_dir("recover-storage-err");
+    let database_path = dir.join("out.f140.sqlite");
+    let mut database = DbSink::open(&database_path, 0o644).unwrap();
+    for seq in 0..3 {
+        let frag = Fragment {
+            seq,
+            x_head_seqnum: None,
+            data: FragData::Memory(bytes::Bytes::from(fragment_body(seq))),
+            mime_type: "video/mp4".into(),
+        };
+        database.push(seq, Some(frag)).await.unwrap();
+    }
+    drop(database);
+
+    let conn = Connection::open(&database_path).unwrap();
+    conn.execute_batch(
+        "CREATE TRIGGER fail_recovery BEFORE INSERT ON segments BEGIN
+             SELECT RAISE(ABORT, 'disk full');
+         END;",
+    )
+    .unwrap();
+    drop(conn);
+
+    let url = serve(8, vec![]).await;
+    let session = Session::for_test(recovery_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
+    session.set_unavailable();
+    let state = DownloadState { start_frag: 0, fragments: 3, ..Default::default() };
+    let (stream_params, _rx) = params(&dir, 8, state);
+    let err = download_stream(session.clone(), stream_params).await.unwrap_err();
+    assert!(matches!(err, Error::Sqlite(_)), "{err}");
+    assert!(session.is_stopping(), "recovery storage error must stop the sibling stream");
+    fs::remove_dir_all(&dir).unwrap();
+}
