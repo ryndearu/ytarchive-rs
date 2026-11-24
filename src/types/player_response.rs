@@ -73,8 +73,6 @@ pub struct StreamingData {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AdaptiveFormat {
-    pub itag: u32,
-    pub url: String,
     pub target_duration_sec: f64,
 }
 
