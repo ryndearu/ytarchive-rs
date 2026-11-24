@@ -40,17 +40,33 @@ fn stuck_while_live(state: &mut FragThreadState, progress: StreamProgress) -> bo
     state.stuck_rounds >= STUCK_ROUNDS && behind >= enough
 }
 
+/// Decision after a failed fragment attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryDecision {
+    Retry,
+    /// Give up on this fragment only; the stream continues.
+    GiveUp,
+    /// Stop handing out this sequence and later ones without aborting workers
+    /// still retrying earlier fragments.
+    EndOfStream,
+}
+
 /// Whether to keep retrying after a failed attempt. When the per-fragment
-/// try limit is hit: while live, start over (unless only this fragment is
-/// failing); once the stream has ended, give up (or allow a few extra rounds
-/// for fragments well behind the head).
-pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState, progress: StreamProgress) -> bool {
+/// try limit is hit: while live and available, start over (unless only this
+/// fragment is failing); once the stream has ended or gone unavailable, give
+/// up (or allow a few extra rounds for fragments well behind the head, or end
+/// the stream near the head).
+pub fn continue_fragment_download(
+    session: &Session,
+    state: &mut FragThreadState,
+    progress: StreamProgress,
+) -> RetryDecision {
     if session.is_finished(state.data_type) {
-        return false;
+        return RetryDecision::GiveUp;
     }
     let max = session.opts.frag_max_tries;
     if max == 0 || state.tries < max {
-        return true;
+        return RetryDecision::Retry;
     }
 
     state.full_retries = state.full_retries.saturating_sub(1);
@@ -62,11 +78,11 @@ pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState
         // until the stream ended.
         if stuck_while_live(state, progress) {
             log_debug!("{}: Fragment {}: giving up, the rest of the stream is downloading", state.name, state.seq);
-            return false;
+            return RetryDecision::GiveUp;
         }
         log_debug!("{}: Fragment {}: Stream still live, continuing download attempt", state.name, state.seq);
         state.tries = 0;
-        return true;
+        return RetryDecision::Retry;
     }
 
     if state.is_403 {
@@ -83,12 +99,15 @@ pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState
             log_warn!("{}: You might want to use yt-dlp to download instead.", state.name);
         }
         session.set_finished(state.data_type);
-        return false;
+        return RetryDecision::GiveUp;
     }
 
     // The "near the head" checks in this file differ by one from each other
     // (`<` here, `>` after an HTTP 404, `>=` after a request error). Each is
     // Go's comparison (util.go), kept as it was.
+    // Refresh from the stream's latest known head so a fragment that started
+    // retrying while live doesn't judge distance against a stale sequence.
+    state.max_seq = state.max_seq.max(progress.max_seq);
     let behind_head = state.max_seq.is_some_and(|max| state.seq + 2 < max);
     if behind_head {
         if state.full_retries > 0 {
@@ -97,17 +116,17 @@ pub fn continue_fragment_download(session: &Session, state: &mut FragThreadState
             // Go didn't reset the count here, so its loop exited immediately
             // and the fragment was dropped without the extra attempts.
             state.tries = 0;
-            return true;
+            return RetryDecision::Retry;
         }
         // Give up on this fragment only. Go marked the whole stream finished
         // here, silently dropping everything after one bad fragment.
-        return false;
+        return RetryDecision::GiveUp;
     }
 
-    // Within two of the head after the stream ended: it was probably never
-    // created, so the stream is done.
-    session.set_finished(state.data_type);
-    false
+    // Within two of the head after the stream ended or went unavailable: it
+    // was probably never created. Stop only this sequence and later ones so
+    // workers still retrying earlier fragments can finish.
+    RetryDecision::EndOfStream
 }
 
 /// After a failure that used up the try limit (or every `DEFAULT_FRAG_MAX_TRIES`
@@ -129,7 +148,9 @@ async fn retry_fragment_url(session: &Session, state: &FragThreadState, url: &Fr
     false
 }
 
-fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &reqwest::Response) {
+/// Returns `true` when this near-head 404 indicates the ended stream has no
+/// more fragments from `state.seq` onward.
+fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &reqwest::Response) -> bool {
     let status = response.status();
     log_debug!("{}: HTTP Error for fragment {}: {status}", state.name, state.seq);
     if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
@@ -144,11 +165,14 @@ fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &
             "{}: Stream has ended and fragment within the last two not found, probably not actually created",
             state.name
         );
-        session.set_finished(state.data_type);
+        return true;
     }
+    false
 }
 
-fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &dyn Display) {
+/// Returns `true` when this near-head request error indicates the ended stream
+/// has no more fragments from `state.seq` onward.
+fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &dyn Display) -> bool {
     log_debug!("{}: Error with fragment {}: {err}", state.name, state.seq);
     state.backoff_step += 1;
     state.is_403 = false;
@@ -157,8 +181,9 @@ fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &d
             "{}: Stream has ended and fragment number is within two of the known max, probably not actually created",
             state.name
         );
-        session.set_finished(state.data_type);
+        return true;
     }
+    false
 }
 
 pub(super) fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
@@ -196,8 +221,16 @@ async fn sleep_or_stop(session: &Session, state: &FragThreadState) -> bool {
 pub(super) enum FragOutcome {
     Downloaded(Fragment),
     Missing,
+    /// Ended stream has no fragments from this sequence onward; stop handing
+    /// out later sequences without aborting workers on earlier ones.
+    EndOfStream,
     Stopped,
     StorageError(Error),
+}
+
+enum FetchError {
+    Http(reqwest::Response),
+    Transport(reqwest::Error),
 }
 
 /// Downloads `state.seq`. With `frag_file`, the data goes to that file instead
@@ -222,9 +255,9 @@ pub(super) async fn download_fragment(
             _ = session.cancel.cancelled() => return FragOutcome::Stopped,
             result = fragment_request(session, &url, state.seq).send() => result,
         };
-        match response {
-            Err(error) => handle_download_error(session, state, &without_query(error)),
-            Ok(resp) if resp.status().as_u16() >= 400 => handle_http_error(session, state, &resp),
+        let fetch_error = match response {
+            Err(error) => Some(FetchError::Transport(error)),
+            Ok(resp) if resp.status().as_u16() >= 400 => Some(FetchError::Http(resp)),
             Ok(resp) => {
                 let head = header_u64(resp.headers(), "x-head-seqnum");
                 let mime = content_type(resp.headers());
@@ -234,11 +267,12 @@ pub(super) async fn download_fragment(
                     result = resp.bytes() => result,
                 };
                 match body {
-                    Err(error) => handle_download_error(session, state, &without_query(error)),
+                    Err(error) => Some(FetchError::Transport(error)),
                     // Success with no data: the fragment isn't ready yet.
                     Ok(body) if body.is_empty() => {
                         state.backoff_step = 0;
                         state.is_403 = false;
+                        None
                     }
                     Ok(body) => {
                         if !mime.ends_with("/mp4") && !mime.ends_with("/webm") {
@@ -267,6 +301,16 @@ pub(super) async fn download_fragment(
                     }
                 }
             }
+        };
+        if let Some(error) = fetch_error {
+            state.max_seq = state.max_seq.max(progress().max_seq);
+            let end_of_stream = match error {
+                FetchError::Http(resp) => handle_http_error(session, state, &resp),
+                FetchError::Transport(error) => handle_download_error(session, state, &without_query(error)),
+            };
+            if end_of_stream {
+                return FragOutcome::EndOfStream;
+            }
         }
 
         state.tries += 1;
@@ -285,8 +329,10 @@ pub(super) async fn download_fragment(
         if session.is_stopping() {
             return FragOutcome::Stopped;
         }
-        if !continue_fragment_download(session, state, progress()) {
-            return FragOutcome::Missing;
+        match continue_fragment_download(session, state, progress()) {
+            RetryDecision::Retry => {}
+            RetryDecision::GiveUp => return FragOutcome::Missing,
+            RetryDecision::EndOfStream => return FragOutcome::EndOfStream,
         }
         if !sleep_or_stop(session, state).await {
             return FragOutcome::Stopped;
