@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES};
+use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY};
 use crate::error::Error;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_ytdlp, local_unix_timestamp};
 use crate::types::{FormatSelection, LiveStatus, YtdlpExtraction};
@@ -13,6 +13,7 @@ use crate::{log, log_debug, log_error, log_general, log_warn, ytdlp};
 enum Step {
     Retry,
     Fail,
+    Cancelled,
 }
 
 fn is_transient_error(error: &Error) -> bool {
@@ -38,10 +39,6 @@ fn is_transient_error(error: &Error) -> bool {
         }
         _ => false,
     }
-}
-
-fn is_unrecoverable_start_error(error: &Error) -> bool {
-    matches!(error, Error::Ytdlp(message) if message.starts_with("failed to start '"))
 }
 
 fn is_channel_offline_error(error: &Error) -> bool {
@@ -76,13 +73,13 @@ impl Extractor {
         None
     }
 
-    fn retry_or_fail(&self, retries: &mut u32, message: &str) -> Step {
+    async fn retry_or_fail(&self, retries: &mut u32, message: &str) -> Step {
         if *retries >= MAX_RETRIES {
             return Step::Fail;
         }
         *retries += 1;
         log_warn!("{message} (Retry {retries}/{MAX_RETRIES})");
-        Step::Retry
+        if sleep_or_cancel(&self.cancel, RETRY_DELAY).await { Step::Retry } else { Step::Cancelled }
     }
 
     /// Runs yt-dlp until the stream is no longer upcoming (waiting as
@@ -108,9 +105,10 @@ impl Extractor {
                 // own retries) means the stream is gone, as in Go.
                 Err(Error::Json(error)) => {
                     let msg = format!("Failed to parse yt-dlp JSON: {error}");
-                    match self.retry_or_fail(&mut retries, &msg) {
+                    match self.retry_or_fail(&mut retries, &msg).await {
                         Step::Retry => continue,
                         Step::Fail => return self.fail_info(&msg),
+                        Step::Cancelled => return None,
                     }
                 }
                 Err(error) => {
@@ -118,7 +116,7 @@ impl Extractor {
                         return None;
                     }
                     if waiting_on_channel && let Some(secs) = self.retry_secs {
-                        if is_unrecoverable_start_error(&error) {
+                        if ytdlp::is_start_error(&error) {
                             log_error!("yt-dlp extraction failed: {error}");
                             return None;
                         }
@@ -151,7 +149,11 @@ impl Extractor {
                     if is_transient_error(&error) {
                         log_warn!("Temporary yt-dlp extraction failure: {error}");
                     } else {
-                        log_debug!("yt-dlp extraction failed: {error}");
+                        if self.in_progress {
+                            log_debug!("yt-dlp extraction failed: {error}");
+                        } else {
+                            log_error!("yt-dlp extraction failed: {error}");
+                        }
                         self.live = false;
                         self.unavailable = true;
                     }
@@ -222,9 +224,10 @@ impl Extractor {
                     LiveStatus::WasLive | LiveStatus::PostLive => return self.finish_live(ENDED_MESSAGE),
                     _ => {}
                 }
-                match self.retry_or_fail(&mut retries, "No fragmented download URLs found") {
+                match self.retry_or_fail(&mut retries, "No fragmented download URLs found").await {
                     Step::Retry => continue,
                     Step::Fail => return self.fail_info("No fragmented download URLs found"),
+                    Step::Cancelled => return None,
                 }
             }
 
@@ -238,9 +241,10 @@ impl Extractor {
                     _ if info.is_live => "X-Head-Seqnum probe failed",
                     _ => "No fragment range found",
                 };
-                match self.retry_or_fail(&mut retries, msg) {
+                match self.retry_or_fail(&mut retries, msg).await {
                     Step::Retry => continue,
                     Step::Fail => return self.fail_info(msg),
+                    Step::Cancelled => return None,
                 }
             }
             return Some(info);
