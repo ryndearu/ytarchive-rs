@@ -116,6 +116,15 @@ fn boundary() {
     assert_eq!(seq_boundary(1, true), None);
 }
 
+#[tokio::test]
+async fn run_with_retry_fails_fast_on_missing_binary() {
+    let opts = Options { ytdlp_path: "definitely-nonexistent-yt-dlp-binary-xyz".into(), ..Default::default() };
+    let started = std::time::Instant::now();
+    let err = run_with_retry(&opts, "https://youtu.be/x", false, 3, &CancellationToken::new()).await.unwrap_err();
+    assert!(is_start_error(&err), "{err}");
+    assert!(started.elapsed() < RETRY_DELAY, "should not sleep between spawn failures");
+}
+
 /// Hits YouTube. Run with `cargo test -- --ignored live_extraction`.
 /// Needs a JS runtime for yt-dlp; set YTDLP_TEST_OPTS (e.g. `--js-runtimes node`)
 /// if deno isn't installed.

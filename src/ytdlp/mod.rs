@@ -93,7 +93,14 @@ pub async fn run(opts: &Options, url: &str, ignore_no_formats: bool, cancel: &Ca
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Runs yt-dlp up to `attempts` times, 2s apart. Stops early on cancel.
+/// Whether `error` came from failing to spawn the yt-dlp binary itself
+/// (e.g. not found or not executable), so retrying won't help.
+pub fn is_start_error(error: &Error) -> bool {
+    matches!(error, Error::Ytdlp(message) if message.starts_with("failed to start '"))
+}
+
+/// Runs yt-dlp up to `attempts` times, 2s apart. Stops early on cancel or
+/// spawn errors.
 pub async fn run_with_retry(
     opts: &Options,
     url: &str,
@@ -106,6 +113,7 @@ pub async fn run_with_retry(
         match run(opts, url, ignore_no_formats, cancel).await {
             Ok(out) => return Ok(out),
             Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(error) if is_start_error(&error) => return Err(error),
             Err(error) => {
                 log_warn!("yt-dlp attempt {attempt}/{attempts} failed: {error}");
                 last_err = error;
