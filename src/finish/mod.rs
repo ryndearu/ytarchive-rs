@@ -54,11 +54,19 @@ async fn decide(action: Action, question: &str) -> Option<bool> {
 
 impl Finish<'_> {
     async fn export_pending(&mut self) -> bool {
+        let mut exported: Vec<PathBuf> = Vec::new();
         for pending in mem::take(&mut self.pending_exports) {
+            let out = pending.out().to_path_buf();
             if let Err(error) = pending.export().await {
                 log_error!("Failed to export downloaded data: {error}");
+                // Free any earlier stream's exported .ts so a full disk isn't
+                // left holding duplicates of the SQLite databases.
+                for path in exported {
+                    try_delete(&path);
+                }
                 return false;
             }
+            exported.push(out);
         }
         true
     }
@@ -257,6 +265,11 @@ impl Finish<'_> {
             self.cleanup_or_keep(moves_ok);
             return if moves_ok { 0 } else { 1 };
         }
+        if !moves_ok {
+            log_error!("Not muxing because moving downloaded files failed.");
+            self.cleanup_or_keep(false);
+            return 1;
+        }
 
         if !mux::program_exists(&options.ffmpeg_path) {
             log_error!(
@@ -313,9 +326,6 @@ impl Finish<'_> {
         self.cleanup_or_keep(moves_ok);
         if code != 0 {
             return code;
-        }
-        if !moves_ok {
-            return 1;
         }
         for file in &to_delete {
             try_delete(file);

@@ -61,7 +61,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - Repaired yt-dlp cookies files use randomized temporary filenames (`0600` on Unix), are removed via an exit guard, and stale copies older than a day are cleaned up when creating a new copy (skipping any copy locked by a running `ytarchive` process).
 - The final file's name (`name.mp4`, `name-1.mp4`, …) is picked right before muxing, and the `.ffmpeg.txt` command is updated to match. Go picked it before the download, so a file that appeared meanwhile made ffmpeg fail.
 - When `name.mp4` to `name-10.mp4` all exist, ffmpeg isn't run and the `.ts` files are kept. Go ran ffmpeg and reported only its exit code.
-- Resume state files are deleted only after moving temporary files succeeds, and partial cross-filesystem copies are deleted on failure.
+- Resume state files are deleted only after moving temporary files succeeds, partial cross-filesystem copies and earlier SQLite exports in a failed export batch are deleted on failure, and ffmpeg is not run when moving downloaded files fails.
 - Saving created files on cancel (`--save`) also moves the `.ffmpeg.txt` command file to the output directory instead of deleting it with the temporary directory.
 - Failures when applying `--file-permissions` or `--directory-permissions` (for example on filesystems without Unix permissions such as exFAT, FAT32, or SMB) are logged at debug level instead of failing or deleting written files.
 - `publish_date` is always `YYYYMMDD`. Go kept the raw value, which can include a time and offset.

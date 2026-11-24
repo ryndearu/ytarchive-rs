@@ -297,6 +297,10 @@ impl fmt::Debug for PendingExport {
 }
 
 impl PendingExport {
+    pub fn out(&self) -> &Path {
+        &self.out
+    }
+
     #[cfg(test)]
     pub async fn for_test(database_path: &Path, out: PathBuf) -> Self {
         let mut database = DbSink::open(database_path, 0o644).unwrap();
