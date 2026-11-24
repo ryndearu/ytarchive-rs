@@ -22,6 +22,16 @@ pub fn all_qualities() -> Vec<&'static str> {
     VIDEO_QUALITIES.iter().map(|(line, _)| *line).collect()
 }
 
+/// All quality labels selectable by the user, omitting `audio_only` when
+/// `--no-audio` (`video_only`) is active.
+pub fn selectable_qualities(video_only: bool) -> Vec<&'static str> {
+    let mut out = all_qualities();
+    if video_only {
+        out.retain(|quality| *quality != "audio_only");
+    }
+    out
+}
+
 /// `a, b, c, best`
 pub fn quality_list_string(qualities: &[&str]) -> String {
     let mut text: String = qualities.iter().map(|quality| format!("{quality}, ")).collect();
@@ -95,7 +105,8 @@ pub fn try_select(
     codecs: Option<&[VideoCodec]>,
     video_only: bool,
 ) -> Option<FormatSelection> {
-    let available = available_qualities(urls);
+    let available: Vec<&'static str> =
+        available_qualities(urls).into_iter().filter(|quality| !(video_only && *quality == "audio_only")).collect();
     let audio_url = if video_only { None } else { urls.get(&AUDIO_ITAG).cloned() };
 
     for quality in selected {
@@ -109,6 +120,9 @@ pub fn try_select(
             continue;
         };
         if label == "audio_only" {
+            if video_only {
+                continue;
+            }
             return Some(FormatSelection {
                 label: label.into(),
                 codec: None,
@@ -151,6 +165,9 @@ pub fn select_fixed(urls: &UrlMap, video_itag: Option<u32>, video_only: bool) ->
 
 /// Ensures the URLs needed for the requested streams are present.
 pub fn validate(sel: &FormatSelection, video_only: bool) -> Result<()> {
+    if video_only && sel.is_audio_only() {
+        return Err(Error::NoUrls("video".into()));
+    }
     if !video_only && !sel.is_audio_only() && sel.audio_url.is_none() {
         return Err(Error::NoUrls("audio".into()));
     }
@@ -201,7 +218,11 @@ pub async fn select_interactive(
         return Err(Error::NoUrls("this stream".into()));
     }
     if selected.is_empty() {
-        selected = prompt_quality(&available_qualities(urls), false).await;
+        let mut offered = available_qualities(urls);
+        if video_only {
+            offered.retain(|quality| *quality != "audio_only");
+        }
+        selected = prompt_quality(&offered, false).await;
     }
     let sel = match try_select(urls, &selected, codecs, video_only) {
         Some(sel) => sel,

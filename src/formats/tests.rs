@@ -98,6 +98,15 @@ fn audio_only_and_video_only() {
     assert!(selection.audio_url.is_none());
     assert!(validate(&selection, true).is_ok());
     assert!(validate(&selection, false).is_err());
+
+    // --no-audio skips audio_only and fails if no video formats are offered.
+    assert!(try_select(&offered, &sel(&["audio_only"]), None, true).is_none());
+    let selection = try_select(&offered, &sel(&["audio", "720p"]), None, true).unwrap();
+    assert_eq!(selection.label, "720p");
+    assert!(selection.audio_url.is_none());
+    assert!(try_select(&urls(&[140]), &sel(&["best"]), None, true).is_none());
+    let audio_only = try_select(&urls(&[140]), &sel(&["audio"]), None, false).unwrap();
+    assert!(validate(&audio_only, true).is_err());
 }
 
 #[test]
@@ -132,4 +141,15 @@ async fn given_codecs_are_used() {
     let codecs = complete_codec_order(&[Vp9]);
     let selection = select_interactive(&offered, sel(&["720p"]), Some(&codecs), false).await.unwrap();
     assert_eq!(selection.codec, Some(Vp9));
+}
+
+#[test]
+fn selectable_qualities_respects_video_only() {
+    let with_audio = selectable_qualities(false);
+    assert!(with_audio.contains(&"audio_only"));
+    assert!(with_audio.contains(&"1080p60"));
+
+    let without_audio = selectable_qualities(true);
+    assert!(!without_audio.contains(&"audio_only"));
+    assert!(without_audio.contains(&"1080p60"));
 }

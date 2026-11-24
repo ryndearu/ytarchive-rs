@@ -113,7 +113,7 @@ impl Extractor {
     /// needs to be around when it starts.
     async fn ask_ahead(&mut self) {
         if self.selected.is_empty() && self.fixed_itag.is_none() {
-            self.selected = formats::prompt_quality(&formats::all_qualities(), true).await;
+            self.selected = formats::prompt_quality(&formats::selectable_qualities(self.opts.video_only), true).await;
         }
     }
 
