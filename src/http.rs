@@ -169,14 +169,15 @@ fn redact_proxy_str(raw: &str) -> String {
     }
 }
 
-fn redact_extractor_args(value: &str) -> String {
+fn redact_extractor_key(value: &str, key: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut rest = value;
-    while let Some(pos) = rest.find("po_token=") {
+    while let Some(pos) = rest.find(key) {
         let (before, after_pos) = rest.split_at(pos);
         out.push_str(before);
-        out.push_str("po_token=<redacted>");
-        let token_start = after_pos.strip_prefix("po_token=").unwrap_or("");
+        out.push_str(key);
+        out.push_str("<redacted>");
+        let token_start = after_pos.strip_prefix(key).unwrap_or("");
         match token_start.find(';') {
             Some(end) => rest = token_start.split_at(end).1,
             None => return out,
@@ -186,13 +187,36 @@ fn redact_extractor_args(value: &str) -> String {
     out
 }
 
-/// Returns `args` with proxy credentials, passwords, and `po_token` values
-/// removed, for `--debug`/`--trace` logging.
+fn redact_extractor_args(value: &str) -> String {
+    let redacted = redact_extractor_key(value, "po_token=");
+    redact_extractor_key(&redacted, "visitor_data=")
+}
+
+fn redact_header(value: &str) -> String {
+    let Some((name, _)) = value.split_once(':') else {
+        return value.to_string();
+    };
+    let lower = name.trim().to_ascii_lowercase();
+    if matches!(lower.as_str(), "authorization" | "proxy-authorization" | "cookie" | "x-api-key")
+        || lower.contains("token")
+    {
+        format!("{name}:<redacted>")
+    } else {
+        value.to_string()
+    }
+}
+
+const SECRET_INLINE_PREFIXES: &[&str] =
+    &["--password=", "--ap-password=", "--video-password=", "--twofactor=", "--client-certificate-password="];
+
+/// Returns `args` with proxy credentials, passwords, sensitive headers, and
+/// `po_token`/`visitor_data` values removed, for `--debug`/`--trace` logging.
 pub fn redact_proxy_args(args: &[String]) -> Vec<String> {
     enum Expect {
         None,
         Proxy,
         Secret,
+        Header,
         ExtractorArgs,
     }
     let mut out = Vec::with_capacity(args.len());
@@ -209,6 +233,11 @@ pub fn redact_proxy_args(args: &[String]) -> Vec<String> {
                 out.push("<redacted>".into());
                 continue;
             }
+            Expect::Header => {
+                expect = Expect::None;
+                out.push(redact_header(arg));
+                continue;
+            }
             Expect::ExtractorArgs => {
                 expect = Expect::None;
                 out.push(redact_extractor_args(arg));
@@ -221,13 +250,27 @@ pub fn redact_proxy_args(args: &[String]) -> Vec<String> {
             out.push(arg.clone());
         } else if let Some(raw) = arg.strip_prefix("--proxy=") {
             out.push(format!("--proxy={}", redact_proxy_str(raw)));
-        } else if matches!(arg.as_str(), "--password" | "-p" | "--ap-password") {
+        } else if matches!(
+            arg.as_str(),
+            "--password"
+                | "-p"
+                | "--ap-password"
+                | "--video-password"
+                | "--twofactor"
+                | "-2"
+                | "--client-certificate-password"
+        ) {
             expect = Expect::Secret;
             out.push(arg.clone());
-        } else if arg.starts_with("--password=") {
-            out.push("--password=<redacted>".into());
-        } else if arg.starts_with("--ap-password=") {
-            out.push("--ap-password=<redacted>".into());
+        } else if let Some(prefix) = SECRET_INLINE_PREFIXES.iter().find(|prefix| arg.starts_with(**prefix)) {
+            out.push(format!("{prefix}<redacted>"));
+        } else if matches!(arg.as_str(), "--add-header" | "--add-headers") {
+            expect = Expect::Header;
+            out.push(arg.clone());
+        } else if let Some(raw) = arg.strip_prefix("--add-header=") {
+            out.push(format!("--add-header={}", redact_header(raw)));
+        } else if let Some(raw) = arg.strip_prefix("--add-headers=") {
+            out.push(format!("--add-headers={}", redact_header(raw)));
         } else if arg == "--extractor-args" {
             expect = Expect::ExtractorArgs;
             out.push(arg.clone());
@@ -317,8 +360,18 @@ mod tests {
             "--proxy=socks5h://u:pw@127.0.0.1:9050",
             "--password",
             "topsecret",
+            "--video-password=vidpass",
+            "-2",
+            "123456",
+            "--client-certificate-password",
+            "certpass",
+            "--add-header",
+            "Authorization:Bearer secret-token",
+            "--add-headers=Cookie:SID=abc",
+            "--add-header",
+            "Accept-Language:en-US",
             "--extractor-args",
-            "youtube:po_token=web.gvs+SECRET_A,web.player+SECRET_B;player_client=web",
+            "youtube:po_token=web.gvs+SECRET_A,web.player+SECRET_B;visitor_data=CgtSECRET;player_client=web",
         ]
         .into_iter()
         .map(String::from)
@@ -332,8 +385,18 @@ mod tests {
                 "--proxy=socks5h://127.0.0.1:9050",
                 "--password",
                 "<redacted>",
+                "--video-password=<redacted>",
+                "-2",
+                "<redacted>",
+                "--client-certificate-password",
+                "<redacted>",
+                "--add-header",
+                "Authorization:<redacted>",
+                "--add-headers=Cookie:<redacted>",
+                "--add-header",
+                "Accept-Language:en-US",
                 "--extractor-args",
-                "youtube:po_token=<redacted>;player_client=web",
+                "youtube:po_token=<redacted>;visitor_data=<redacted>;player_client=web",
             ]
         );
     }
