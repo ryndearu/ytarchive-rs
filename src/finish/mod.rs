@@ -298,6 +298,17 @@ impl Finish<'_> {
                 code = audio_code;
                 log_error!("ffmpeg returned code {audio_code} for the separate audio file.");
                 log_error!("The .ts files will not be deleted in case the final file is broken.");
+                let commands = format!(
+                    "{}\n{}",
+                    mux::command_line(&options.ffmpeg_path, &mux.args),
+                    mux::command_line(&options.ffmpeg_path, &audio_mux.args)
+                );
+                if let Err(error) =
+                    write_file_with_mode(&self.mux_file.dest, commands.as_bytes(), options.file_mode).await
+                {
+                    log_warn!("Failed to update the mux file: {error}");
+                }
+                log_error!("The ffmpeg commands were written to {}", self.mux_file.dest.display());
             }
         }
 

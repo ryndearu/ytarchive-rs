@@ -55,7 +55,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - **Mid-download `ERROR`, `UNPLAYABLE`, or unknown (such as `LOGIN_REQUIRED`) playability statuses consistently mark the stream both not-live and unavailable.** Go left `Unavailable` unset on `ERROR`/unknown statuses and `Live` set on `UNPLAYABLE`.
 - SQLite inserts (with batched `head`/URL metadata updates), queries, and exports, saving the resume state, and moving finished files to another filesystem run off the async runtime thread so they no longer hold up the download. The state file can be a few fragments behind the data; resuming cuts the data file back to it. SQLite exports are skipped after a storage error and deferred until after Ctrl-C prompts so discarding a cancelled download does not write a `.ts` file first.
 - A temp directory named in a state file is reused only if it still exists.
-- `--separate-audio` makes the extra file only when both audio and video were downloaded. Go also duplicated audio-only downloads.
+- `--separate-audio` makes the extra file only when both audio and video were downloaded (Go also duplicated audio-only downloads), and writes both commands to `.ffmpeg.txt` if muxing the separate audio fails (Go wrote only the main command).
 
 ### Files and cleanup
 
