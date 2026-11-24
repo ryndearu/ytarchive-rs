@@ -3,6 +3,8 @@
 //! downloader to refresh URLs / check whether the stream is still live.
 
 mod player;
+#[cfg(test)]
+mod tests;
 mod ytdlp_mode;
 
 use std::collections::HashSet;
@@ -71,6 +73,8 @@ pub struct Extractor {
     pub format_info: FormatInfo,
     pub metadata: MetaInfo,
     pub thumbnail: String,
+    #[cfg(test)]
+    pub(super) test_base_url: Option<String>,
 }
 
 impl Extractor {
@@ -109,10 +113,20 @@ impl Extractor {
             format_info: new_format_info(),
             metadata: default_metadata(&opts.metadata_overrides),
             thumbnail: String::new(),
+            #[cfg(test)]
+            test_base_url: None,
             opts,
             http,
             cancel,
         }
+    }
+
+    pub(super) fn watch_url(&self, video_id: &str) -> String {
+        #[cfg(test)]
+        if let Some(base) = &self.test_base_url {
+            return format!("{base}/watch?v={video_id}");
+        }
+        format!("https://www.youtube.com/watch?v={video_id}")
     }
 
     fn due(&self) -> bool {
