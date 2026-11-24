@@ -48,7 +48,7 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 - Local test binary: `cargo build --profile fast` (`target/fast/`); `--release` only to check the release build or measure speed or memory.
 - Keep tests essential: every option under "Usage and options", downloading and storage, quality/codec selection, file names, ffmpeg arguments, and parsing of URLs, yt-dlp output, watch pages, durations, and cookies. None for logging, the progress line, help layout, version strings, or small helpers.
 - Minor-feature tests go only in `src/minor_tests.rs` (`#[cfg(test)] mod minor_tests;`, created with the first one), so they can be deleted at once.
-- Download behavior cases go in the fake googlevideo server tests: `src/download/tests/mod.rs`, retrying in `tests/retry.rs`, SQLite and recovery in `tests/sqlite.rs`.
+- Download behavior cases go in the fake googlevideo server tests: `src/download/tests/mod.rs`, retrying in `tests/retry.rs`, SQLite in `tests/sqlite.rs`, and recovery in `tests/recovery.rs`.
 - Network tests are `#[ignore]` and no workflow runs them. Run them by hand against a real 24/7 stream: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the variable if deno is installed).
 - For download/mux changes, also do a short real run (`--live-from now --capture-duration 10s -o '/tmp/x/%(id)s'`) and check the result with ffprobe.
 - To fail fragments on purpose (5xx, 429, 403, never arriving) on a real stream, put a local HTTP server in between: a `--ytdlp-path` wrapper rewrites the googlevideo URLs in yt-dlp's output to `http://127.0.0.1:PORT/HOST/…`, and the server forwards every other request (GET and HEAD).

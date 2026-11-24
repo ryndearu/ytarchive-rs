@@ -1,0 +1,226 @@
+//! Private-stream recovery tests (`--recover-private`).
+
+use std::fs;
+use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
+
+use super::sqlite::sqlite_opts;
+use super::*;
+use crate::types::SavedDownload;
+
+/// `--recover-private` (which turns on SQLite).
+fn recovery_opts(threads: usize) -> Options {
+    Options { recover_private: true, ..sqlite_opts(threads) }
+}
+
+/// A server whose fragments from `forbidden` on get 403, marking `session`
+/// unavailable when that starts (as a refresh finding the stream private
+/// would).
+async fn private_from(head: u64, forbidden: u64) -> (String, Arc<OnceLock<Arc<Session>>>) {
+    let hook: Arc<OnceLock<Arc<Session>>> = Arc::default();
+    let shared_hook = hook.clone();
+    let on_forbidden: OnForbidden = Arc::new(move || {
+        if let Some(session) = shared_hook.get() {
+            session.set_unavailable();
+        }
+    });
+    (serve_until(head, vec![], forbidden, Some(on_forbidden)).await, hook)
+}
+
+#[tokio::test]
+async fn recovers_fragments_after_the_stream_goes_private() {
+    // The URL in use stops working at fragment 5; one from an earlier
+    // refresh still serves everything.
+    let (current, hook) = private_from(12, 5).await;
+    let older = serve(12, vec![]).await;
+    let dir = temp_dir("recover");
+    let session = Session::for_test(recovery_opts(2), Some(FragmentUrl::with_sq_param(&current)), false);
+    session.remember(DataType::Audio, &FragmentUrl::with_sq_param(&older));
+    hook.set(session.clone()).ok().unwrap();
+    let (stream_params, _rx) = params(&dir, 12, DownloadState::default());
+    let out = download_stream(session, stream_params).await.unwrap();
+    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
+    assert_eq!(out.retry_until, None);
+    assert_eq!(out.state.fragments, 12);
+    out.pending_export.unwrap().export().await.unwrap();
+    let want: Vec<u8> = (0..12).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn recovery_gives_up_and_a_later_run_retries() {
+    let dir = temp_dir("recover-later");
+    let saved = Arc::new(SavedDownload {
+        video_id: "abc".into(),
+        label: "audio_only".into(),
+        target_duration: 1,
+        ..Default::default()
+    });
+
+    // First run: nothing works after fragment 5, so recovery gives up.
+    let (url, hook) = private_from(12, 5).await;
+    let session = Session::for_test(recovery_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
+    hook.set(session.clone()).ok().unwrap();
+    let (mut stream_params, _rx) = params(&dir, 12, DownloadState::default());
+    stream_params.saved = Some(saved.clone());
+    let out = download_stream(session, stream_params).await.unwrap();
+    // 10 and 11 are within two of the head (12), so they don't count.
+    assert_eq!(out.skipped, [5, 6, 7, 8, 9]);
+    // The fake server's URLs have no expire parameter.
+    assert_eq!(out.retry_until, Some(u64::MAX));
+    out.pending_export.unwrap().export().await.unwrap();
+    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+
+    // The database has what a later run needs.
+    let kept = read_kept(&dir, 140).unwrap();
+    assert_eq!(kept.info, *saved);
+    assert_eq!(kept.head, Some(12));
+    assert_eq!(kept.urls, [FragmentUrl::with_sq_param(&url)]);
+
+    // Later run, the stream still can't be looked up: straight to recovery,
+    // where a working URL now fetches only the missing fragments.
+    let working = serve(12, vec![]).await;
+    let session = Session::for_test(recovery_opts(2), Some(FragmentUrl::with_sq_param(&working)), false);
+    session.set_unavailable();
+    let state = load_state(&dir.join("out.f140.state")).unwrap();
+    let (stream_params, mut receiver) = params(&dir, 12, state);
+    let out = download_stream(session, stream_params).await.unwrap();
+    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
+    // 0..=4 were stored; 5..=11 are fetched again, nothing else.
+    assert_eq!(progress_counts(&mut receiver), [5, 1, 1, 1, 1, 1, 1, 1]);
+    out.pending_export.unwrap().export().await.unwrap();
+    let want: Vec<u8> = (0..12).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn recovery_skips_fragments_stored_in_earlier_round() {
+    use super::super::db_sink::DbSink;
+    use crate::types::{FragData, Fragment};
+
+    let dir = temp_dir("recover-stored-set");
+    let mut database = DbSink::open(&dir.join("out.f140.sqlite"), 0o644).unwrap();
+    for seq in [0, 1, 2, 3, 4, 7, 8, 9] {
+        let frag = Fragment {
+            seq,
+            x_head_seqnum: None,
+            data: FragData::Memory(bytes::Bytes::from(fragment_body(seq))),
+            mime_type: "video/mp4".into(),
+        };
+        database.push(seq, Some(frag)).await.unwrap();
+    }
+    drop(database);
+
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let hook: Arc<OnceLock<Arc<Session>>> = Arc::default();
+    let working = serve_observed(
+        10,
+        vec![],
+        u64::MAX,
+        None,
+        Some(Arc::new({
+            let seen = Arc::clone(&seen);
+            move |seq| seen.lock().unwrap().push(seq)
+        })),
+    )
+    .await;
+    // Round 1 recovers 5 and fails 6, registering `working` for round 2.
+    let partial = serve_observed(
+        10,
+        vec![6],
+        u64::MAX,
+        None,
+        Some(Arc::new({
+            let seen = Arc::clone(&seen);
+            let hook = Arc::clone(&hook);
+            let working_url = FragmentUrl::with_sq_param(&working);
+            move |seq| {
+                seen.lock().unwrap().push(seq);
+                if seq == 6
+                    && let Some(session) = hook.get()
+                {
+                    session.remember(DataType::Audio, &working_url);
+                }
+            }
+        })),
+    )
+    .await;
+
+    let session = Session::for_test(recovery_opts(1), Some(FragmentUrl::with_sq_param(&partial)), false);
+    session.set_unavailable();
+    hook.set(session.clone()).ok().unwrap();
+    let state = DownloadState { start_frag: 0, fragments: 8, ..Default::default() };
+    let (stream_params, _rx) = params(&dir, 10, state);
+    let out = download_stream(session, stream_params).await.unwrap();
+    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
+    assert_eq!(out.state.fragments, 10);
+
+    let requests = seen.lock().unwrap().clone();
+    assert_eq!(requests.iter().filter(|&&seq| seq == 5).count(), 1, "{requests:?}");
+    assert!(requests.iter().filter(|&&seq| seq == 6).count() >= 2, "{requests:?}");
+
+    out.pending_export.unwrap().export().await.unwrap();
+    let want: Vec<u8> = (0..10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn a_killed_download_keeps_the_head() {
+    // A kill (taskkill /F, a closed console) skips the end-of-download save,
+    // so the head must already be in the database.
+    let url = serve(200, vec![]).await;
+    let dir = temp_dir("recover-killed");
+    let session = Session::for_test(recovery_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (mut stream_params, mut receiver) = params(&dir, 200, DownloadState::default());
+    stream_params.saved = Some(Arc::new(SavedDownload { video_id: "abc".into(), ..Default::default() }));
+    let task = tokio::spawn(download_stream(session, stream_params));
+    for _ in 0..3 {
+        receiver.recv().await.unwrap();
+    }
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled(), "the download ended before the kill");
+    let kept = read_kept(&dir, 140).unwrap();
+    assert_eq!(kept.head, Some(200));
+    // A blocking write that outlives the abort can still be adding files here.
+    fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn no_recovery_while_the_stream_is_available() {
+    // A 403 on a public stream ends the download as before (no rounds).
+    let url = serve_until(12, vec![], 5, None).await;
+    let dir = temp_dir("recover-none");
+    let session = Session::for_test(recovery_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let (stream_params, _rx) = params(&dir, 12, DownloadState::default());
+    let started = Instant::now();
+    let out = download_stream(session, stream_params).await.unwrap();
+    assert_eq!(out.skipped, [5, 6, 7, 8, 9]);
+    assert!(started.elapsed() < Duration::from_secs(5));
+    drop(out);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn no_recovery_without_the_flag() {
+    // Plain --sqlite: a private stream ends the download as in v0.1.0, even
+    // though a working URL is known, and nothing is kept for a later run.
+    let (url, hook) = private_from(12, 5).await;
+    let older = serve(12, vec![]).await;
+    let dir = temp_dir("recover-off");
+    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    session.remember(DataType::Audio, &FragmentUrl::with_sq_param(&older));
+    hook.set(session.clone()).ok().unwrap();
+    let (stream_params, _rx) = params(&dir, 12, DownloadState::default());
+    let out = download_stream(session, stream_params).await.unwrap();
+    assert_eq!(out.skipped, [5]);
+    assert_eq!(out.retry_until, None);
+    out.pending_export.unwrap().export().await.unwrap();
+    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert!(read_kept(&dir, 140).is_none());
+    fs::remove_dir_all(&dir).unwrap();
+}

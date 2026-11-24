@@ -52,6 +52,21 @@ fn stored_with(conn: &Connection) -> Result<HashSet<u64>> {
     Ok(rows.map(|row| row.map(|sequence| sequence as u64)).collect::<rusqlite::Result<_>>()?)
 }
 
+fn stored_and_size_with(conn: &Connection) -> Result<(HashSet<u64>, u64)> {
+    let mut stmt = conn.prepare("SELECT seq, LENGTH(data) FROM segments")?;
+    let mut rows = stmt.query([])?;
+    let mut stored = HashSet::new();
+    let mut total_size = 0u64;
+    while let Some(row) = rows.next()? {
+        let sequence = row.get::<_, i64>(0)? as u64;
+        let len = row.get::<_, i64>(1)? as u64;
+        stored.insert(sequence);
+        total_size += len;
+    }
+    Ok((stored, total_size))
+}
+
+#[cfg(test)]
 fn totals_with(conn: &Connection) -> Result<(u64, u64)> {
     Ok(conn.query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |row| {
         Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
@@ -162,8 +177,8 @@ impl DbSink {
         totals_with(&lock(&self.conn))
     }
 
-    pub async fn totals_async(&self) -> Result<(u64, u64)> {
-        run_blocking(&self.conn, |conn| totals_with(conn)).await
+    pub async fn stored_and_size_async(&self) -> Result<(HashSet<u64>, u64)> {
+        run_blocking(&self.conn, |conn| stored_and_size_with(conn)).await
     }
 
     pub async fn push(&mut self, seq: u64, frag: Option<Fragment>) -> Result<Vec<Event>> {

@@ -1,5 +1,6 @@
 //! Downloader tests against a local fake googlevideo server.
 
+mod recovery;
 mod resume;
 mod retry;
 mod sqlite;
