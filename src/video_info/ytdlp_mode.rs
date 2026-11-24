@@ -172,6 +172,7 @@ impl Extractor {
                 if self.reject_negative_live_from() {
                     return None;
                 }
+                retries = 0;
                 self.print_info(&info.channel, &info.title);
                 let interval = self.upcoming_wait_interval(info.start_unix).await?;
                 if !polling_announced {
