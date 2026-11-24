@@ -132,7 +132,7 @@ impl Extractor {
                             log_debug!("yt-dlp extraction failed while waiting on channel: {error}");
                         }
                         if poll_count == 0 {
-                            eprintln!();
+                            log::finish_inline();
                             self.ask_ahead().await;
                             log_general!(
                                 "You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds."

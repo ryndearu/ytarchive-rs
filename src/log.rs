@@ -54,8 +54,10 @@ pub async fn report_progress(mut receiver: mpsc::UnboundedReceiver<ProgressInfo>
         totals.add(&progress);
         if level() > LogLevel::Quiet {
             if newlines || !is_tty() {
+                INLINE_ACTIVE.store(false, Ordering::Relaxed);
                 eprintln!("{}", totals.line(verbose));
             } else {
+                INLINE_ACTIVE.store(true, Ordering::Relaxed);
                 eprint!("\r{}\x1b[K", totals.line(verbose));
             }
         }
@@ -66,6 +68,8 @@ pub async fn report_progress(mut receiver: mpsc::UnboundedReceiver<ProgressInfo>
 static LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Warning as u8);
 /// When false (default), log lines start with `\r` to overwrite the status line.
 static NEWLINES: AtomicBool = AtomicBool::new(false);
+/// Whether an inline `\r` status line is currently sitting on stderr without a trailing newline.
+static INLINE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn is_tty() -> bool {
     static TTY: OnceLock<bool> = OnceLock::new();
@@ -133,7 +137,16 @@ pub fn write(at: LogLevel, general: bool, args: Arguments<'_>) {
     let timestamp = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
     let inline = is_tty() && !NEWLINES.load(Ordering::Relaxed);
     let line_start = if inline { "\r" } else { "" };
+    INLINE_ACTIVE.store(false, Ordering::Relaxed);
     eprintln!("{line_start}{timestamp} {}", format_line_styled(at, general, &args.to_string(), use_color(), inline));
+}
+
+/// Terminates an active inline `\r` status line with a newline. No-op under
+/// `--quiet`, `--newline`, non-TTY stderr, or when no inline line is active.
+pub fn finish_inline() {
+    if INLINE_ACTIVE.swap(false, Ordering::Relaxed) && level() > LogLevel::Quiet {
+        eprintln!();
+    }
 }
 
 /// Status line while polling for a stream. Rewrites the same line unless
@@ -145,8 +158,10 @@ pub fn retry_status(retries: u32, total_waited_secs: u64, newlines: bool) {
     let now = chrono::Local::now().format("%Y/%m/%d %H:%M:%S");
     let msg = format!("Retries: {retries} (Last retry: {now}), Total time waited: {total_waited_secs} seconds");
     if newlines || !is_tty() {
+        INLINE_ACTIVE.store(false, Ordering::Relaxed);
         eprintln!("{msg}");
     } else {
+        INLINE_ACTIVE.store(true, Ordering::Relaxed);
         eprint!("\r{msg}\x1b[K");
     }
 }

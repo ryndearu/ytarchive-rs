@@ -69,7 +69,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 ### Output and signals
 
 - The progress line is written to stderr (Go: stdout).
-- ANSI color/clear escapes (including `\x1b[K` on general logs) and `\r` status rewrites are omitted when stderr is not a terminal, and colors respect `NO_COLOR`.
+- ANSI color/clear escapes (including `\x1b[K` on general logs) and `\r` status rewrites are omitted when stderr is not a terminal, trailing inline-status newlines are omitted under `--quiet`, `--newline`, or non-TTY stderr, and colors respect `NO_COLOR`.
 - `ffmpeg` inherits stderr directly (or silences it under `--quiet`) rather than reading chunks through lossy UTF-8 decoding.
 - A second Ctrl-C exits immediately, like Go's `signal.Reset`.
 - On Linux and macOS, `SIGTERM` stops the download gracefully without interactive prompts, leaves the temporary folder and state files intact for resuming, and exits with 143 (a second signal exits immediately). Interactive prompts coordinate with the main signal listener instead of registering a second handler.
