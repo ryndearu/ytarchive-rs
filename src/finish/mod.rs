@@ -193,7 +193,9 @@ impl Finish<'_> {
                 );
                 return Some(1);
             }
-            let ok = self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description]).await;
+            let mux_file = Some(self.mux_file.clone());
+            let ok =
+                self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]).await;
             self.cleanup_temp(ok);
             if ok {
                 self.delete_state_files();
