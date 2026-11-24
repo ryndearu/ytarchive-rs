@@ -169,6 +169,9 @@ impl Extractor {
                     }
                     log_error!("Playability status: ERROR. Reason: {}", player_response.playability_status.reason);
                     self.live = false;
+                    if self.in_progress {
+                        self.unavailable = true;
+                    }
                     return Outcome::NotUsable;
                 }
                 PLAYABLE_UNPLAYABLE => {
@@ -193,6 +196,7 @@ impl Extractor {
                     log_error!(
                         "If this is a members only stream, you provided a cookies.txt file, and the above 'logged in' status is not True, please try updating your cookies file."
                     );
+                    self.live = false;
                     self.unavailable = true;
                     return Outcome::NotUsable;
                 }
@@ -340,6 +344,7 @@ impl Extractor {
                     log_error!("Unknown playability status: {other}");
                     if self.in_progress {
                         self.live = false;
+                        self.unavailable = true;
                     }
                     return Outcome::NotUsable;
                 }
