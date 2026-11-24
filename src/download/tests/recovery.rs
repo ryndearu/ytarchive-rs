@@ -224,3 +224,24 @@ async fn no_recovery_without_the_flag() {
     assert!(read_kept(&dir, 140).is_none());
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[tokio::test]
+async fn unlimited_retries_still_enter_private_recovery_on_403() {
+    let (current, hook) = private_from(8, 3).await;
+    let older = serve(8, vec![]).await;
+    let dir = temp_dir("recover-retry-zero");
+    let options = Options { frag_max_tries: 0, ..recovery_opts(2) };
+    let session = Session::for_test(options, Some(FragmentUrl::with_sq_param(&current)), false);
+    session.remember(DataType::Audio, &FragmentUrl::with_sq_param(&older));
+    hook.set(session.clone()).ok().unwrap();
+    let (mut stream_params, _rx) = params(&dir, 8, DownloadState::default());
+    stream_params.retry_sleep = Duration::from_millis(1);
+    let out = tokio::time::timeout(Duration::from_secs(10), download_stream(session, stream_params))
+        .await
+        .expect("download hangs")
+        .unwrap();
+    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
+    assert_eq!(out.state.fragments, 8);
+    drop(out);
+    fs::remove_dir_all(&dir).unwrap();
+}

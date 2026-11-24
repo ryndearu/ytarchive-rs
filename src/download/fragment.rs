@@ -65,12 +65,23 @@ pub fn continue_fragment_download(
         return RetryDecision::GiveUp;
     }
     let max = session.opts.frag_max_tries;
-    if max == 0 || state.tries < max {
+    if max == 0 {
+        if session.is_live() && !session.is_unavailable() {
+            return RetryDecision::Retry;
+        }
+        if state.tries == 0 || !state.tries.is_multiple_of(DEFAULT_FRAG_MAX_TRIES) {
+            return RetryDecision::Retry;
+        }
+    } else if state.tries < max {
         return RetryDecision::Retry;
     }
 
     state.full_retries = state.full_retries.saturating_sub(1);
-    log_debug!("{}: Fragment {}: {}/{max} retries", state.name, state.seq, state.tries);
+    if max > 0 {
+        log_debug!("{}: Fragment {}: {}/{max} retries", state.name, state.seq, state.tries);
+    } else {
+        log_debug!("{}: Fragment {}: {} retries (unlimited)", state.name, state.seq, state.tries);
+    }
 
     if session.is_live() && !session.is_unavailable() {
         // Go retried forever here, so one fragment YouTube never serves
@@ -110,6 +121,9 @@ pub fn continue_fragment_download(
     state.max_seq = state.max_seq.max(progress.max_seq);
     let behind_head = state.max_seq.is_some_and(|max| state.seq + 2 < max);
     if behind_head {
+        if max == 0 {
+            return RetryDecision::Retry;
+        }
         if state.full_retries > 0 {
             log_debug!("{}: More than two fragments away from the highest known fragment", state.name);
             log_debug!("{}: Will try grabbing the fragment {} more times", state.name, state.full_retries);
