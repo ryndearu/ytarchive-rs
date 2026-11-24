@@ -124,6 +124,32 @@ pub async fn write_file_with_mode(path: &Path, data: &[u8], mode: u32) -> Result
     res
 }
 
+#[cfg(windows)]
+fn rename_atomic(from: &Path, to: &Path) -> io::Result<()> {
+    // Antivirus and search indexers on Windows can briefly hold a handle on
+    // the state or temp file, causing transient access-denied (5) or
+    // sharing-violation (32) errors.
+    let mut delay = Duration::from_millis(10);
+    for _ in 0..3 {
+        match fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if error.kind() == io::ErrorKind::PermissionDenied || matches!(error.raw_os_error(), Some(5 | 32)) =>
+            {
+                std::thread::sleep(delay);
+                delay *= 2;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    fs::rename(from, to)
+}
+
+#[cfg(not(windows))]
+fn rename_atomic(from: &Path, to: &Path) -> io::Result<()> {
+    fs::rename(from, to)
+}
+
 /// Replaces `path` with `data` in one step (a temporary file renamed over
 /// it), so a crash mid-write leaves the old contents instead of a partial
 /// file.
@@ -133,7 +159,7 @@ pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
     let temp_path = PathBuf::from(temp_name);
     let res = fs::write(&temp_path, data).and_then(|()| {
         apply_mode(&temp_path, mode);
-        fs::rename(&temp_path, path)
+        rename_atomic(&temp_path, path)
     });
     if res.is_err()
         && let Err(error) = fs::remove_file(&temp_path)
