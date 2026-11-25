@@ -179,11 +179,11 @@ With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-
 
 ### Quality and codec
 
-`QUALITY` values, from most to least wanted, separated by `/`: `audio_only`, `144p`, `240p`, `360p`, `480p`, `720p`, `720p60`, `1080p`, `1080p60`, `1440p`, `1440p60`, `2160p`, `2160p60`, `best`. The first one the stream offers is used; if it offers none of them, `best` is used without asking (for example when the quality was chosen while waiting for a scheduled stream).
+`QUALITY` is a `/`-separated list, most wanted first: `audio_only`, `144p`, `240p`, `360p`, `480p`, `720p`, `720p60`, `1080p`, `1080p60`, `1440p`, `1440p60`, `2160p`, `2160p60`, `best`. The first one the stream offers wins. If it offers none, `best` is used without asking (e.g. when the quality was picked while waiting for a scheduled stream).
 
-`--codec` takes a slash-delimited list too: `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs you don't list are used as a fallback when none of the listed ones are offered. Without a codec option, `best` is used; the codec is never asked for.
+`--codec` is a `/`-separated list of `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs are tried in the order listed, so `vp9/best` tries VP9 first, then AV1 and H.264. Unlisted codecs are a fallback when none of the listed ones are offered. Without the option, `best` is used and the codec is never asked for.
 
-`best` quality and a codec option combine: the highest quality the stream offers is picked first, then the codec at that quality, falling back to the other codecs if it isn't offered there.
+`best` quality and a codec combine: the highest quality is picked first, then the codec at that quality, falling back to other codecs there.
 
 ### Examples
 
@@ -211,13 +211,13 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 
 ### File names
 
-- `--windows-filenames` (default on Windows) replaces characters Windows doesn't allow (`<>:"/\|?*`, control characters) and adjusts reserved names (`CON`, `NUL`, …), in folders from the template too. It also shortens the title so every file ytarchive writes stays within Windows' 260-character path limit. Use it on Linux/macOS for files headed to Windows.
-- `--no-path-limit` keeps full titles; ffmpeg and other programs may then need Windows' `LongPathsEnabled` setting to open them.
-- `--no-windows-filenames` (default on Linux and macOS) only replaces path separators. On Windows a title with `?` or `:` then can't be saved, and ytarchive stops without merging.
+- `--windows-filenames` (default on Windows) replaces characters Windows forbids (`<>:"/\|?*`, control characters), renames reserved names (`CON`, `NUL`, …) in folders too, and shortens titles so every file stays within the 260-character path limit. Use it on Linux/macOS for files headed to Windows.
+- `--no-path-limit` keeps full titles. ffmpeg and other tools may then need Windows' `LongPathsEnabled` setting.
+- `--no-windows-filenames` (default on Linux and macOS) only replaces path separators. On Windows, a title with `?` or `:` can't be saved, and ytarchive stops without merging.
 - Resume state (`{id}.f{itag}.state`) goes to `--temporary-dir`, or the current folder. Resume from the same folder; a different `-o` still finds it by video ID.
-- Data that can't be continued is kept as `{name}.f{itag}.ts.old` (or `{name}.f{itag}.sqlite.old` with `--sqlite`) in the temporary folder, which is then left for you to delete.
-- If data can't be stored (full disk, failed `--sqlite` export), ytarchive exits with code 1 without merging and keeps everything; run the same command again to continue.
-- An existing final file gets the new one named `{name}-1` … `{name}-10`; past that the `.ts` files are kept unmuxed.
+- Data that can't be continued is kept as `{name}.f{itag}.ts.old` (or `.sqlite.old` with `--sqlite`) in the temporary folder. Delete it yourself when done.
+- If data can't be stored (full disk, failed `--sqlite` export), ytarchive exits 1 without merging and keeps everything. Run the same command again to continue.
+- If `{name}.mp4` already exists, the new file is `{name}-1`, up to `{name}-10`. Past that, the `.ts` files stay unmuxed.
 
 ### Output template keys
 
@@ -225,19 +225,19 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 
 ### Private streams and missing fragments
 
-By default a stream that goes private during the recording ends the download. With `--recover-private`, ytarchive tries to get the rest:
+By default, a stream that goes private mid-recording ends the download. With `--recover-private`, ytarchive keeps trying:
 
-- When a stream goes private (or otherwise unavailable), the download URLs ytarchive already has usually keep working for a while: until their `expire` time, about 6 hours after they were issued. ytarchive retries every missing fragment with every URL it has used, in rounds 5 minutes apart, until all are recovered, the URLs expire, or an hour passes without recovering anything. Ctrl-C stops it as usual. It's a best effort: YouTube often refuses the URLs right away once a stream is private.
-- `--recover-private` turns on `--sqlite`, since recovered fragments arrive out of order. Fragments go into a database (`{name}.f{itag}.sqlite` in the temporary folder) and are exported in order to the `.ts` file at the end, so the download needs about as much extra space as the stream itself while it runs.
-- If fragments are still missing at the end, the file is merged anyway and the missing sequence numbers are listed. When the URLs haven't expired yet, the temporary folder (with the database, which also holds the stream info and URLs) and the `.state` files are kept, and ytarchive says until when they can be used.
-- To retry only the missing fragments, run the same command again (with `--recover-private` and the video's URL, not the channel's; it needs the state files, so not with `--disable-save-state`). If the stream can still be looked up, the download resumes with fresh URLs; if not, ytarchive uses the stream info and URLs saved in the database. The new file gets a `-1` suffix. Delete the temporary folder if you don't want to retry.
-- A download is always resumed in the storage it was started with. Adding `--recover-private` when resuming a download started without `--sqlite` keeps its `.ts` data, but that download continues without recovery.
+- The URLs it already has usually keep working until they expire, about 6 hours after issue. Every missing fragment is retried with every URL used, in rounds 5 minutes apart, until all are recovered, the URLs expire, or an hour passes with nothing recovered. Ctrl-C stops it as usual. This is best effort: YouTube often refuses the URLs right away once a stream is private.
+- It turns on `--sqlite`, since recovered fragments arrive out of order. Fragments go to `{name}.f{itag}.sqlite` in the temporary folder and export in order at the end, so the download needs about as much extra space as the stream while it runs.
+- Fragments still missing at the end: the file is merged anyway and the missing sequence numbers are listed. If the URLs haven't expired, the temporary folder (the database also holds the stream info and URLs) and `.state` files are kept, and ytarchive says until when they're usable.
+- To retry, rerun the command with `--recover-private` and the video's URL (not the channel's). It needs the state files, so not `--disable-save-state`. If the stream can still be looked up, the download resumes with fresh URLs; otherwise it uses the info and URLs saved in the database. The new file gets a `-1` suffix. Delete the temporary folder to stop retrying.
+- A download always resumes in the storage it started with. Adding `--recover-private` when resuming a non-`--sqlite` download keeps its `.ts` data, but that download continues without recovery.
 
 ### PO tokens and cookies
 
-yt-dlp handles extraction, so pass PO token settings to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. Cookies (`-c cookies.txt`, Netscape format) are used both by yt-dlp and by ytarchive's own requests to YouTube pages (watch, `/live`, and `/streams` pages).
+yt-dlp does the extraction, so pass PO tokens to it with `--ytdlp-opts`, e.g. `--ytdlp-opts "--extractor-args youtube:po_token=..."`. Cookies (`-c cookies.txt`, Netscape format) are used by yt-dlp and by ytarchive's own requests to the watch, `/live`, and `/streams` pages.
 
-yt-dlp gets the cookies file itself, so it can save refreshed cookies back to it. If yt-dlp can't read the file, ytarchive warns and passes it a repaired copy instead; cookies refreshed in that run then aren't saved back. JSON cookie exports aren't supported.
+yt-dlp gets the cookies file itself, so it can save refreshed cookies back. If it can't read the file, ytarchive warns and passes a repaired copy instead, and cookies refreshed in that run aren't saved back. JSON cookie exports aren't supported.
 
 ## Credits
 
