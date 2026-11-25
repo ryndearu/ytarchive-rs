@@ -172,7 +172,7 @@ where
                 .or_else(|| long_takes_value.contains_key(name).then_some(name));
             match mapped {
                 Some(long) => {
-                    let suffix = &rest[name.len()..];
+                    let suffix = rest.strip_prefix(name).unwrap_or("");
                     (Some(format!("--{long}{suffix}")), Some(long.to_string()))
                 }
                 None => (None, None),

@@ -16,10 +16,12 @@ pub struct SignedDuration {
 /// Fractions are allowed (`1.5h`). `"0"` is accepted on its own.
 pub fn parse_duration_units(input: &str) -> Option<SignedDuration> {
     let text = input.trim();
-    let (negative, mut rest) = match text.as_bytes().first()? {
-        b'-' => (true, &text[1..]),
-        b'+' => (false, &text[1..]),
-        _ => (false, text),
+    let (negative, mut rest) = if let Some(stripped) = text.strip_prefix('-') {
+        (true, stripped)
+    } else if let Some(stripped) = text.strip_prefix('+') {
+        (false, stripped)
+    } else {
+        (false, text)
     };
     if rest == "0" {
         return Some(SignedDuration { negative, duration: Duration::ZERO });
@@ -35,13 +37,14 @@ pub fn parse_duration_units(input: &str) -> Option<SignedDuration> {
         if num_end == 0 {
             return None;
         }
-        let value: f64 = rest[..num_end].parse().ok()?;
-        rest = &rest[num_end..];
+        let (num_str, after_num) = rest.split_at_checked(num_end)?;
+        let value: f64 = num_str.parse().ok()?;
+        rest = after_num;
 
         let unit_end =
             rest.find(|character: char| character.is_ascii_digit() || character == '.').unwrap_or(rest.len());
-        let unit = &rest[..unit_end];
-        rest = &rest[unit_end..];
+        let (unit, after_unit) = rest.split_at_checked(unit_end)?;
+        rest = after_unit;
 
         let nanos_per_unit: f64 = match unit {
             "ns" => 1.0,
