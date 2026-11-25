@@ -1,15 +1,15 @@
 //! Default mode: stream status from the watch page's player response,
 //! waiting for scheduled streams as needed.
 
+mod offline;
+
 use std::time::Duration;
 
-use chrono::Utc;
-
+use self::offline::{OfflineStep, OfflineWaitState};
 use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY, sleep_until_unix};
 use crate::error::Error;
-use crate::stream_meta::local_timestamp;
 use crate::types::player_response::{PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE};
-use crate::types::{Action, DEFAULT_POLL_SECS, PlayerResponse};
+use crate::types::{DEFAULT_POLL_SECS, PlayerResponse};
 use crate::util::sleep_or_cancel;
 use crate::watch_page::{get_video_html, parse_player_response, video_id_from_watch_page};
 use crate::{log, log_debug, log_error, log_general, log_info, log_warn};
@@ -33,7 +33,22 @@ fn is_transient_http(error: &Error) -> bool {
     }
 }
 
-const POLL: Duration = Duration::from_secs(DEFAULT_POLL_SECS);
+pub(super) const POLL: Duration = Duration::from_secs(DEFAULT_POLL_SECS);
+
+fn log_unplayable(player_response: &PlayerResponse, ended: bool, in_progress: bool) {
+    if ended && !in_progress {
+        log_general!("{ENDED_MESSAGE}");
+        log_general!("Reason: {}", player_response.playability_status.reason);
+        return;
+    }
+    let logged_in = !player_response.response_context.main_app_web_response_context.logged_out;
+    log_error!("Playability status: UNPLAYABLE.");
+    log_error!("Reason: {}", player_response.playability_status.reason);
+    log_error!("Logged in status: {logged_in}");
+    log_error!(
+        "If this is a members only stream, you provided a cookies.txt file, and the above 'logged in' status is not True, please try updating your cookies file."
+    );
+}
 
 impl Extractor {
     /// Restores channel `/live` polling after a resolved watch page turns out
@@ -65,16 +80,60 @@ impl Extractor {
         true
     }
 
+    /// Restores channel `/live` polling and waits one poll interval.
+    async fn reset_and_wait_on_channel(&mut self, waited: &mut u64, retries: &mut u32, newlines: bool) -> bool {
+        self.reset_to_channel();
+        self.wait_on_idle_channel(waited, retries, newlines).await
+    }
+
+    /// Reports an unusable resolved watch page once per `(video_id, state)`
+    /// while waiting on a channel, returning `true` when polling should reset to `/live`.
+    fn report_channel_unusable(&mut self, player_response: &PlayerResponse, not_live: bool) -> bool {
+        let status = player_response.playability_status.status.as_str();
+        let reason_key = if not_live {
+            "NOT_LIVE"
+        } else if matches!(status, PLAYABLE_ERROR | PLAYABLE_UNPLAYABLE) {
+            status
+        } else {
+            return false;
+        };
+        let video_id = &player_response.video_details.video_id;
+        let reason = &player_response.playability_status.reason;
+        if self.reported_unusable.insert((video_id.clone(), reason_key.to_string())) {
+            log::finish_inline();
+            if not_live {
+                log_warn!("This video ({video_id}) is not a livestream; continuing to check the channel.");
+            } else if status == PLAYABLE_ERROR {
+                log_error!("Playability status: ERROR. Reason: {reason}");
+            } else {
+                let ended = !player_response
+                    .microformat
+                    .player_microformat_renderer
+                    .live_broadcast_details
+                    .end_timestamp
+                    .is_empty();
+                log_unplayable(player_response, ended, self.in_progress);
+            }
+        } else {
+            log_debug!("{reason_key} ({reason}); returning to /live");
+        }
+        true
+    }
+
     pub(super) async fn get_playable_player_response(&mut self) -> Outcome {
         let newlines = self.opts.status_newlines;
         let wait_on_channel = self.is_channel && self.retry_secs.is_some() && !self.in_progress;
-        let mut first_wait = true;
-        let mut live_waited = 0u64;
-        let mut retry_count = 0u32;
+        let mut wait_state = OfflineWaitState {
+            first_wait: true,
+            live_waited: 0,
+            retry_count: 0,
+            secs_late: 0,
+            wait_on_channel,
+            newlines,
+        };
         let mut response_retries = 0u32;
         let mut all_transient = true;
         let mut details_retries = 0u32;
-        let mut secs_late = 0u64;
 
         loop {
             if self.cancel.is_cancelled() {
@@ -117,8 +176,14 @@ impl Extractor {
                 }
                 Err(err) => {
                     if wait_on_channel {
-                        self.reset_to_channel();
-                        if !self.wait_on_idle_channel(&mut live_waited, &mut retry_count, newlines).await {
+                        if !self
+                            .reset_and_wait_on_channel(
+                                &mut wait_state.live_waited,
+                                &mut wait_state.retry_count,
+                                newlines,
+                            )
+                            .await
+                        {
                             return Outcome::NotUsable;
                         }
                         continue;
@@ -149,8 +214,10 @@ impl Extractor {
             let details = &player_response.video_details;
             if details.video_id.is_empty() {
                 if wait_on_channel {
-                    self.reset_to_channel();
-                    if !self.wait_on_idle_channel(&mut live_waited, &mut retry_count, newlines).await {
+                    if !self
+                        .reset_and_wait_on_channel(&mut wait_state.live_waited, &mut wait_state.retry_count, newlines)
+                        .await
+                    {
                         return Outcome::NotUsable;
                     }
                     continue;
@@ -187,9 +254,20 @@ impl Extractor {
             let (author, title) = (details.author.clone(), details.title.clone());
             self.print_info(&author, &title);
 
-            let streamability_id =
-                &player_response.playability_status.live_streamability.live_streamability_renderer.video_id;
-            if streamability_id.is_empty() && !details.is_live_content {
+            let status = player_response.playability_status.status.as_str();
+            let streamability = &player_response.playability_status.live_streamability.live_streamability_renderer;
+            let broadcast = &player_response.microformat.player_microformat_renderer.live_broadcast_details;
+            let not_live = streamability.video_id.is_empty() && !details.is_live_content;
+            if wait_on_channel && self.report_channel_unusable(&player_response, not_live) {
+                if !self
+                    .reset_and_wait_on_channel(&mut wait_state.live_waited, &mut wait_state.retry_count, newlines)
+                    .await
+                {
+                    return Outcome::NotUsable;
+                }
+                continue;
+            }
+            if not_live {
                 if self.live {
                     self.live = false;
                 } else {
@@ -198,7 +276,6 @@ impl Extractor {
                 return Outcome::NotUsable;
             }
 
-            let status = player_response.playability_status.status.as_str();
             match status {
                 PLAYABLE_ERROR => {
                     if self.in_progress {
@@ -212,121 +289,19 @@ impl Extractor {
                     return Outcome::NotUsable;
                 }
                 PLAYABLE_UNPLAYABLE => {
-                    // An ended stream is unplayable while YouTube processes
-                    // it, and its live download is gone by then.
-                    let ended = !player_response
-                        .microformat
-                        .player_microformat_renderer
-                        .live_broadcast_details
-                        .end_timestamp
-                        .is_empty();
-                    if ended && !self.in_progress {
-                        log_general!("{ENDED_MESSAGE}");
-                        log_general!("Reason: {}", player_response.playability_status.reason);
-                        self.unavailable = true;
-                        return Outcome::NotUsable;
+                    let ended = !broadcast.end_timestamp.is_empty();
+                    log_unplayable(&player_response, ended, self.in_progress);
+                    if !(ended && !self.in_progress) {
+                        self.live = false;
                     }
-                    let logged_in = !player_response.response_context.main_app_web_response_context.logged_out;
-                    log_error!("Playability status: UNPLAYABLE.");
-                    log_error!("Reason: {}", player_response.playability_status.reason);
-                    log_error!("Logged in status: {logged_in}");
-                    log_error!(
-                        "If this is a members only stream, you provided a cookies.txt file, and the above 'logged in' status is not True, please try updating your cookies file."
-                    );
-                    self.live = false;
                     self.unavailable = true;
                     return Outcome::NotUsable;
                 }
-                PLAYABLE_OFFLINE => {
-                    if self.in_progress {
-                        log_debug!("Livestream status is {PLAYABLE_OFFLINE} mid-download");
-                        return Outcome::NotUsable;
-                    }
-                    if self.reject_negative_live_from() {
-                        return Outcome::NotUsable;
-                    }
-                    if self.wait == Action::DoNot {
-                        log_error!("Stream has not started, and you have opted not to wait.");
-                        return Outcome::NotUsable;
-                    }
-                    if first_wait && self.wait == Action::Ask && self.retry_secs.is_none() {
-                        self.print_info(&author, &title);
-                        if !self.ask_wait_for_stream().await {
-                            return Outcome::NotUsable;
-                        }
-                    }
-                    if first_wait {
-                        self.ask_ahead().await;
-                    }
-
-                    if let Some(secs) = self.retry_secs {
-                        if wait_on_channel {
-                            self.reset_to_channel();
-                        }
-                        if first_wait {
-                            first_wait = false;
-                            log_general!("Waiting for stream, retrying every {secs} seconds...");
-                        }
-                        if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
-                            return Outcome::NotUsable;
-                        }
-                        live_waited += secs;
-                        retry_count += 1;
-                        log::retry_status(retry_count, live_waited, newlines);
-                        continue;
-                    }
-
-                    let scheduled = player_response
-                        .playability_status
-                        .live_streamability
-                        .live_streamability_renderer
-                        .offline_slate
-                        .live_stream_offline_slate_renderer
-                        .scheduled_start_time
-                        .parse::<i64>();
-                    let Ok(scheduled) = scheduled else {
-                        log_warn!("Failed to get stream start time. Falling back to polling.");
-                        self.retry_secs = Some(DEFAULT_POLL_SECS);
-                        if !sleep_or_cancel(&self.cancel, POLL).await {
-                            return Outcome::NotUsable;
-                        }
-                        continue;
-                    };
-
-                    let until = scheduled - Utc::now().timestamp();
-                    if until > 0 {
-                        if !first_wait {
-                            log_general!("Stream rescheduled.");
-                        }
-                        first_wait = false;
-                        secs_late = 0;
-                        log_general!(
-                            "Stream starts at {} in {until} seconds. Waiting for this time to elapse...",
-                            local_timestamp(
-                                &player_response
-                                    .microformat
-                                    .player_microformat_renderer
-                                    .live_broadcast_details
-                                    .start_timestamp
-                            )
-                        );
-                        if !sleep_until_unix(&self.cancel, scheduled).await {
-                            return Outcome::NotUsable;
-                        }
-                        continue;
-                    }
-
-                    if first_wait {
-                        log_general!("Stream should have started. Checking back every {DEFAULT_POLL_SECS} seconds");
-                        first_wait = false;
-                    }
-                    if !sleep_or_cancel(&self.cancel, POLL).await {
-                        return Outcome::NotUsable;
-                    }
-                    secs_late += DEFAULT_POLL_SECS;
-                    log_general!("Stream is {secs_late} seconds late...");
-                    continue;
-                }
+                PLAYABLE_OFFLINE => match self.handle_offline(&player_response, &author, &title, &mut wait_state).await
+                {
+                    OfflineStep::Continue => continue,
+                    OfflineStep::Return(outcome) => return outcome,
+                },
                 PLAYABLE_OK => {
                     // The /live page's player response is incomplete; reload
                     // via the resolved watch URL.
@@ -340,18 +315,17 @@ impl Extractor {
                         continue;
                     }
 
-                    let details = &player_response.microformat.player_microformat_renderer.live_broadcast_details;
                     // An ended stream is downloadable as long as its live
                     // fragments still exist; that is decided from yt-dlp's
                     // URLs afterwards, not from the watch page's formats.
-                    if !details.is_live_now && !self.in_progress && details.end_timestamp.is_empty() {
+                    if !broadcast.is_live_now && !self.in_progress && broadcast.end_timestamp.is_empty() {
                         // Waiting on a channel (always so with --monitor-channel):
                         // go back to /live instead of polling this video, so
                         // whichever stream starts first is found. Go kept
                         // polling the video.
                         if wait_on_channel && self.channel_url.is_some() {
                             let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
-                            if live_waited == 0 {
+                            if wait_state.live_waited == 0 {
                                 log_general!(
                                     "The stream on the channel's /live page has not started. Checking the channel every {secs} seconds."
                                 );
@@ -360,9 +334,9 @@ impl Extractor {
                             if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
                                 return Outcome::NotUsable;
                             }
-                            live_waited += secs;
-                            retry_count += 1;
-                            log::retry_status(retry_count, live_waited, newlines);
+                            wait_state.live_waited += secs;
+                            wait_state.retry_count += 1;
+                            log::retry_status(wait_state.retry_count, wait_state.live_waited, newlines);
                             continue;
                         }
                         log_general!("Livestream is offline, should have started, and does not have an end timestamp.");
@@ -374,7 +348,7 @@ impl Extractor {
                     }
                 }
                 other => {
-                    if secs_late > 0 {
+                    if wait_state.secs_late > 0 {
                         log::finish_inline();
                     }
                     log_error!("Unknown playability status: {other}");
@@ -386,7 +360,7 @@ impl Extractor {
                 }
             }
 
-            if secs_late > 0 {
+            if wait_state.secs_late > 0 {
                 log::finish_inline();
             }
             return Outcome::Found(Box::new(player_response));

@@ -63,6 +63,7 @@ pub struct Extractor {
     pub fixed_itag: Option<Option<u32>>,
 
     printed_info: Option<(String, String)>,
+    pub(super) reported_unusable: HashSet<(String, String)>,
     pub in_progress: bool,
     pub live: bool,
     pub unavailable: bool,
@@ -104,6 +105,7 @@ impl Extractor {
             codecs: opts.codecs.clone(),
             fixed_itag: opts.audio_only.then_some(None),
             printed_info: None,
+            reported_unusable: HashSet::new(),
             in_progress: false,
             live: false,
             unavailable: false,
