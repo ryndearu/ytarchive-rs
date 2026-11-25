@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::http::Http;
 use crate::input_url::{InputUrl, parse_input_url};
@@ -86,7 +86,8 @@ pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) ->
     let mut tracker = MonitorTracker::default();
 
     loop {
-        let started = Instant::now();
+        let started_mono = Instant::now();
+        let started_wall = SystemTime::now();
         let outcome = run(opts.clone(), http.clone(), &input, interrupt.clone(), tracker.recorded()).await;
         if interrupt.is_set() || !monitor {
             return exit_code(outcome.code);
@@ -112,7 +113,8 @@ pub async fn start(opts: Arc<Options>, http: Http, interrupt: Arc<Interrupt>) ->
                 }
             }
         }
-        if let Some(remaining) = remaining_wait(started.elapsed(), interval) {
+        let elapsed = started_wall.elapsed().unwrap_or(Duration::ZERO).max(started_mono.elapsed());
+        if let Some(remaining) = remaining_wait(elapsed, interval) {
             log_debug!("Last run exited before the set wait time. Waiting before running again...");
             if !interrupt.sleep(remaining).await {
                 return exit_code(if interrupt.terminated() { 143 } else { 2 });

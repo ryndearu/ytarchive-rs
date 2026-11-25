@@ -11,4 +11,4 @@
 - **`--sqlite` on a hard disk or network share**: on NVMe limited to 5 MB/s, one insert paused up to about 3.4 s.
 - **A real full filesystem with `--sqlite`** (simulated mid-download SQLite write failures with resume and failed `--sqlite` exports are tested).
 - **Filesystems without Unix permissions** (exFAT, FAT32, SMB shares) on Linux/macOS.
-- **Waiting for a scheduled stream across system sleep/suspend.**
+- **Waiting for a scheduled stream, polling (`-r`), or monitoring (`--monitor-channel`) across system sleep/suspend.**

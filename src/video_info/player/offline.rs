@@ -6,7 +6,7 @@ use super::{Extractor, Outcome, POLL, sleep_until_unix};
 use crate::stream_meta::local_timestamp;
 use crate::types::player_response::PLAYABLE_OFFLINE;
 use crate::types::{Action, DEFAULT_POLL_SECS, PlayerResponse};
-use crate::util::sleep_or_cancel;
+use crate::util::sleep_wall_clock;
 use crate::{log, log_debug, log_error, log_general, log_warn};
 
 pub(super) struct OfflineWaitState {
@@ -62,7 +62,7 @@ impl Extractor {
                 state.first_wait = false;
                 log_general!("Waiting for stream, retrying every {secs} seconds...");
             }
-            if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
+            if !sleep_wall_clock(&self.cancel, Duration::from_secs(secs)).await {
                 return OfflineStep::Return(Outcome::NotUsable);
             }
             state.live_waited += secs;
@@ -78,7 +78,7 @@ impl Extractor {
         let Ok(scheduled) = scheduled else {
             log_warn!("Failed to get stream start time. Falling back to polling.");
             self.retry_secs = Some(DEFAULT_POLL_SECS);
-            if !sleep_or_cancel(&self.cancel, POLL).await {
+            if !sleep_wall_clock(&self.cancel, POLL).await {
                 return OfflineStep::Return(Outcome::NotUsable);
             }
             return OfflineStep::Continue;
@@ -105,7 +105,7 @@ impl Extractor {
             log_general!("Stream should have started. Checking back every {DEFAULT_POLL_SECS} seconds");
             state.first_wait = false;
         }
-        if !sleep_or_cancel(&self.cancel, POLL).await {
+        if !sleep_wall_clock(&self.cancel, POLL).await {
             return OfflineStep::Return(Outcome::NotUsable);
         }
         state.secs_late += DEFAULT_POLL_SECS;

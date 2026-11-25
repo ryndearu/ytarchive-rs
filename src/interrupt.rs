@@ -15,7 +15,7 @@ use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::signal::windows::{CtrlBreak, CtrlC, ctrl_break, ctrl_c};
 use tokio_util::sync::CancellationToken;
 
-use crate::util::sleep_or_cancel;
+use crate::util::sleep_wall_clock;
 use crate::{log_warn, platform, ytdlp_cookies};
 
 /// True while waiting on an interactive stdin prompt, so an interrupt exits
@@ -137,8 +137,8 @@ impl Interrupt {
         self.token.child_token()
     }
 
-    /// Waits for `dur` unless interrupted first. Returns `false` if interrupted.
+    /// Waits for `dur` measured by the wall clock unless interrupted first. Returns `false` if interrupted.
     pub async fn sleep(&self, dur: Duration) -> bool {
-        sleep_or_cancel(&self.token, dur).await
+        sleep_wall_clock(&self.token, dur).await
     }
 }
