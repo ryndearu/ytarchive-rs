@@ -114,8 +114,8 @@ pub fn continue_fragment_download(
     }
 
     // The "near the head" checks in this file differ by one from each other
-    // (`<` here, `>` after an HTTP 404, `>=` after a request error). Each is
-    // Go's comparison (util.go), kept as it was.
+    // (`<` here, `>` after an HTTP 404). Each is Go's comparison (util.go),
+    // kept as it was.
     // Refresh from the stream's latest known head so a fragment that started
     // retrying while live doesn't judge distance against a stale sequence.
     state.max_seq = state.max_seq.max(progress.max_seq);
@@ -184,20 +184,12 @@ fn handle_http_error(session: &Session, state: &mut FragThreadState, response: &
     false
 }
 
-/// Returns `true` when this near-head request error indicates the ended stream
-/// has no more fragments from `state.seq` onward.
-fn handle_download_error(session: &Session, state: &mut FragThreadState, err: &dyn Display) -> bool {
+/// Records a transport/request error so transient failures near the head of
+/// an ended stream are still retried rather than ending the stream immediately.
+fn handle_download_error(state: &mut FragThreadState, err: &dyn Display) {
     log_debug!("{}: Error with fragment {}: {err}", state.name, state.seq);
     state.backoff_step += 1;
     state.is_403 = false;
-    if !session.is_live() && state.max_seq.is_some_and(|max| state.seq + 2 >= max) {
-        log_debug!(
-            "{}: Stream has ended and fragment number is within two of the known max, probably not actually created",
-            state.name
-        );
-        return true;
-    }
-    false
 }
 
 pub(super) fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
@@ -320,7 +312,10 @@ pub(super) async fn download_fragment(
             state.max_seq = state.max_seq.max(progress().max_seq);
             let end_of_stream = match error {
                 FetchError::Http(resp) => handle_http_error(session, state, &resp),
-                FetchError::Transport(error) => handle_download_error(session, state, &without_query(error)),
+                FetchError::Transport(error) => {
+                    handle_download_error(state, &without_query(error));
+                    false
+                }
             };
             if end_of_stream {
                 return FragOutcome::EndOfStream;
