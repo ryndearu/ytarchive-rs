@@ -2,15 +2,21 @@
 //! (output paths, the audio/video download tasks), and finish (merge or
 //! handle an interrupt).
 
-use std::collections::HashSet;
+mod tasks;
+#[cfg(test)]
+mod tests;
+
+use std::collections::{HashMap, HashSet};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::download::{MEMORY_LIMIT, PendingExport, StreamParams, download_stream};
+use self::tasks::collect_stream_tasks;
+use crate::download::{MEMORY_LIMIT, StreamParams, download_stream};
 use crate::error::Error;
 use crate::finish::{Finish, Moved};
 use crate::http::Http;
@@ -24,7 +30,7 @@ use crate::output::{
 };
 use crate::prepare::{PrepareOutcome, Prepared, prepare, prepared_from_kept};
 use crate::session::Session;
-use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, FormatSelection, Options, PerType, SavedDownload};
+use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, FormatSelection, Options, SavedDownload};
 use crate::util::{seconds_to_duration_and_time_str, sleep_wall_clock, write_file_with_mode};
 use crate::{log_debug, log_error, log_general, log_info, log_warn};
 
@@ -283,74 +289,41 @@ async fn download(
     let (sender, receiver) = mpsc::unbounded_channel();
     let reporter = tokio::spawn(report_progress(receiver, opts.status_newlines));
 
-    let mut tasks = Vec::new();
+    let mut tasks = JoinSet::new();
+    let mut task_types = HashMap::with_capacity(streams.len());
+    let mut state_files = Vec::with_capacity(streams.len());
+    let retry_sleep = Duration::from_secs(u64::from(prepared.target_duration.max(1)));
     for ((data_type, itag), state) in streams.iter().copied().zip(states) {
+        state_files.push(state_file(&opts, &prepared.video_id, itag));
         let adopt_renamed = plan.owns_dir(&state.temp_dir, &prepared.video_id);
-        let file = plan.temp_in(&state.temp_dir, &format!(".f{itag}.ts"));
+        let data_file = plan.temp_in(&state.temp_dir, &format!(".f{itag}.ts"));
         let frag_prefix = plan.temp_in(&state.temp_dir, &format!(".f{itag}"));
-        log_info!("Starting download to {}", file.display());
-        let state_file = (!opts.disable_save_state).then(|| state.file.clone());
-        tasks.push(tokio::spawn(download_stream(
-            session.clone(),
-            StreamParams {
-                data_type,
-                data_file: file,
-                frag_prefix,
-                state,
-                state_file,
-                last_sq: prepared.last_sq,
-                start_sq,
-                capture_duration: opts.capture_duration,
-                retry_sleep: Duration::from_secs(u64::from(prepared.target_duration.max(1))),
-                progress: sender.clone(),
-                saved: Some(saved.clone()),
-                memory_limit: MEMORY_LIMIT,
-                adopt_renamed,
-            },
-        )));
+        log_info!("Starting download to {}", data_file.display());
+        let state_file_path = (!opts.disable_save_state).then(|| state.file.clone());
+        let params = StreamParams {
+            data_type,
+            data_file,
+            frag_prefix,
+            state,
+            state_file: state_file_path,
+            last_sq: prepared.last_sq,
+            start_sq,
+            capture_duration: opts.capture_duration,
+            retry_sleep,
+            progress: sender.clone(),
+            saved: Some(saved.clone()),
+            memory_limit: MEMORY_LIMIT,
+            adopt_renamed,
+        };
+        let handle = tasks.spawn({
+            let session = session.clone();
+            async move { (data_type, download_stream(session, params).await) }
+        });
+        task_types.insert(handle.id(), data_type);
     }
     drop(sender);
 
-    let mut frags: PerType<Option<u64>> = PerType::default();
-    let mut storage_failed = false;
-    let mut stored_before_failing = false;
-    let mut retry_until: Option<u64> = None;
-    let mut pending_exports: Vec<PendingExport> = Vec::new();
-    let mut state_files = Vec::new();
-    for (task, (data_type, itag)) in tasks.into_iter().zip(&streams) {
-        state_files.push(state_file(&opts, &prepared.video_id, *itag));
-        match task.await {
-            Ok(Ok(out)) => {
-                if !out.skipped.is_empty() {
-                    log_warn!(
-                        "{}: {} fragment(s) could not be downloaded and are missing: {:?}",
-                        data_type.as_str(),
-                        out.skipped.len(),
-                        out.skipped
-                    );
-                }
-                *frags.get_mut(*data_type) = Some(out.state.fragments);
-                if let Some(time) = out.retry_until {
-                    retry_until = Some(retry_until.map_or(time, |until| until.max(time)));
-                }
-                if let Some(export) = out.pending_export {
-                    pending_exports.push(export);
-                }
-            }
-            Ok(Err(error)) => {
-                // Every error a download returns is about its storage. One
-                // that isn't from opening it came after data was stored.
-                storage_failed = true;
-                stored_before_failing |= !matches!(error, Error::OpenStorage(_));
-                log_error!("{} download failed: {error}", data_type.as_str());
-            }
-            Err(error) => {
-                storage_failed = true;
-                stored_before_failing = true;
-                log_error!("{} download task panicked: {error}", data_type.as_str());
-            }
-        }
-    }
+    let collected = collect_stream_tasks(&session, &mut tasks, &task_types).await;
     if let Err(error) = reporter.await {
         log_debug!("The progress reporter stopped unexpectedly: {error}");
     }
@@ -371,16 +344,16 @@ async fn download(
         mux,
         audio_mux,
         state_files,
-        audio_frags: frags.audio,
-        video_frags: frags.video,
-        keep_for_retry: retry_until,
-        pending_exports,
+        audio_frags: collected.frags.audio,
+        video_frags: collected.frags.video,
+        keep_for_retry: collected.retry_until,
+        pending_exports: collected.pending_exports,
         interrupt: Some(&interrupt),
     };
-    if storage_failed {
+    if collected.storage_failed {
         let had_data = resuming
-            || stored_before_failing
-            || [frags.audio, frags.video].iter().flatten().any(|fragments| *fragments > 0);
+            || collected.stored_before_failing
+            || [collected.frags.audio, collected.frags.video].iter().flatten().any(|fragments| *fragments > 0);
         return fin.on_storage_error(had_data);
     }
     if interrupt.terminated() {
