@@ -10,7 +10,7 @@ use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY, sleep_until_unix
 use crate::error::Error;
 use crate::types::player_response::{PLAYABLE_ERROR, PLAYABLE_OFFLINE, PLAYABLE_OK, PLAYABLE_UNPLAYABLE};
 use crate::types::{DEFAULT_POLL_SECS, PlayerResponse};
-use crate::util::sleep_or_cancel;
+use crate::util::{sleep_or_cancel, sleep_wall_clock};
 use crate::watch_page::{get_video_html, parse_player_response, video_id_from_watch_page};
 use crate::{log, log_debug, log_error, log_general, log_info, log_warn};
 
@@ -71,7 +71,7 @@ impl Extractor {
             self.ask_ahead().await;
             log_general!("You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds.");
         }
-        if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
+        if !sleep_wall_clock(&self.cancel, Duration::from_secs(secs)).await {
             return false;
         }
         *live_waited += secs;
@@ -331,7 +331,7 @@ impl Extractor {
                                 );
                             }
                             self.reset_to_channel();
-                            if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
+                            if !sleep_wall_clock(&self.cancel, Duration::from_secs(secs)).await {
                                 return Outcome::NotUsable;
                             }
                             wait_state.live_waited += secs;
@@ -341,7 +341,7 @@ impl Extractor {
                         }
                         log_general!("Livestream is offline, should have started, and does not have an end timestamp.");
                         log_general!("Waiting {DEFAULT_POLL_SECS} seconds and trying again.");
-                        if !sleep_or_cancel(&self.cancel, POLL).await {
+                        if !sleep_wall_clock(&self.cancel, POLL).await {
                             return Outcome::NotUsable;
                         }
                         continue;

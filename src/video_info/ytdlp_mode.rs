@@ -7,7 +7,7 @@ use crate::error::Error;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_ytdlp, local_unix_timestamp};
 use crate::types::{FormatSelection, LiveStatus, YtdlpExtraction};
 use crate::util::seconds_to_duration_and_time_str;
-use crate::util::sleep_or_cancel;
+use crate::util::{sleep_or_cancel, sleep_wall_clock};
 use crate::{log, log_debug, log_error, log_general, log_warn, ytdlp};
 
 enum Step {
@@ -144,7 +144,7 @@ impl Extractor {
                                 "You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds."
                             );
                         }
-                        if !sleep_or_cancel(&self.cancel, Duration::from_secs(secs)).await {
+                        if !sleep_wall_clock(&self.cancel, Duration::from_secs(secs)).await {
                             return None;
                         }
                         poll_count += 1;
@@ -208,7 +208,7 @@ impl Extractor {
                 let waited = if let Some(start) = (!polling).then_some(info.start_unix).flatten() {
                     super::sleep_until_unix(&self.cancel, start).await
                 } else {
-                    sleep_or_cancel(&self.cancel, interval).await
+                    sleep_wall_clock(&self.cancel, interval).await
                 };
                 if !waited {
                     return None;
