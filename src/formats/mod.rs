@@ -22,6 +22,16 @@ pub fn all_qualities() -> Vec<&'static str> {
     VIDEO_QUALITIES.iter().map(|(line, _)| *line).collect()
 }
 
+/// All quality labels selectable by the user, omitting `audio_only` when
+/// `--no-audio` (`video_only`) is active.
+pub fn selectable_qualities(video_only: bool) -> Vec<&'static str> {
+    let mut out = all_qualities();
+    if video_only {
+        out.retain(|quality| *quality != "audio_only");
+    }
+    out
+}
+
 /// `a, b, c, best`
 pub fn quality_list_string(qualities: &[&str]) -> String {
     let mut text: String = qualities.iter().map(|quality| format!("{quality}, ")).collect();

@@ -20,7 +20,7 @@ This port is based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) 
 - `--ytdlp-opts` parses single and double quotes (preserving Windows backslashes outside quote escapes); `--live-from` syntax and the 7-day seek bound are validated at startup; and `--metadata` templates referencing unknown keys warn at startup while keeping the literal fallback.
 - The scheduled-stream question is numbered: `1) wait  2) poll  3) no (default 3):` (`wait`/`poll` still work; Enter and closed stdin mean no). Go asked `wait/poll/[no]:`.
 - `--ytdlp-info` asks for the quality while waiting for a scheduled stream. Go asked once the stream started.
-- When none of the chosen qualities are available, `best` is used. Go asked again, which stalled an unattended download. With `--no-audio`, `audio_only` is never selected (even if requested or when no video formats exist).
+- When none of the chosen qualities are available, `best` is used. Go asked again, which stalled an unattended download. With `--no-audio`, `audio_only` is never selected (even if requested or when no video formats exist) and is omitted from the scheduled-stream quality prompt.
 - The version includes the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)`, `v0.1.0+abc1234 (2026-11-07)`.
 - Text arguments that aren't valid UTF-8 are converted instead of rejected, while `--cookies` and `--temporary-dir` preserve raw non-UTF-8 OS path bytes.
 - yt-dlp gets a repaired copy (in the temp folder, deleted on exit) of a cookies file it can't read: not UTF-8, no `# Netscape HTTP Cookie File` header, a second column that doesn't match the domain's leading `.`, or a stray line starting like JSON. Go passed the file as it was, and yt-dlp failed.

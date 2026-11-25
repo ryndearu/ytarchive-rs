@@ -142,3 +142,14 @@ async fn given_codecs_are_used() {
     let selection = select_interactive(&offered, sel(&["720p"]), Some(&codecs), false).await.unwrap();
     assert_eq!(selection.codec, Some(Vp9));
 }
+
+#[test]
+fn selectable_qualities_respects_video_only() {
+    let with_audio = selectable_qualities(false);
+    assert!(with_audio.contains(&"audio_only"));
+    assert!(with_audio.contains(&"1080p60"));
+
+    let without_audio = selectable_qualities(true);
+    assert!(!without_audio.contains(&"audio_only"));
+    assert!(without_audio.contains(&"1080p60"));
+}
