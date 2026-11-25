@@ -102,7 +102,8 @@ impl DbSink {
         let conn = Connection::open(path)?;
         apply_mode(path, mode);
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
+            "PRAGMA busy_timeout = 5000;
+             PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              -- SQLite's default of 1000 pages (4 MiB) is about two video
              -- fragments, so nearly every insert also copied the log into
