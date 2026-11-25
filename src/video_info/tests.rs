@@ -241,3 +241,66 @@ async fn ytdlp_mode_mid_download_refresh_skips_head_probe_while_start_delay_prob
     assert!(head_hits.load(Ordering::SeqCst) >= 1);
     assert_eq!(extractor.last_sq, Some(42));
 }
+
+fn non_livestream_html(video_id: &str) -> String {
+    let payload = serde_json::json!({
+        "playabilityStatus": {"status": "OK"},
+        "videoDetails": {
+            "videoId": video_id,
+            "title": format!("Title {video_id}"),
+            "author": "Channel",
+            "isLiveContent": false
+        }
+    });
+    format!(
+        r#"<html><head><link rel="canonical" href="https://www.youtube.com/watch?v={video_id}"><script>var ytInitialPlayerResponse = {payload};</script></head></html>"#
+    )
+}
+
+#[tokio::test]
+async fn channel_wait_resets_to_live_after_playability_errors_or_non_livestream() {
+    for (case, watch_response, expected_key) in [
+        ("playable-error", ("200 OK", watch_html("vid1", "ERROR", false, "")), "ERROR"),
+        ("playable-unplayable", ("200 OK", watch_html("vid1", "UNPLAYABLE", false, "")), "UNPLAYABLE"),
+        ("non-livestream", ("200 OK", non_livestream_html("vid1")), "NOT_LIVE"),
+    ] {
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let live_hits = Arc::new(Mutex::new(0usize));
+        let base = serve_pages(Arc::new({
+            let seen = seen.clone();
+            let live_hits = live_hits.clone();
+            move |path| {
+                seen.lock().unwrap().push(path.to_string());
+                match path {
+                    "/@chan/streams" => ("404 Not Found", String::new()),
+                    "/@chan/live" => {
+                        let mut hits = live_hits.lock().unwrap();
+                        *hits += 1;
+                        if *hits <= 2 {
+                            ("200 OK", watch_html("vid1", "OK", true, ""))
+                        } else {
+                            ("200 OK", watch_html("vid2", "OK", true, ""))
+                        }
+                    }
+                    "/watch?v=vid1" => watch_response.clone(),
+                    "/watch?v=vid2" => ("200 OK", watch_html("vid2", "OK", true, "")),
+                    other => panic!("unexpected path in case {case}: {other}"),
+                }
+            }
+        }))
+        .await;
+
+        let mut extractor = channel_extractor(&base);
+        match extractor.get_playable_player_response().await {
+            Outcome::Found(response) => assert_eq!(response.video_details.video_id, "vid2", "case {case}"),
+            _ => panic!("expected Found(vid2) in case {case}"),
+        }
+        assert!(extractor.reported_unusable.contains(&("vid1".into(), expected_key.into())));
+        assert_eq!(extractor.reported_unusable.len(), 1);
+        let paths = seen.lock().unwrap().clone();
+        assert!(
+            paths.iter().filter(|path| path.as_str() == "/@chan/live").count() >= 3,
+            "case {case} should have returned to /@chan/live: {paths:?}"
+        );
+    }
+}
