@@ -102,7 +102,8 @@ impl DbSink {
         let conn = Connection::open(path)?;
         apply_mode(path, mode);
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
+            "PRAGMA busy_timeout = 5000;
+             PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              -- SQLite's default of 1000 pages (4 MiB) is about two video
              -- fragments, so nearly every insert also copied the log into
@@ -349,6 +350,7 @@ pub fn read_kept(temp_dir: &Path, itag: u32) -> Option<KeptStream> {
     let path = fs::read_dir(temp_dir)
         .ok()?
         .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
         .map(|entry| entry.path())
         .find(|path| path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(&suffix)))?;
     // Closed again on return, before the download reopens it (Windows

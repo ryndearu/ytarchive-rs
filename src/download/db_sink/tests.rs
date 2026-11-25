@@ -112,3 +112,25 @@ fn read_kept_recovers_wal_without_shm() {
     assert_eq!(kept.urls, [url]);
     fs::remove_dir_all(&base).unwrap();
 }
+
+#[test]
+fn sets_busy_timeout_and_read_kept_ignores_directories() {
+    let dir = env::temp_dir().join(format!("ytarchive-rs-db-kept-{}", process::id()));
+    if dir.exists() {
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    fs::create_dir_all(dir.join("bad.f140.sqlite")).unwrap();
+
+    let db = dir.join("good.f140.sqlite");
+    let sink = DbSink::open(&db, 0o644).unwrap();
+    let timeout_ms: i64 = lock(&sink.conn).query_row("PRAGMA busy_timeout", [], |row| row.get(0)).unwrap();
+    assert_eq!(timeout_ms, 5000);
+
+    let saved = SavedDownload { video_id: "vid456".into(), target_duration: 5, ..Default::default() };
+    sink.set_meta("download", &serde_json::to_string(&saved).unwrap()).unwrap();
+    drop(sink);
+
+    let kept = read_kept(&dir, 140).expect("should ignore directory and read valid sqlite file");
+    assert_eq!(kept.info.video_id, "vid456");
+    fs::remove_dir_all(&dir).unwrap();
+}
