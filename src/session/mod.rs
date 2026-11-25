@@ -1,6 +1,9 @@
 //! State shared by all download tasks of one stream: current fragment URLs,
 //! live/unavailable/finished flags, and URL refreshing.
 
+#[cfg(test)]
+mod tests;
+
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -8,8 +11,12 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::error::Result;
 use crate::http::Http;
-use crate::types::{AUDIO_ITAG, DataType, FormatSelection, FragmentUrl, Options, PerType, URL_REFRESH_INTERVAL_SECS};
+use crate::types::{
+    AUDIO_ITAG, DataType, FormatSelection, FragmentUrl, LiveStatus, Options, PerType, URL_REFRESH_INTERVAL_SECS,
+    YtdlpExtraction,
+};
 use crate::util::lock;
 use crate::video_info::Extractor;
 use crate::{log_debug, log_warn, ytdlp};
@@ -262,6 +269,14 @@ impl Session {
         }))
     }
 
+    fn periodic_refresh_targets(&self) -> (bool, bool) {
+        let need_audio =
+            !self.opts.video_only && self.url(DataType::Audio).is_some() && !self.is_finished(DataType::Audio);
+        let need_video =
+            self.video_itag.is_some() && self.url(DataType::Video).is_some() && !self.is_finished(DataType::Video);
+        (need_audio, need_video)
+    }
+
     /// Returns `false` if the refresh failed and should be tried again soon.
     async fn periodic_refresh_once(&self) -> bool {
         let Some(mutex) = &self.extractor else { return true };
@@ -270,32 +285,62 @@ impl Session {
         if self.is_stopping() || self.is_unavailable() {
             return true;
         }
+        let (need_audio, need_video) = self.periodic_refresh_targets();
+        if !need_audio && !need_video {
+            return true;
+        }
         log_debug!("Refreshing download URLs in background (5-hour interval)");
         let info = ytdlp::extract_urls(&self.opts, &self.page_url, true, &self.cancel).await;
         if self.is_stopping() || self.is_unavailable() {
             return true;
         }
+        self.apply_periodic_refresh(info)
+    }
 
-        let fresh = |itag: u32| {
-            info.as_ref().ok().and_then(|info| info.urls.get(&itag)).filter(|url| url.is_fragmented()).cloned()
-        };
-        let audio = (!self.opts.video_only).then(|| fresh(AUDIO_ITAG));
-        let video = self.video_itag.map(fresh);
-        if audio.as_ref().is_some_and(Option::is_none) || video.as_ref().is_some_and(Option::is_none) {
+    pub(crate) fn apply_periodic_refresh(&self, info: Result<YtdlpExtraction>) -> bool {
+        let (need_audio, need_video) = self.periodic_refresh_targets();
+        if !need_audio && !need_video {
+            return true;
+        }
+        let Ok(info) = info else {
             log_warn!(
                 "Scheduled URL refresh failed; continuing with existing URLs and trying again in {} minutes",
                 FAILED_REFRESH_RETRY.as_secs() / 60
             );
             return false;
-        }
-        if let Some(Some(url)) = audio {
+        };
+        let fresh = |itag: u32| info.urls.get(&itag).filter(|url| url.is_fragmented()).cloned();
+        let audio_url = need_audio.then(|| fresh(AUDIO_ITAG)).flatten();
+        let video_url = need_video.then(|| self.video_itag.and_then(fresh)).flatten();
+        let audio_ok = !need_audio || audio_url.is_some();
+        let video_ok = !need_video || video_url.is_some();
+        let applied_any = audio_url.is_some() || video_url.is_some();
+        if let Some(url) = audio_url {
             self.set_url(DataType::Audio, Some(url));
         }
-        if let Some(Some(url)) = video {
+        if let Some(url) = video_url {
             self.set_url(DataType::Video, Some(url));
         }
-        *lock(&self.last_url_refresh) = clock_now();
-        true
+        if audio_ok && video_ok {
+            *lock(&self.last_url_refresh) = clock_now();
+            return true;
+        }
+        if matches!(info.live_status, LiveStatus::WasLive | LiveStatus::NotLive) && info.urls.is_empty() {
+            self.live.store(false, Ordering::Relaxed);
+            *lock(&self.last_url_refresh) = clock_now();
+            log_debug!("Scheduled URL refresh saw stream ended without live URLs; stopping periodic retries");
+            return true;
+        }
+        let detail = if applied_any {
+            "Scheduled URL refresh only partially refreshed active URLs"
+        } else {
+            "Scheduled URL refresh failed"
+        };
+        log_warn!(
+            "{detail}; continuing with existing URLs and trying again in {} minutes",
+            FAILED_REFRESH_RETRY.as_secs() / 60
+        );
+        false
     }
 
     /// Session for tests: fixed URLs, no extractor.
