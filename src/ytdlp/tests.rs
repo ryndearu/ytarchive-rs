@@ -102,6 +102,29 @@ fn prefers_exact_format_id_and_adaptive_target_duration() {
 }
 
 #[test]
+fn clamps_subsecond_target_duration_and_ignores_non_positive() {
+    let subsecond = parse_output(
+        r#"{"id":"x","formats":[
+            {"format_id":"95","url":"https://manifest.googlevideo.com/x.m3u8","protocol":"m3u8_native","manifest_url":"https://m/x.m3u8","target_duration":5.0},
+            {"format_id":"140","url":"https://orig.googlevideo.com/videoplayback?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null,"target_duration":0.4}
+        ]}"#,
+    )
+    .unwrap();
+    let (info, _) = to_extraction(subsecond);
+    assert_eq!(info.target_duration, 1);
+
+    let invalid = parse_output(
+        r#"{"id":"x","formats":[
+            {"format_id":"140","url":"https://a.googlevideo.com/videoplayback?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null,"target_duration":0.0},
+            {"format_id":"299","url":"https://b.googlevideo.com/videoplayback?itag=299&noclen=1","protocol":"http_dash_segments","manifest_url":null,"target_duration":-1.0}
+        ]}"#,
+    )
+    .unwrap();
+    let (info, _) = to_extraction(invalid);
+    assert_eq!(info.target_duration, 0);
+}
+
+#[test]
 fn upcoming_without_formats() {
     let raw = parse_output(r#"{"id":"x","live_status":"is_upcoming","timestamp":5,"formats":null}"#).unwrap();
     let (info, probe_urls) = to_extraction(raw);

@@ -206,7 +206,10 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Vec<String>) {
     let mut fallback_target = 0u32;
     for format in raw.formats.unwrap_or_default() {
         let Some(itag) = format.itag() else { continue };
-        let duration = format.target_duration.filter(|seconds| *seconds > 0.0).map(|seconds| seconds.round() as u32);
+        let duration = format
+            .target_duration
+            .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+            .map(|seconds| (seconds.round() as u32).max(1));
         if !is_adaptive_format(&format) {
             if fallback_target == 0
                 && let Some(target) = duration

@@ -215,9 +215,10 @@ impl Extractor {
             log_general!("Stream started at time {}", local_timestamp(&details.start_timestamp));
         }
         if let Some(format) = player_response.streaming_data.adaptive_formats.first()
+            && format.target_duration_sec.is_finite()
             && format.target_duration_sec > 0.0
         {
-            self.target_duration = format.target_duration_sec.round() as u32;
+            self.target_duration = (format.target_duration_sec.round() as u32).max(1);
         }
 
         let extracted = if probe_head {
