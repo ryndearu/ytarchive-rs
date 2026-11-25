@@ -89,7 +89,7 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
     let output = unused_output(mux_input.out_dir, mux_input.file_name, ext);
 
     for input in [mux_input.audio, mux_input.video].into_iter().flatten() {
-        args.extend(["-seekable", "0", "-thread_queue_size", "1024", "-i"].map(String::from));
+        args.extend(["-seekable", "0", "-i"].map(String::from));
         args.push(path_text(input));
     }
     if mux_input.video.is_some() {

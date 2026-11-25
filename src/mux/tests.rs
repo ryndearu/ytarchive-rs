@@ -21,7 +21,7 @@ fn thumbnail_and_container_per_output() {
             "out.mp4",
             &[
                 "-hide_banner -nostdin -loglevel fatal -stats -i t.jpg -seekable 0",
-                "-i a.ts -seekable 0 -thread_queue_size 1024 -i v.ts -movflags faststart -map 0 -map 1 -map 2 -c copy -disposition:v:0 attached_pic",
+                "-seekable 0 -i a.ts -seekable 0 -i v.ts -movflags faststart -map 0 -map 1 -map 2 -c copy -disposition:v:0 attached_pic",
                 "-metadata TITLE=T",
             ][..],
             &["DATE"][..],
@@ -51,6 +51,8 @@ fn thumbnail_and_container_per_output() {
         assert_eq!(cmd.output, out_dir.join(output));
         assert!(present.iter().all(|part| joined.contains(part)), "{case}: {joined}");
         assert!(!absent.iter().any(|part| joined.contains(part)), "{case}: {joined}");
+        // ffmpeg 9 rejects -thread_queue_size before an input (exit code 234).
+        assert!(!joined.contains("-thread_queue_size"), "{case}: {joined}");
     }
 }
 
