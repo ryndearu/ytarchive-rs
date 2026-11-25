@@ -82,9 +82,19 @@ impl Extractor {
         if sleep_or_cancel(&self.cancel, RETRY_DELAY).await { Step::Retry } else { Step::Cancelled }
     }
 
+    async fn run_ytdlp_extraction(&self, probe_head: bool, waiting_on_channel: bool) -> Result<YtdlpExtraction, Error> {
+        if !probe_head {
+            ytdlp::extract_urls(&self.opts, &self.page_url, true, &self.cancel).await
+        } else if waiting_on_channel {
+            ytdlp::extract_once(&self.http, &self.opts, &self.page_url, true, &self.cancel).await
+        } else {
+            ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await
+        }
+    }
+
     /// Runs yt-dlp until the stream is no longer upcoming (waiting as
     /// configured) and has usable URLs and a sequence boundary.
-    async fn extract_usable(&mut self) -> Option<YtdlpExtraction> {
+    async fn extract_usable(&mut self, probe_head: bool) -> Option<YtdlpExtraction> {
         let newlines = self.opts.status_newlines;
         let waiting_on_channel = self.is_channel && !self.in_progress && self.retry_secs.is_some();
         let mut retries = 0u32;
@@ -94,11 +104,7 @@ impl Extractor {
         let mut last_warned: Option<String> = None;
 
         loop {
-            let extracted = if waiting_on_channel {
-                ytdlp::extract_once(&self.http, &self.opts, &self.page_url, true, &self.cancel).await
-            } else {
-                ytdlp::extract(&self.http, &self.opts, &self.page_url, true, &self.cancel).await
-            };
+            let extracted = self.run_ytdlp_extraction(probe_head, waiting_on_channel).await;
             let info = match extracted {
                 Ok(info) => info,
                 // Unparsable output is retried; yt-dlp itself failing (after its
@@ -232,7 +238,7 @@ impl Extractor {
                 }
             }
 
-            if info.last_sq.is_none() {
+            if probe_head && info.last_sq.is_none() {
                 let msg = match info.live_status {
                     LiveStatus::IsLive | LiveStatus::PostLive => "X-Head-Seqnum probe failed",
                     LiveStatus::NotLive => {
@@ -252,8 +258,8 @@ impl Extractor {
         }
     }
 
-    pub(super) async fn get_video_info_ytdlp(&mut self) -> Option<FormatSelection> {
-        let info = self.extract_usable().await?;
+    pub(super) async fn get_video_info_ytdlp(&mut self, probe_head: bool) -> Option<FormatSelection> {
+        let info = self.extract_usable(probe_head).await?;
         if self.cancel.is_cancelled() || self.unavailable {
             return None;
         }
@@ -272,7 +278,9 @@ impl Extractor {
             self.is_channel = false;
             log_debug!("Pinned the download to {}", self.page_url);
         }
-        self.last_sq = info.last_sq;
+        if let Some(sequence) = info.last_sq {
+            self.last_sq = Some(sequence);
+        }
         if info.target_duration > 0 {
             self.target_duration = info.target_duration;
         }

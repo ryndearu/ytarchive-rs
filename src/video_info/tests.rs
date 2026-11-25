@@ -179,3 +179,65 @@ async fn channel_monitor_returns_to_live_when_playable_stream_has_not_started() 
     assert_eq!(paths.iter().filter(|path| path.as_str() == "/watch?v=vid1").count(), 1, "{paths:?}");
     assert!(paths.iter().filter(|path| path.as_str() == "/@chan/live").count() >= 2, "{paths:?}");
 }
+
+#[tokio::test]
+async fn ytdlp_mode_mid_download_refresh_skips_head_probe_while_start_delay_probes() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let head_hits = Arc::new(AtomicUsize::new(0));
+    tokio::spawn({
+        let head_hits = head_hits.clone();
+        async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else {
+                    return;
+                };
+                let head_hits = head_hits.clone();
+                tokio::spawn(async move {
+                    let mut buffer = vec![0u8; 4096];
+                    let mut count = 0;
+                    while !buffer[..count].windows(4).any(|window| window == b"\r\n\r\n") {
+                        match sock.read(&mut buffer[count..]).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(read) => count += read,
+                        }
+                    }
+                    head_hits.fetch_add(1, Ordering::SeqCst);
+                    let response =
+                        "HTTP/1.1 200 OK\r\nx-head-seqnum: 42\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+                    sock.write_all(response.as_bytes()).await.ok();
+                });
+            }
+        }
+    });
+
+    let stdout = format!(
+        r#"{{"id":"vid1","live_status":"is_live","is_live":true,"formats":[
+            {{"format_id":"140","url":"http://127.0.0.1:{port}/a?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null}},
+            {{"format_id":"299","url":"http://127.0.0.1:{port}/v?itag=299&noclen=1","protocol":"http_dash_segments","manifest_url":null}}
+        ]}}"#
+    );
+    let opts = Arc::new(Options { ytdlp_info: true, test_ytdlp_stdout: Some(stdout), ..Default::default() });
+    let http = Http::new(&opts, Default::default()).unwrap();
+    let input = InputUrl::Video { id: "vid1".into() };
+    let mut extractor = Extractor::new(opts, http, CancellationToken::new(), &input, &HashSet::new());
+    extractor.in_progress = true;
+    extractor.fixed_itag = Some(Some(299));
+    extractor.last_sq = Some(99);
+
+    let selection = extractor.refresh_urls().await.expect("mid-download refresh should succeed without probe");
+    assert!(!extractor.unavailable);
+    assert_eq!(head_hits.load(Ordering::SeqCst), 0);
+    assert_eq!(extractor.last_sq, Some(99));
+    assert_eq!(selection.audio_url.unwrap().for_seq(5), format!("http://127.0.0.1:{port}/a?itag=140&noclen=1&sq=5"));
+    assert_eq!(selection.video_url.unwrap().for_seq(5), format!("http://127.0.0.1:{port}/v?itag=299&noclen=1&sq=5"));
+
+    // A --start-delay refresh calls get_video_info with in_progress=true and must still probe head.
+    extractor.last_updated = None;
+    let delayed = extractor.get_video_info().await.expect("start-delay refresh should probe head");
+    assert!(delayed.video_url.is_some());
+    assert!(head_hits.load(Ordering::SeqCst) >= 1);
+    assert_eq!(extractor.last_sq, Some(42));
+}

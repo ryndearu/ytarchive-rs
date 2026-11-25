@@ -271,6 +271,8 @@ impl Cli {
             proxy: self.proxy,
             log_level,
             status_newlines: self.newline,
+            #[cfg(test)]
+            test_ytdlp_stdout: None,
         };
 
         Ok(options)

@@ -191,4 +191,6 @@ pub struct Options {
     // Output/logging
     pub log_level: LogLevel,
     pub status_newlines: bool,
+    #[cfg(test)]
+    pub test_ytdlp_stdout: Option<String>,
 }

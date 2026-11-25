@@ -185,7 +185,7 @@ impl Session {
     /// Re-runs extraction to update live status and URLs. Returns whether new
     /// URLs were applied.
     async fn run_refresh(&self, extractor: &mut Extractor) -> bool {
-        let sel = extractor.get_video_info().await;
+        let sel = extractor.refresh_urls().await;
         self.live.store(extractor.live, Ordering::Relaxed);
         self.unavailable.store(extractor.unavailable, Ordering::Relaxed);
         if extractor.target_duration > 0 {

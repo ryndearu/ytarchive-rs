@@ -54,7 +54,7 @@ fn args() {
 
 #[test]
 fn parses_sample() {
-    let (info, probe) = to_extraction(parse_output(SAMPLE).unwrap());
+    let (info, probe_urls) = to_extraction(parse_output(SAMPLE).unwrap());
     assert_eq!(info.id, "abc123");
     assert_eq!(info.title, "My Stream");
     assert!(info.is_live);
@@ -66,7 +66,13 @@ fn parses_sample() {
     itags.sort();
     assert_eq!(itags, [140, 299]);
     assert_eq!(info.urls[&140].for_seq(3), "https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=3");
-    assert_eq!(probe.as_deref(), Some("https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=9"));
+    assert_eq!(
+        probe_urls,
+        [
+            "https://r1.googlevideo.com/videoplayback?itag=140&noclen=1&sq=9",
+            "https://r1.googlevideo.com/videoplayback?itag=299&noclen=1",
+        ]
+    );
 }
 
 #[test]
@@ -98,12 +104,12 @@ fn prefers_exact_format_id_and_adaptive_target_duration() {
 #[test]
 fn upcoming_without_formats() {
     let raw = parse_output(r#"{"id":"x","live_status":"is_upcoming","timestamp":5,"formats":null}"#).unwrap();
-    let (info, probe) = to_extraction(raw);
+    let (info, probe_urls) = to_extraction(raw);
     assert_eq!(info.live_status, LiveStatus::IsUpcoming);
     assert!(!info.is_live);
     assert_eq!(info.start_unix, Some(5));
     assert!(info.urls.is_empty());
-    assert!(probe.is_none());
+    assert!(probe_urls.is_empty());
 }
 
 #[test]
@@ -134,6 +140,51 @@ fn stderr_prefers_error_line() {
     assert_eq!(stderr_error_line("ERROR: first\nERROR: second\nTrailing note\n"), "ERROR: second");
     assert_eq!(stderr_error_line("WARNING: one\n  plain failure  \n\n"), "plain failure");
     assert_eq!(stderr_error_line("  \n\r\n"), "");
+}
+
+#[tokio::test]
+async fn head_probe_falls_back_across_adaptive_formats() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 4096];
+                let mut count = 0;
+                while !buffer[..count].windows(4).any(|window| window == b"\r\n\r\n") {
+                    match sock.read(&mut buffer[count..]).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(read) => count += read,
+                    }
+                }
+                let request = String::from_utf8_lossy(&buffer[..count]);
+                let path = request.split_whitespace().nth(1).unwrap_or("/");
+                let response = if path.starts_with("/b") {
+                    "HTTP/1.1 200 OK\r\nx-head-seqnum: 42\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                } else {
+                    "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                };
+                sock.write_all(response.as_bytes()).await.ok();
+            });
+        }
+    });
+
+    let base = format!("http://127.0.0.1:{}", addr.port());
+    let stdout = format!(
+        r#"{{"id":"x","live_status":"is_live","formats":[
+            {{"format_id":"140","url":"{base}/a?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null}},
+            {{"format_id":"299","url":"{base}/b?itag=299&noclen=1","protocol":"http_dash_segments","manifest_url":null}}
+        ]}}"#
+    );
+    let http = Http::new(&Options::default(), Default::default()).unwrap();
+    let info = finish_extraction(&http, &stdout, &CancellationToken::new()).await.unwrap();
+    assert_eq!(info.last_sq, Some(42));
 }
 
 #[tokio::test]
