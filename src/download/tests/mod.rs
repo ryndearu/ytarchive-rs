@@ -6,12 +6,11 @@ mod retry;
 mod sqlite;
 
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -20,7 +19,7 @@ use crate::error::Error;
 use crate::http::Http;
 use crate::session::Session;
 use crate::types::{DataType, DownloadState, FragmentUrl, Options, ProgressInfo};
-use crate::{mp4_atoms, ytdlp};
+use crate::{mp4_atoms, test_http, ytdlp};
 
 fn mp4_box(name: &str, payload: &[u8]) -> Vec<u8> {
     let mut bytes = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
@@ -90,59 +89,41 @@ async fn serve_with_status(
     on_forbidden: Option<OnForbidden>,
     on_request: Option<OnRequest>,
 ) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let fail = Arc::new(fail);
-    tokio::spawn(async move {
-        loop {
-            let Ok((mut sock, _)) = listener.accept().await else {
-                return;
-            };
-            let fail = fail.clone();
-            let on_forbidden = on_forbidden.clone();
-            let on_request = on_request.clone();
-            tokio::spawn(async move {
-                let mut buf = vec![0u8; 8192];
-                let mut count = 0;
-                while !buf[..count].windows(4).any(|window| window == b"\r\n\r\n") {
-                    match sock.read(&mut buf[count..]).await {
-                        Ok(0) | Err(_) => return,
-                        Ok(read) => count += read,
-                    }
-                }
-                let req = String::from_utf8_lossy(&buf[..count]);
-                let seq: u64 = req
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|path| path.rsplit("sq=").next())
-                    .and_then(|text| text.parse().ok())
-                    .unwrap_or(u64::MAX);
-                if let Some(callback) = &on_request {
-                    callback(seq);
-                }
-                let (status, body) = if seq >= forbidden && seq != u64::MAX {
-                    if let Some(callback) = &on_forbidden {
-                        callback();
-                    }
-                    ("403 Forbidden", Vec::new())
-                } else if fail.contains(&seq) {
-                    (fail_status, Vec::new())
-                } else if seq > head {
-                    ("404 Not Found", Vec::new())
-                } else {
-                    ("200 OK", fragment_body(seq))
-                };
-                let hdr = format!(
-                    "HTTP/1.1 {status}\r\ncontent-type: video/mp4\r\nx-head-seqnum: {head}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-                    body.len()
-                );
-                // The client may hang up first (a cancelled request).
-                sock.write_all(hdr.as_bytes()).await.ok();
-                sock.write_all(&body).await.ok();
-            });
+    let addr = test_http::serve(move |request| {
+        let seq = request_sequence(&request);
+        if let Some(callback) = &on_request {
+            callback(seq);
         }
-    });
-    format!("http://127.0.0.1:{}/videoplayback?itag=140&noclen=1", addr.port())
+        let (status, body) = if seq >= forbidden && seq != u64::MAX {
+            if let Some(callback) = &on_forbidden {
+                callback();
+            }
+            ("403 Forbidden", Vec::new())
+        } else if fail.contains(&seq) {
+            (fail_status, Vec::new())
+        } else if seq > head {
+            ("404 Not Found", Vec::new())
+        } else {
+            ("200 OK", fragment_body(seq))
+        };
+        let response = fragment_response(status, head, &body);
+        async move { Some(response) }
+    })
+    .await;
+    fragment_url(addr)
+}
+
+/// The `sq` of a request to the fake server; `u64::MAX` without one.
+fn request_sequence(request: &str) -> u64 {
+    test_http::path(request).rsplit("sq=").next().and_then(|text| text.parse().ok()).unwrap_or(u64::MAX)
+}
+
+fn fragment_response(status: &str, head: u64, body: &[u8]) -> Vec<u8> {
+    test_http::response(status, &format!("content-type: video/mp4\r\nx-head-seqnum: {head}\r\n"), body)
+}
+
+fn fragment_url(addr: SocketAddr) -> String {
+    format!("http://{addr}/videoplayback?itag=140&noclen=1")
 }
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -185,20 +166,97 @@ fn opts(threads: usize, frag_files: bool) -> Options {
     Options { threads, frag_max_tries: 2, frag_files, file_mode: 0o644, ..Default::default() }
 }
 
+/// For downloads that must fail before any request.
+const UNREACHABLE: &str = "http://127.0.0.1:1/x?";
+
+fn session_for(options: Options, url: &str, live: bool) -> Arc<Session> {
+    Session::for_test(options, Some(FragmentUrl::with_sq_param(url)), live)
+}
+
+/// Downloads up to `head` into `dir` with 1 ms retries; a download that
+/// doesn't end within 10 s fails the test.
+async fn download_quickly(session: Arc<Session>, dir: &Path, head: u64) -> StreamOutcome {
+    let (mut stream_params, _receiver) = params(dir, head, DownloadState::default());
+    stream_params.retry_sleep = Duration::from_millis(1);
+    tokio::time::timeout(Duration::from_secs(10), download_stream(session, stream_params))
+        .await
+        .expect("download hangs")
+        .unwrap()
+}
+
+/// Asserts that `0..fragments` were all stored, in order.
+fn assert_complete(out: &StreamOutcome, dir: &Path, fragments: u64) {
+    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
+    assert_eq!(out.state.fragments, fragments);
+    assert_output(&dir.join("out.f140.ts"), 0..fragments);
+}
+
+/// The output after storing `sequences` in order; the first keeps `ftyp`.
+fn expected_file(sequences: impl IntoIterator<Item = u64>) -> Vec<u8> {
+    sequences.into_iter().enumerate().flat_map(|(index, sequence)| expected(sequence, index == 0)).collect()
+}
+
+fn assert_output(path: &Path, sequences: impl IntoIterator<Item = u64>) {
+    assert_eq!(fs::read(path).unwrap(), expected_file(sequences), "{}", path.display());
+}
+
+/// A database already holding `sequences`, as an earlier run leaves it.
+async fn stored_database(path: &Path, sequences: impl IntoIterator<Item = u64>) {
+    use crate::types::{FragData, Fragment};
+
+    let mut database = DbSink::open(path, 0o644).unwrap();
+    for seq in sequences {
+        let data = FragData::Memory(bytes::Bytes::from(fragment_body(seq)));
+        let fragment = Fragment { seq, x_head_seqnum: None, data, mime_type: "video/mp4".into() };
+        database.push(seq, Some(fragment)).await.unwrap();
+    }
+}
+
+/// Makes inserts into the database fail, like a full disk; `when` is an
+/// optional SQL `WHEN` clause.
+fn fail_inserts(path: &Path, when: &str) {
+    let connection = rusqlite::Connection::open(path).unwrap();
+    connection
+        .execute_batch(&format!(
+            "CREATE TRIGGER fail_insert BEFORE INSERT ON segments {when} BEGIN
+                 SELECT RAISE(ABORT, 'database or disk is full');
+             END;"
+        ))
+        .unwrap();
+}
+
+/// A server whose fragments from `forbidden` on get 403; the first 403 calls
+/// `on_forbidden` with the session registered in the returned cell.
+async fn forbidden_from(
+    head: u64,
+    forbidden: u64,
+    on_forbidden: fn(&Session),
+) -> (String, Arc<OnceLock<Arc<Session>>>) {
+    let cell: Arc<OnceLock<Arc<Session>>> = Arc::default();
+    let callback: OnForbidden = Arc::new({
+        let cell = cell.clone();
+        move || {
+            if let Some(session) = cell.get() {
+                on_forbidden(session);
+            }
+        }
+    });
+    (serve_until(head, vec![], forbidden, Some(callback)).await, cell)
+}
+
 #[tokio::test]
 async fn downloads_ended_stream_in_order() {
     for frag_files in [false, true] {
         let url = serve(20, vec![]).await;
         let dir = temp_dir(&format!("order-{frag_files}"));
-        let session = Session::for_test(opts(4, frag_files), Some(FragmentUrl::with_sq_param(&url)), false);
+        let session = session_for(opts(4, frag_files), &url, false);
         let (stream_params, mut receiver) = params(&dir, 20, DownloadState::default());
         let out = download_stream(session, stream_params).await.unwrap();
 
         // Not live: stops before the head sequence, as Go does.
-        let want: Vec<u8> = (0..20).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-        assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+        assert_output(&dir.join("out.f140.ts"), 0..20);
         assert_eq!(out.state.fragments, 20);
-        assert_eq!(out.state.size, want.len() as u64);
+        assert_eq!(out.state.size, expected_file(0..20).len() as u64);
         assert!(out.skipped.is_empty());
 
         let mut progress = 0;
@@ -221,36 +279,23 @@ async fn downloads_ended_stream_in_order() {
 
 #[tokio::test]
 async fn skips_permanently_failing_fragment() {
-    let url = serve(15, vec![3]).await;
-    let dir = temp_dir("skip");
-    let session = Session::for_test(opts(3, false), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (stream_params, _rx) = params(&dir, 15, DownloadState::default());
-    let out = download_stream(session, stream_params).await.unwrap();
-    assert_eq!(out.skipped, [3]);
-    let want: Vec<u8> =
-        (0..15).filter(|sequence| *sequence != 3).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    fs::remove_dir_all(&dir).unwrap();
-}
-
-#[tokio::test]
-async fn keeps_ftyp_when_first_fragment_is_skipped() {
-    let url = serve(5, vec![0]).await;
-    let dir = temp_dir("skip-first");
-    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (stream_params, _rx) = params(&dir, 5, DownloadState::default());
-    let out = download_stream(session, stream_params).await.unwrap();
-    assert_eq!(out.skipped, [0]);
-    let want: Vec<u8> = (1..5).flat_map(|sequence| expected(sequence, sequence == 1)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    fs::remove_dir_all(&dir).unwrap();
+    // A skipped first fragment still leaves `ftyp` at the start.
+    for failing in [3, 0] {
+        let url = serve(15, vec![failing]).await;
+        let dir = temp_dir(&format!("skip-{failing}"));
+        let (stream_params, _rx) = params(&dir, 15, DownloadState::default());
+        let out = download_stream(session_for(opts(3, false), &url, false), stream_params).await.unwrap();
+        assert_eq!(out.skipped, [failing]);
+        assert_output(&dir.join("out.f140.ts"), (0..15).filter(|sequence| *sequence != failing));
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 #[tokio::test]
 async fn unopenable_storage_is_reported_as_such() {
     // A data file in a folder that doesn't exist, like a name Windows rejects.
     let dir = temp_dir("no-storage");
-    let session = Session::for_test(opts(1, false), Some(FragmentUrl::with_sq_param("http://127.0.0.1:1/x?")), false);
+    let session = session_for(opts(1, false), UNREACHABLE, false);
     let (mut stream_params, _rx) = params(&dir, 5, DownloadState::default());
     stream_params.data_file = dir.join("missing").join("out.f140.ts");
     let err = download_stream(session, stream_params).await.unwrap_err();
@@ -267,7 +312,7 @@ async fn a_fragment_that_does_not_reach_a_full_disk_is_not_counted() {
     let mut options = opts(2, false);
     // The mode /dev/full already has, so applying it changes nothing.
     options.file_mode = 0o666;
-    let session = Session::for_test(options, Some(FragmentUrl::with_sq_param(&url)), false);
+    let session = session_for(options, &url, false);
     let (mut stream_params, mut receiver) = params(&dir, 10, DownloadState::default());
     stream_params.data_file = PathBuf::from("/dev/full");
     let err = download_stream(session.clone(), stream_params).await.unwrap_err();
@@ -316,14 +361,12 @@ async fn live_fragments() {
 async fn capture_duration_and_start_sq() {
     let url = serve(100, vec![]).await;
     let dir = temp_dir("capture");
-    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), true);
     let (mut stream_params, _rx) = params(&dir, 100, DownloadState::default());
     stream_params.start_sq = Some(50);
     // Target duration is 1s in tests: 5s = 5 fragments.
     stream_params.capture_duration = Some(Duration::from_secs(5));
-    let out = download_stream(session, stream_params).await.unwrap();
-    let want: Vec<u8> = (50..55).flat_map(|sequence| expected(sequence, sequence == 50)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    let out = download_stream(session_for(opts(2, false), &url, true), stream_params).await.unwrap();
+    assert_output(&dir.join("out.f140.ts"), 50..55);
     assert_eq!(out.state.start_frag, 50);
     fs::remove_dir_all(&dir).unwrap();
 }

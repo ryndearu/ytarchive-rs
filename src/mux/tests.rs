@@ -9,63 +9,49 @@ fn dir(test: &str) -> PathBuf {
 }
 
 #[test]
-fn audio_and_video_mp4_with_thumbnail_and_metadata() {
-    let out_dir = dir("mp4");
+fn thumbnail_and_container_per_output() {
     let meta: MetaInfo = [("title".to_string(), "T".to_string()), ("date".into(), String::new())].into();
-    let cmd = ffmpeg_args(&MuxInput {
-        audio: Some(Path::new("a.ts")),
-        video: Some(Path::new("v.ts")),
-        thumbnail: Some(Path::new("t.jpg")),
-        mkv: false,
-        metadata: Some(&meta),
-        out_dir: &out_dir,
-        file_name: "out",
-    });
-    let joined = cmd.args.join(" ");
-    assert!(joined.starts_with("-hide_banner -nostdin -loglevel fatal -stats -i t.jpg -seekable 0"));
-    assert!(joined.contains("-i a.ts -seekable 0 -thread_queue_size 1024 -i v.ts -movflags faststart -map 0 -map 1 -map 2 -c copy -disposition:v:0 attached_pic"));
-    assert!(joined.contains("-metadata TITLE=T"));
-    assert!(!joined.contains("DATE"));
-    assert_eq!(cmd.output, out_dir.join("out.mp4"));
-}
-
-#[test]
-fn mkv_attaches_thumbnail() {
-    let out_dir = dir("mkv");
-    let cmd = ffmpeg_args(&MuxInput {
-        audio: Some(Path::new("a.ts")),
-        video: Some(Path::new("v.ts")),
-        thumbnail: Some(Path::new("t.jpg")),
-        mkv: true,
-        metadata: None,
-        out_dir: &out_dir,
-        file_name: "out",
-    });
-    let joined = cmd.args.join(" ");
-    assert!(!joined.contains("-i t.jpg"));
-    assert!(!joined.contains("faststart"));
-    assert!(joined.contains("-attach t.jpg"));
-    assert!(cmd.output.ends_with("out.mkv"));
-}
-
-#[test]
-fn audio_only_is_m4a() {
-    let out_dir = dir("m4a");
-    let cmd = ffmpeg_args(&MuxInput {
-        audio: Some(Path::new("a.ts")),
-        video: None,
-        thumbnail: Some(Path::new("t.jpg")),
-        mkv: true,
-        metadata: None,
-        out_dir: &out_dir,
-        file_name: "out",
-    });
-    assert!(cmd.output.ends_with("out.m4a"));
-    let joined = cmd.args.join(" ");
-    assert!(!cmd.args.contains(&"-movflags".to_string()));
-    assert!(joined.contains("-i t.jpg"));
-    assert!(joined.contains("-disposition:v:0 attached_pic"));
-    assert!(!joined.contains("-attach"));
+    // Audio only is always m4a with the thumbnail as a picture, even with --mkv.
+    for (case, video, mkv, metadata, output, present, absent) in [
+        (
+            "mp4",
+            true,
+            false,
+            Some(&meta),
+            "out.mp4",
+            &[
+                "-hide_banner -nostdin -loglevel fatal -stats -i t.jpg -seekable 0",
+                "-i a.ts -seekable 0 -thread_queue_size 1024 -i v.ts -movflags faststart -map 0 -map 1 -map 2 -c copy -disposition:v:0 attached_pic",
+                "-metadata TITLE=T",
+            ][..],
+            &["DATE"][..],
+        ),
+        ("mkv", true, true, None, "out.mkv", &["-attach t.jpg"][..], &["-i t.jpg", "faststart"][..]),
+        (
+            "m4a",
+            false,
+            true,
+            None,
+            "out.m4a",
+            &["-i t.jpg", "-disposition:v:0 attached_pic"][..],
+            &["-attach", "-movflags"][..],
+        ),
+    ] {
+        let out_dir = dir(case);
+        let cmd = ffmpeg_args(&MuxInput {
+            audio: Some(Path::new("a.ts")),
+            video: video.then(|| Path::new("v.ts")),
+            thumbnail: Some(Path::new("t.jpg")),
+            mkv,
+            metadata,
+            out_dir: &out_dir,
+            file_name: "out",
+        });
+        let joined = cmd.args.join(" ");
+        assert_eq!(cmd.output, out_dir.join(output));
+        assert!(present.iter().all(|part| joined.contains(part)), "{case}: {joined}");
+        assert!(!absent.iter().any(|part| joined.contains(part)), "{case}: {joined}");
+    }
 }
 
 #[test]

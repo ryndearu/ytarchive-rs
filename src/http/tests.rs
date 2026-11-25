@@ -1,27 +1,18 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
 use super::*;
 use crate::cookies::parse_netscape;
+use crate::test_http;
 
-/// One-shot server: replies with `status` and echoes the request's Cookie header.
+/// Replies with `status` and echoes the request's Cookie header.
 async fn serve_once(status: &'static str) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let (mut sock, _) = listener.accept().await.unwrap();
-        let mut buf = vec![0u8; 4096];
-        let count = sock.read(&mut buf).await.unwrap();
-        let req = String::from_utf8_lossy(&buf[..count]).to_string();
-        let cookie = req
+    let addr = test_http::serve(move |request| {
+        let cookie = request
             .lines()
             .find_map(|line| line.strip_prefix("cookie: ").or_else(|| line.strip_prefix("Cookie: ")))
-            .unwrap_or("")
-            .to_string();
-        let resp =
-            format!("HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{cookie}", cookie.len());
-        sock.write_all(resp.as_bytes()).await.unwrap();
-    });
+            .unwrap_or("");
+        let response = test_http::response(status, "", cookie.as_bytes());
+        async move { Some(response) }
+    })
+    .await;
     format!("http://{addr}/x?sig=secret")
 }
 

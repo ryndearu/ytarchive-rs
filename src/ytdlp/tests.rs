@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_http;
 
 const SAMPLE: &str = r#"WARNING: something
 {"id":"abc123","title":" My Stream ","channel_id":"UC1","channel":"Chan","description":"d","thumbnail":"https://i/t.jpg","upload_date":"20261107","release_timestamp":1762500000,"timestamp":null,"live_status":"is_live","is_live":null,"formats":[
@@ -104,13 +105,9 @@ fn upcoming_without_formats() {
 }
 
 #[test]
-fn parses_after_crlf_lines() {
+fn parse_skips_crlf_warnings_and_rejects_bad_json() {
     let raw = parse_output("WARNING: a\r\nWARNING: b\r\n{\"id\":\"x\"}\r\n").unwrap();
     assert_eq!(raw.id.as_deref(), Some("x"));
-}
-
-#[test]
-fn parse_errors() {
     assert!(parse_output("").is_err());
     assert!(parse_output("{not json").is_err());
 }
@@ -135,38 +132,17 @@ fn stderr_prefers_error_line() {
 
 #[tokio::test]
 async fn head_probe_falls_back_across_adaptive_formats() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
+    let addr = test_http::serve(|request| {
+        let response = if test_http::path(&request).starts_with("/b") {
+            test_http::response("200 OK", "x-head-seqnum: 42\r\n", b"")
+        } else {
+            test_http::response("404 Not Found", "", b"")
+        };
+        async move { Some(response) }
+    })
+    .await;
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        loop {
-            let Ok((mut sock, _)) = listener.accept().await else {
-                return;
-            };
-            tokio::spawn(async move {
-                let mut buffer = vec![0u8; 4096];
-                let mut count = 0;
-                while !buffer[..count].windows(4).any(|window| window == b"\r\n\r\n") {
-                    match sock.read(&mut buffer[count..]).await {
-                        Ok(0) | Err(_) => return,
-                        Ok(read) => count += read,
-                    }
-                }
-                let request = String::from_utf8_lossy(&buffer[..count]);
-                let path = request.split_whitespace().nth(1).unwrap_or("/");
-                let response = if path.starts_with("/b") {
-                    "HTTP/1.1 200 OK\r\nx-head-seqnum: 42\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
-                } else {
-                    "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
-                };
-                sock.write_all(response.as_bytes()).await.ok();
-            });
-        }
-    });
-
-    let base = format!("http://127.0.0.1:{}", addr.port());
+    let base = format!("http://{addr}");
     let stdout = format!(
         r#"{{"id":"x","live_status":"is_live","formats":[
             {{"format_id":"140","url":"{base}/a?itag=140&noclen=1","protocol":"http_dash_segments","manifest_url":null}},

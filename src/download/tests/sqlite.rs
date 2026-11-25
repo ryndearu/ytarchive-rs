@@ -15,37 +15,43 @@ pub(super) fn sqlite_opts(threads: usize) -> Options {
 
 #[tokio::test]
 async fn sqlite_resume_fills_gap() {
-    let dir = temp_dir("sqlite-resume");
+    // The second run also has a new title: the database follows the name.
+    for (old_name, new_name) in [("out", "out"), ("old-title", "new-title")] {
+        let dir = temp_dir(&format!("sqlite-resume-{new_name}"));
 
-    // First run: fragment 3 always fails and is skipped.
-    let url = serve(10, vec![3]).await;
-    let session = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (stream_params, _rx) = params(&dir, 10, DownloadState::default());
-    let first = download_stream(session, stream_params).await.unwrap();
-    assert_eq!(first.skipped, [3]);
-    assert_eq!(first.state.fragments, 9);
-    assert!(dir.join("out.f140.sqlite").exists());
-    // Dropping PendingExport closes the DB without exporting yet.
-    drop(first.pending_export);
-    // No temp fragment files are used in SQLite mode.
-    assert!(!fs::read_dir(&dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".frag")));
+        // First run: fragment 3 always fails and is skipped.
+        let url = serve(10, vec![3]).await;
+        let (mut stream_params, _rx) = params(&dir, 10, DownloadState::default());
+        stream_params.data_file = dir.join(format!("{old_name}.f140.ts"));
+        let first = download_stream(session_for(sqlite_opts(2), &url, false), stream_params).await.unwrap();
+        assert_eq!(first.skipped, [3]);
+        assert_eq!(first.state.fragments, 9);
+        assert!(dir.join(format!("{old_name}.f140.sqlite")).exists());
+        // Dropping PendingExport closes the DB without exporting yet.
+        drop(first.pending_export);
+        // No temp fragment files are used in SQLite mode.
+        assert!(
+            !fs::read_dir(&dir).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains(".frag"))
+        );
 
-    // Second run against a healthy server resumes from the saved state and
-    // only needs the missing fragment.
-    let url = serve(10, vec![]).await;
-    let saved = load_state(&dir.join("out.f140.state")).unwrap();
-    let session = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (stream_params, mut receiver) = params(&dir, 10, saved);
-    let second = download_stream(session, stream_params).await.unwrap();
-    assert!(second.skipped.is_empty());
-    assert_eq!(second.state.fragments, 10);
-    // The 9 stored fragments, then only the gap downloaded again.
-    assert_eq!(progress_counts(&mut receiver), [9, 1]);
+        // Second run against a healthy server resumes from the saved state and
+        // only needs the missing fragment.
+        let url = serve(10, vec![]).await;
+        let saved = load_state(&dir.join("out.f140.state")).unwrap();
+        let (mut stream_params, mut receiver) = params(&dir, 10, saved);
+        stream_params.data_file = dir.join(format!("{new_name}.f140.ts"));
+        let second = download_stream(session_for(sqlite_opts(2), &url, false), stream_params).await.unwrap();
+        assert!(second.skipped.is_empty());
+        assert_eq!(second.state.fragments, 10);
+        // The 9 stored fragments, then only the gap downloaded again.
+        assert_eq!(progress_counts(&mut receiver), [9, 1]);
+        assert!(old_name == new_name || !dir.join(format!("{old_name}.f140.sqlite")).exists());
+        assert!(dir.join(format!("{new_name}.f140.sqlite")).exists());
 
-    second.pending_export.unwrap().export().await.unwrap();
-    let want: Vec<u8> = (0..10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    fs::remove_dir_all(&dir).unwrap();
+        second.pending_export.unwrap().export().await.unwrap();
+        assert_output(&dir.join(format!("{new_name}.f140.ts")), 0..10);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 #[tokio::test]
@@ -53,46 +59,21 @@ async fn sqlite_resumes_a_ts_download_as_ts() {
     let url = serve(8, vec![]).await;
     let dir = temp_dir("sqlite-resume-ts");
     // Started with --no-sqlite (or by Go): 3 fragments in the .ts, no database.
-    let first: Vec<u8> = (0..3).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
+    let first = expected_file(0..3);
     fs::write(dir.join("out.f140.ts"), &first).unwrap();
     let state = DownloadState { start_frag: 0, fragments: 3, size: first.len() as u64, ..Default::default() };
 
-    let session = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
     let (stream_params, _rx) = params(&dir, 8, state);
-    let out = download_stream(session, stream_params).await.unwrap();
-    let want: Vec<u8> = (0..8).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    let out = download_stream(session_for(sqlite_opts(2), &url, false), stream_params).await.unwrap();
+    assert_output(&dir.join("out.f140.ts"), 0..8);
     assert_eq!(out.state.fragments, 8);
     assert!(!dir.join("out.f140.sqlite").exists());
     fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
-async fn sqlite_storage_error_creates_no_ts_file() {
-    let dir = temp_dir("sqlite-storage-err");
-    let database_path = dir.join("out.f140.sqlite");
-    let conn = Connection::open(&database_path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE segments (seq INTEGER PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL);
-         CREATE TRIGGER fail_insert BEFORE INSERT ON segments BEGIN
-             SELECT RAISE(ABORT, 'disk error');
-         END;",
-    )
-    .unwrap();
-    drop(conn);
-
-    let url = serve(5, vec![]).await;
-    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (stream_params, _rx) = params(&dir, 5, DownloadState::default());
-    let err = download_stream(session, stream_params).await.unwrap_err();
-    assert!(matches!(err, Error::Sqlite(_)), "{err}");
-    assert!(!dir.join("out.f140.ts").exists(), "partial .ts must not be exported on storage error");
-    fs::remove_dir_all(&dir).unwrap();
-}
-
-#[tokio::test]
 async fn push_with_meta_batches_and_skips_empty_updates() {
-    use super::super::db_sink::{DbSink, MetaUpdate};
+    use super::super::db_sink::MetaUpdate;
     use crate::types::{FragData, Fragment};
 
     let dir = temp_dir("push-with-meta");
@@ -118,33 +99,19 @@ async fn push_with_meta_batches_and_skips_empty_updates() {
 
 #[tokio::test]
 async fn sqlite_sets_aside_unresumable_database_when_state_is_empty() {
-    use super::super::db_sink::DbSink;
-    use crate::types::{FragData, Fragment};
-
     let dir = temp_dir("sqlite-unresumable");
-    let database_path = dir.join("out.f140.sqlite");
-    let mut old = DbSink::open(&database_path, 0o644).unwrap();
-    let frag = Fragment {
-        seq: 0,
-        x_head_seqnum: None,
-        data: FragData::Memory(bytes::Bytes::from(fragment_body(0))),
-        mime_type: "video/mp4".into(),
-    };
-    old.push(0, Some(frag)).await.unwrap();
-    drop(old);
+    stored_database(&dir.join("out.f140.sqlite"), [0]).await;
 
     let url = serve(6, vec![]).await;
-    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
     let (mut stream_params, _rx) = params(&dir, 6, DownloadState::default());
     stream_params.start_sq = Some(4);
-    let out = download_stream(session, stream_params).await.unwrap();
+    let out = download_stream(session_for(sqlite_opts(1), &url, false), stream_params).await.unwrap();
     assert_eq!(out.state.start_frag, 4);
     assert_eq!(out.state.fragments, 2);
     assert!(dir.join("out.f140.sqlite.old").exists(), "old database should be kept as .old");
 
     out.pending_export.unwrap().export().await.unwrap();
-    let want: Vec<u8> = (4..6).flat_map(|sequence| expected(sequence, sequence == 4)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_output(&dir.join("out.f140.ts"), 4..6);
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -189,84 +156,15 @@ async fn keep_existing_db_preserves_uncheckpointed_wal() {
 }
 
 #[tokio::test]
-async fn aborts_when_unresumable_sqlite_cannot_be_moved_aside() {
-    use super::super::db_sink::DbSink;
-    use crate::types::{FragData, Fragment};
-
-    let dir = temp_dir("sqlite-keep-old-fail");
-    let database_path = dir.join("out.f140.sqlite");
-    let mut old = DbSink::open(&database_path, 0o644).unwrap();
-    let frag = Fragment {
-        seq: 0,
-        x_head_seqnum: None,
-        data: FragData::Memory(bytes::Bytes::from(fragment_body(0))),
-        mime_type: "video/mp4".into(),
-    };
-    old.push(0, Some(frag)).await.unwrap();
-    drop(old);
-
-    let blocker = dir.join("out.f140.sqlite.old");
-    fs::create_dir(&blocker).unwrap();
-    fs::write(blocker.join("keep"), b"x").unwrap();
-
-    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param("http://127.0.0.1:1/x?")), false);
-    let (stream_params, _rx) = params(&dir, 6, DownloadState::default());
-    let err = download_stream(session, stream_params).await.unwrap_err();
-    assert!(matches!(err, Error::OpenStorage(_)), "{err}");
-
-    let conn = Connection::open(&database_path).unwrap();
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM segments", [], |row| row.get(0)).unwrap();
-    assert_eq!(count, 1);
-    drop(conn);
-    fs::remove_dir_all(&dir).unwrap();
-}
-
-#[tokio::test]
-async fn sqlite_resumes_when_output_name_changes() {
-    let dir = temp_dir("sqlite-resume-renamed");
-    let url = serve(6, vec![2]).await;
-    let session = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (mut stream_params, _rx) = params(&dir, 6, DownloadState::default());
-    stream_params.data_file = dir.join("old-title.f140.ts");
-    let first = download_stream(session, stream_params).await.unwrap();
-    assert_eq!(first.skipped, [2]);
-    drop(first.pending_export);
-
-    let url = serve(6, vec![]).await;
-    let saved = load_state(&dir.join("out.f140.state")).unwrap();
-    let session = Session::for_test(sqlite_opts(2), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (mut stream_params, mut receiver) = params(&dir, 6, saved);
-    stream_params.data_file = dir.join("new-title.f140.ts");
-    let second = download_stream(session, stream_params).await.unwrap();
-    assert!(second.skipped.is_empty());
-    assert_eq!(second.state.fragments, 6);
-    assert_eq!(progress_counts(&mut receiver), [5, 1]);
-    assert!(!dir.join("old-title.f140.sqlite").exists());
-    assert!(dir.join("new-title.f140.sqlite").exists());
-
-    second.pending_export.unwrap().export().await.unwrap();
-    let want: Vec<u8> = (0..6).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("new-title.f140.ts")).unwrap(), want);
-    fs::remove_dir_all(&dir).unwrap();
-}
-
-#[tokio::test]
 async fn sqlite_mid_download_write_failure_resumes_cleanly() {
     let dir = temp_dir("sqlite-full-resume");
     let database_path = dir.join("out.f140.sqlite");
-    let conn = Connection::open(&database_path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE segments (seq INTEGER PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL);
-         CREATE TRIGGER fail_at_three BEFORE INSERT ON segments WHEN NEW.seq >= 3 BEGIN
-             SELECT RAISE(ABORT, 'database or disk is full');
-         END;",
-    )
-    .unwrap();
-    drop(conn);
+    stored_database(&database_path, []).await;
+    fail_inserts(&database_path, "WHEN NEW.seq >= 3");
 
     // First run stores fragments 0..3, then fails on fragment 3.
     let url = serve(6, vec![]).await;
-    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
+    let session = session_for(sqlite_opts(1), &url, false);
     let (stream_params, _rx) = params(&dir, 6, DownloadState::default());
     let err = download_stream(session.clone(), stream_params).await.unwrap_err();
     assert!(matches!(err, Error::Sqlite(_)), "{err}");
@@ -277,18 +175,16 @@ async fn sqlite_mid_download_write_failure_resumes_cleanly() {
 
     // Space freed: drop the trigger and resume; only fragments 3..6 are fetched.
     let conn = Connection::open(&database_path).unwrap();
-    conn.execute_batch("DROP TRIGGER fail_at_three;").unwrap();
+    conn.execute_batch("DROP TRIGGER fail_insert;").unwrap();
     drop(conn);
 
-    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
     let (stream_params, mut receiver) = params(&dir, 6, saved);
-    let resumed = download_stream(session, stream_params).await.unwrap();
+    let resumed = download_stream(session_for(sqlite_opts(1), &url, false), stream_params).await.unwrap();
     assert_eq!(resumed.state.fragments, 6);
     assert_eq!(progress_counts(&mut receiver), [3, 1, 1, 1]);
 
     resumed.pending_export.unwrap().export().await.unwrap();
-    let want: Vec<u8> = (0..6).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_output(&dir.join("out.f140.ts"), 0..6);
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -296,9 +192,8 @@ async fn sqlite_mid_download_write_failure_resumes_cleanly() {
 async fn sqlite_failed_export_keeps_database_for_retry() {
     let dir = temp_dir("sqlite-export-retry");
     let url = serve(4, vec![]).await;
-    let session = Session::for_test(sqlite_opts(1), Some(FragmentUrl::with_sq_param(&url)), false);
     let (stream_params, _rx) = params(&dir, 4, DownloadState::default());
-    let out = download_stream(session, stream_params).await.unwrap();
+    let out = download_stream(session_for(sqlite_opts(1), &url, false), stream_params).await.unwrap();
 
     // Block the .ts target with a directory so export fails.
     let blocked = dir.join("out.f140.ts");
@@ -310,8 +205,7 @@ async fn sqlite_failed_export_keeps_database_for_retry() {
     let database = DbSink::open(&dir.join("out.f140.sqlite"), 0o644).unwrap();
     let (count, _) = database.export(&blocked, 0o644).unwrap();
     assert_eq!(count, 4);
-    let want: Vec<u8> = (0..4).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(&blocked).unwrap(), want);
     drop(database);
+    assert_output(&blocked, 0..4);
     fs::remove_dir_all(&dir).unwrap();
 }

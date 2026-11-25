@@ -126,6 +126,9 @@ async fn codec_is_not_asked_for() {
     let offered = urls(&[140, 136, 247, 398]);
     let selection = select_interactive(&offered, sel(&["720p"]), None, false).await.unwrap();
     assert_eq!(selection.video_itag, Some(398));
+    let codecs = complete_codec_order(&[Vp9]);
+    let selection = select_interactive(&offered, sel(&["720p"]), Some(&codecs), false).await.unwrap();
+    assert_eq!(selection.codec, Some(Vp9));
 }
 
 #[tokio::test]
@@ -133,14 +136,6 @@ async fn unavailable_quality_falls_back_to_best() {
     let offered = urls(&[140, 136, 247]);
     let selection = select_interactive(&offered, sel(&["1080p"]), None, false).await.unwrap();
     assert_eq!((selection.label.as_str(), selection.codec), ("720p", Some(Vp9)));
-}
-
-#[tokio::test]
-async fn given_codecs_are_used() {
-    let offered = urls(&[140, 136, 247, 398]);
-    let codecs = complete_codec_order(&[Vp9]);
-    let selection = select_interactive(&offered, sel(&["720p"]), Some(&codecs), false).await.unwrap();
-    assert_eq!(selection.codec, Some(Vp9));
 }
 
 #[test]

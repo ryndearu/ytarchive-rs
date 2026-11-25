@@ -23,10 +23,7 @@ async fn non_403_near_head_does_not_get_extra_refresh_rounds() {
             Some(FragmentUrl::with_sq_param(&format!("{server_url}&refresh={generation}")))
         }),
     );
-    let (mut stream_params, _rx) = params(&dir, 5, DownloadState::default());
-    stream_params.retry_sleep = Duration::from_millis(1);
-    let out = download_stream(session, stream_params).await.unwrap();
-
+    let out = download_quickly(session, &dir, 5).await;
     assert_eq!(out.state.fragments, 4);
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
     fs::remove_dir_all(&dir).unwrap();
@@ -53,77 +50,32 @@ fn retry_judges_distance_against_current_max_seq() {
 
 #[tokio::test]
 async fn near_head_404_does_not_abort_worker_retrying_earlier_fragment() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
     let head = 10u64;
     let seq2_attempts = Arc::new(AtomicUsize::new(0));
     let seen_404 = Arc::new(tokio::sync::Notify::new());
-    tokio::spawn({
+    let addr = test_http::serve(move |request| {
+        let seq = request_sequence(&request);
         let seq2_attempts = seq2_attempts.clone();
         let seen_404 = seen_404.clone();
         async move {
-            loop {
-                let Ok((mut sock, _)) = listener.accept().await else {
-                    return;
-                };
-                let seq2_attempts = seq2_attempts.clone();
-                let seen_404 = seen_404.clone();
-                tokio::spawn(async move {
-                    let mut buf = vec![0u8; 4096];
-                    let mut count = 0;
-                    while !buf[..count].windows(4).any(|window| window == b"\r\n\r\n") {
-                        match sock.read(&mut buf[count..]).await {
-                            Ok(0) | Err(_) => return,
-                            Ok(read) => count += read,
-                        }
-                    }
-                    let req = String::from_utf8_lossy(&buf[..count]);
-                    let seq: u64 = req
-                        .split_whitespace()
-                        .nth(1)
-                        .and_then(|path| path.rsplit("sq=").next())
-                        .and_then(|text| text.parse().ok())
-                        .unwrap_or(u64::MAX);
-                    let (status, body) = if seq == 9 {
-                        seen_404.notify_waiters();
-                        ("404 Not Found", Vec::new())
-                    } else if seq == 2 {
-                        let attempt = seq2_attempts.fetch_add(1, Ordering::SeqCst);
-                        if attempt == 0 {
-                            // Hold until the other worker hits the near-head 404 on seq 9.
-                            timeout(Duration::from_secs(5), seen_404.notified()).await.unwrap();
-                            ("500 Internal Server Error", Vec::new())
-                        } else {
-                            ("200 OK", fragment_body(seq))
-                        }
-                    } else {
-                        ("200 OK", fragment_body(seq))
-                    };
-                    let hdr = format!(
-                        "HTTP/1.1 {status}\r\ncontent-type: video/mp4\r\nx-head-seqnum: {head}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-                        body.len()
-                    );
-                    sock.write_all(hdr.as_bytes()).await.ok();
-                    sock.write_all(&body).await.ok();
-                });
-            }
+            let (status, body) = if seq == 9 {
+                seen_404.notify_waiters();
+                ("404 Not Found", Vec::new())
+            } else if seq == 2 && seq2_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                // Hold until the other worker hits the near-head 404 on seq 9.
+                timeout(Duration::from_secs(5), seen_404.notified()).await.unwrap();
+                ("500 Internal Server Error", Vec::new())
+            } else {
+                ("200 OK", fragment_body(seq))
+            };
+            Some(fragment_response(status, head, &body))
         }
-    });
+    })
+    .await;
 
-    let url = format!("http://127.0.0.1:{}/videoplayback?itag=140&noclen=1", addr.port());
     let dir = temp_dir("near-head-404");
-    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (mut stream_params, _rx) = params(&dir, head, DownloadState::default());
-    stream_params.retry_sleep = Duration::from_millis(1);
-    let out = timeout(Duration::from_secs(10), download_stream(session, stream_params))
-        .await
-        .expect("download hangs")
-        .unwrap();
-
-    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
-    assert_eq!(out.state.fragments, 9);
-    let want: Vec<u8> = (0..9).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    let out = download_quickly(session_for(opts(2, false), &fragment_url(addr), false), &dir, head).await;
+    assert_complete(&out, &dir, 9);
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -133,19 +85,10 @@ async fn live_unavailable_stream_ends_on_near_head_non_403() {
     // still end when fragments near the head fail with a non-403 (e.g. 404).
     let url = serve(5, vec![]).await;
     let dir = temp_dir("live-unavailable-404");
-    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), true);
+    let session = session_for(opts(2, false), &url, true);
     session.set_unavailable();
-    let (mut stream_params, _rx) = params(&dir, 5, DownloadState::default());
-    stream_params.retry_sleep = Duration::from_millis(1);
-    let out = timeout(Duration::from_secs(10), download_stream(session, stream_params))
-        .await
-        .expect("download hangs")
-        .unwrap();
-
-    assert_eq!(out.state.fragments, 6);
-    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
-    let want: Vec<u8> = (0..=5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    let out = download_quickly(session, &dir, 5).await;
+    assert_complete(&out, &dir, 6);
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -169,63 +112,19 @@ fn unlimited_retries_stop_on_403_and_near_head_end_of_stream() {
 
 #[tokio::test]
 async fn near_head_transport_error_retries_on_ended_stream() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
     let head = 5u64;
-    let seq4_attempts = Arc::new(AtomicUsize::new(0));
-    tokio::spawn({
-        let seq4_attempts = seq4_attempts.clone();
-        async move {
-            loop {
-                let Ok((mut sock, _)) = listener.accept().await else {
-                    return;
-                };
-                let seq4_attempts = seq4_attempts.clone();
-                tokio::spawn(async move {
-                    let mut buffer = vec![0u8; 4096];
-                    let mut count = 0;
-                    while !buffer[..count].windows(4).any(|window| window == b"\r\n\r\n") {
-                        match sock.read(&mut buffer[count..]).await {
-                            Ok(0) | Err(_) => return,
-                            Ok(read) => count += read,
-                        }
-                    }
-                    let request = String::from_utf8_lossy(&buffer[..count]);
-                    let sequence: u64 = request
-                        .split_whitespace()
-                        .nth(1)
-                        .and_then(|path| path.rsplit("sq=").next())
-                        .and_then(|text| text.parse().ok())
-                        .unwrap_or(u64::MAX);
-                    if sequence == 4 && seq4_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
-                        // Drop connection without responding so the client hits a transport error.
-                        return;
-                    }
-                    let body = fragment_body(sequence);
-                    let header = format!(
-                        "HTTP/1.1 200 OK\r\ncontent-type: video/mp4\r\nx-head-seqnum: {head}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-                        body.len()
-                    );
-                    sock.write_all(header.as_bytes()).await.ok();
-                    sock.write_all(&body).await.ok();
-                });
-            }
-        }
-    });
+    let seq4_attempts = AtomicUsize::new(0);
+    let addr = test_http::serve(move |request| {
+        let sequence = request_sequence(&request);
+        // The first try of 4 gets no response: a transport error.
+        let response = (sequence != 4 || seq4_attempts.fetch_add(1, Ordering::SeqCst) > 0)
+            .then(|| fragment_response("200 OK", head, &fragment_body(sequence)));
+        async move { response }
+    })
+    .await;
 
-    let url = format!("http://127.0.0.1:{}/videoplayback?itag=140&noclen=1", addr.port());
     let dir = temp_dir("near-head-transport");
-    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), false);
-    let (mut stream_params, _rx) = params(&dir, head, DownloadState::default());
-    stream_params.retry_sleep = Duration::from_millis(1);
-    let out = timeout(Duration::from_secs(10), download_stream(session, stream_params))
-        .await
-        .expect("download hangs")
-        .unwrap();
-
-    assert_eq!(out.state.fragments, 5);
-    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
-    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    let out = download_quickly(session_for(opts(2, false), &fragment_url(addr), false), &dir, head).await;
+    assert_complete(&out, &dir, 5);
     fs::remove_dir_all(&dir).unwrap();
 }

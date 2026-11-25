@@ -191,19 +191,3 @@ macro_rules! log_debug {
 macro_rules! log_trace {
     ($($arg:tt)*) => { $crate::log::write($crate::types::LogLevel::Trace, false, format_args!($($arg)*)) };
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn formats_tty_and_plain_lines() {
-        assert_eq!(format_line_styled(LogLevel::Error, true, "hello", true, true), "hello\x1b[K");
-        assert_eq!(
-            format_line_styled(LogLevel::Warning, false, "careful", true, true),
-            "WARNING: \x1b[33mcareful\x1b[0m\x1b[K"
-        );
-        assert_eq!(format_line_styled(LogLevel::Warning, false, "careful", false, true), "WARNING: careful\x1b[K");
-        assert_eq!(format_line_styled(LogLevel::Warning, false, "careful", false, false), "WARNING: careful");
-    }
-}

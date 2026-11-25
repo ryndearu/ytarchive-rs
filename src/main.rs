@@ -27,6 +27,8 @@ mod prompt;
 mod run;
 mod session;
 mod stream_meta;
+#[cfg(test)]
+mod test_http;
 mod types;
 mod util;
 mod video_info;

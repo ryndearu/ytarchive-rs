@@ -4,9 +4,9 @@
 mod near_head;
 
 use std::fs;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
+use tokio::net::TcpListener;
 use tokio::time::{sleep, timeout};
 
 use super::super::fragment::{RetryDecision, continue_fragment_download, retry_delay};
@@ -18,7 +18,7 @@ use crate::types::{FragThreadState, StreamProgress};
 async fn a_stream_that_ends_mid_download_is_finished() {
     let url = serve(10, vec![]).await;
     let dir = temp_dir("ends");
-    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), true);
+    let session = session_for(opts(2, false), &url, true);
     let (stream_params, _rx) = params(&dir, 10, DownloadState::default());
     // While live the workers keep asking for fragment 11, which never comes.
     tokio::spawn({
@@ -30,8 +30,7 @@ async fn a_stream_that_ends_mid_download_is_finished() {
     });
     let out = download_stream(session, stream_params).await.unwrap();
 
-    let want: Vec<u8> = (0..=10).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_output(&dir.join("out.f140.ts"), 0..=10);
     assert_eq!(out.state.fragments, 11);
     assert!(out.skipped.is_empty(), "{:?}", out.skipped);
     fs::remove_dir_all(&dir).unwrap();
@@ -41,22 +40,14 @@ async fn a_stream_that_ends_mid_download_is_finished() {
 async fn expired_urls_on_an_ended_stream_keep_the_partial_file() {
     // Fragments from 5 on get 403, and by then the stream has ended: the
     // tries run out and what was downloaded is kept.
-    let hook: Arc<OnceLock<Arc<Session>>> = Arc::default();
-    let shared_hook = hook.clone();
-    let on_forbidden: OnForbidden = Arc::new(move || {
-        if let Some(session) = shared_hook.get() {
-            session.set_live(false);
-        }
-    });
-    let url = serve_until(12, vec![], 5, Some(on_forbidden)).await;
+    let (url, cell) = forbidden_from(12, 5, |session| session.set_live(false)).await;
     let dir = temp_dir("expired");
-    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), true);
-    hook.set(session.clone()).ok().unwrap();
+    let session = session_for(opts(2, false), &url, true);
+    cell.set(session.clone()).ok().unwrap();
     let (stream_params, _rx) = params(&dir, 12, DownloadState::default());
     let out = download_stream(session, stream_params).await.unwrap();
 
-    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_output(&dir.join("out.f140.ts"), 0..5);
     assert_eq!(out.state.fragments, 5);
     assert_eq!(load_state(&dir.join("out.f140.state")).unwrap().fragments, 5);
     fs::remove_dir_all(&dir).unwrap();
@@ -70,7 +61,7 @@ async fn a_stream_that_ends_while_its_fragments_fail_keeps_the_partial_file() {
     // Go) with what it has.
     let url = serve(12, (5..=12).collect()).await;
     let dir = temp_dir("ends-blocked");
-    let session = Session::for_test(opts(2, false), Some(FragmentUrl::with_sq_param(&url)), true);
+    let session = session_for(opts(2, false), &url, true);
     let (mut stream_params, _rx) = params(&dir, 12, DownloadState::default());
     stream_params.retry_sleep = Duration::from_millis(1);
     tokio::spawn({
@@ -83,8 +74,7 @@ async fn a_stream_that_ends_while_its_fragments_fail_keeps_the_partial_file() {
     let download = download_stream(session, stream_params);
     let out = timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
 
-    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_output(&dir.join("out.f140.ts"), 0..5);
     assert_eq!(out.state.fragments, 5);
     // 10 and 11 are within two of the head: taken as never created.
     assert_eq!(out.skipped, [5, 6, 7, 8, 9]);
@@ -130,7 +120,7 @@ async fn stuck_fragments_do_not_keep_a_capture_from_finishing() {
     // fragment nothing else downloads to count against them.
     let url = serve(200, vec![50, 55]).await;
     let dir = temp_dir("capture-stuck");
-    let session = Session::for_test(opts(4, true), Some(FragmentUrl::with_sq_param(&url)), true);
+    let session = session_for(opts(4, true), &url, true);
     let (mut stream_params, _rx) = params(&dir, 200, DownloadState::default());
     stream_params.start_sq = Some(0);
     stream_params.capture_duration = Some(Duration::from_secs(60));
@@ -160,7 +150,7 @@ async fn fragments_waiting_in_memory_are_limited() {
     });
     let url = serve_observed(200, vec![3], u64::MAX, None, Some(on_request)).await;
     let dir = temp_dir("memory-limit");
-    let session = Session::for_test(opts(4, false), Some(FragmentUrl::with_sq_param(&url)), true);
+    let session = session_for(opts(4, false), &url, true);
     let (mut stream_params, _rx) = params(&dir, 200, DownloadState::default());
     stream_params.start_sq = Some(0);
     stream_params.capture_duration = Some(Duration::from_secs(60));
@@ -173,9 +163,7 @@ async fn fragments_waiting_in_memory_are_limited() {
     let ahead = ahead.load(Ordering::SeqCst);
     assert!(ahead <= 3 + 6 + 12, "{ahead}");
     assert_eq!(out.skipped, [3]);
-    let want: Vec<u8> =
-        (0..60).filter(|sequence| *sequence != 3).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
+    assert_output(&dir.join("out.f140.ts"), (0..60).filter(|sequence| *sequence != 3));
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -223,13 +211,7 @@ async fn refreshed_url_is_retried_after_403_on_ended_stream() {
             move || Some(fresh.clone())
         }),
     );
-    let (mut stream_params, _rx) = params(&dir, 5, DownloadState::default());
-    stream_params.retry_sleep = Duration::from_millis(1);
-    let out = download_stream(session, stream_params).await.unwrap();
-
-    let want: Vec<u8> = (0..5).flat_map(|sequence| expected(sequence, sequence == 0)).collect();
-    assert_eq!(fs::read(dir.join("out.f140.ts")).unwrap(), want);
-    assert_eq!(out.state.fragments, 5);
-    assert!(out.skipped.is_empty(), "{:?}", out.skipped);
+    let out = download_quickly(session, &dir, 5).await;
+    assert_complete(&out, &dir, 5);
     fs::remove_dir_all(&dir).unwrap();
 }
