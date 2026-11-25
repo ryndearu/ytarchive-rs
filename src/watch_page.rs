@@ -42,9 +42,8 @@ pub fn parse_player_response(html: &str) -> Result<PlayerResponse> {
 /// Video id from the page's canonical link (used when the page came from a
 /// channel's /live URL).
 pub fn video_id_from_watch_page(html: &str) -> Option<String> {
-    let start = html.find(CANONICAL_WATCH_LINK)? + CANONICAL_WATCH_LINK.len();
-    let len = html[start..].find('"')?;
-    let id = &html[start..start + len];
+    let (_, after_link) = html.split_once(CANONICAL_WATCH_LINK)?;
+    let (id, _) = after_link.split_once('"')?;
     (!id.is_empty()).then(|| id.to_string())
 }
 

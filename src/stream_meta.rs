@@ -34,19 +34,21 @@ fn digits(text: &str) -> String {
 }
 
 fn set_date_parts(format_info: &mut FormatInfo, date8: &str) {
-    if date8.len() >= 8 {
-        format_info.insert("year".into(), date8[..4].into());
-        format_info.insert("month".into(), date8[4..6].into());
-        format_info.insert("day".into(), date8[6..8].into());
+    if let (Some(year), Some(month), Some(day)) = (date8.get(..4), date8.get(4..6), date8.get(6..8)) {
+        format_info.insert("year".into(), year.into());
+        format_info.insert("month".into(), month.into());
+        format_info.insert("day".into(), day.into());
     }
 }
 
 fn set_time_parts(format_info: &mut FormatInfo, time6: &str) {
-    if time6.len() >= 6 {
-        format_info.insert("start_time".into(), time6[..6].into());
-        format_info.insert("hours".into(), time6[..2].into());
-        format_info.insert("minutes".into(), time6[2..4].into());
-        format_info.insert("seconds".into(), time6[4..6].into());
+    if let (Some(start_time), Some(hours), Some(minutes), Some(seconds)) =
+        (time6.get(..6), time6.get(..2), time6.get(2..4), time6.get(4..6))
+    {
+        format_info.insert("start_time".into(), start_time.into());
+        format_info.insert("hours".into(), hours.into());
+        format_info.insert("minutes".into(), minutes.into());
+        format_info.insert("seconds".into(), seconds.into());
     }
 }
 

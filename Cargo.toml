@@ -50,6 +50,7 @@ tokio = { version = "1.54.1", features = ["net"] }
 unwrap_used = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"
+string_slice = "deny"
 let_underscore_must_use = "deny"
 
 [profile.release]

@@ -163,7 +163,8 @@ pub fn parse_output(stdout: &str) -> Result<YtdlpRawInfo> {
         .find(|(_, line)| line.trim_start().starts_with('{'))
         .map(|(at, _)| at)
         .ok_or_else(|| Error::Ytdlp("no JSON in yt-dlp output".into()))?;
-    let mut stream = serde_json::Deserializer::from_str(&stdout[start..]).into_iter::<YtdlpRawInfo>();
+    let json_tail = stdout.get(start..).ok_or_else(|| Error::Ytdlp("no JSON in yt-dlp output".into()))?;
+    let mut stream = serde_json::Deserializer::from_str(json_tail).into_iter::<YtdlpRawInfo>();
     match stream.next() {
         Some(result) => Ok(result?),
         None => Err(Error::Ytdlp("no JSON in yt-dlp output".into())),
