@@ -52,6 +52,9 @@ pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<Str
         args.push("--ignore-no-formats-error".into());
     }
     args.extend(opts.ytdlp_opts.iter().cloned());
+    // After the user's options, so `--no-simulate` in a yt-dlp config or
+    // --ytdlp-opts can't start a real download.
+    args.push("--simulate".into());
     args.push("--print".into());
     args.push(YTDLP_INFO_PRINT_TEMPLATE.into());
     // `--` so a URL can never be read as an option.

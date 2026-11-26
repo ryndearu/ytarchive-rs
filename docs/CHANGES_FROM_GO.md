@@ -33,7 +33,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 
 ### Downloading
 
-- The URL goes to yt-dlp after `--`, so it can't be read as an option.
+- The URL goes to yt-dlp after `--`, so it can't be read as an option. `--simulate` comes after `--ytdlp-opts`, so a `--no-simulate` in yt-dlp's config can't start a real download.
 - A yt-dlp run may take 60 seconds (Go: 30) before it's stopped and retried.
 - yt-dlp runs with `--encoding utf-8` (plus `PYTHONIOENCODING=utf-8` and `PYTHONUTF8=1`). `--ytdlp-opts` can override it.
 - `--ytdlp-info`: an exact `format_id` (`140`) wins over a suffixed one (`140-drc`). Without an exact ID, the last suffixed variant is used. `target_duration` prefers adaptive formats.

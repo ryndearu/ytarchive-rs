@@ -20,7 +20,7 @@ fn args() {
     };
     let args = build_args(&opts, "https://youtu.be/x", true);
     assert_eq!(
-        &args[..10],
+        &args[..11],
         [
             "--encoding",
             "utf-8",
@@ -31,7 +31,8 @@ fn args() {
             "socks5://127.0.0.1:1080",
             "--ignore-no-formats-error",
             "--extractor-args",
-            "youtube:x"
+            "youtube:x",
+            "--simulate"
         ]
     );
     assert_eq!(&args[args.len() - 2..], ["--", "https://youtu.be/x"]);
