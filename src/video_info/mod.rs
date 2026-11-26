@@ -211,7 +211,11 @@ impl Extractor {
         };
 
         let details = &player_response.microformat.player_microformat_renderer.live_broadcast_details;
-        if !self.in_progress {
+        // Set before extraction: once a stream ends, yt-dlp may fail or drop
+        // the URLs, and a stale `live` keeps workers waiting on the head.
+        if self.in_progress {
+            self.live = details.is_live_now;
+        } else {
             log_general!("Stream started at time {}", local_timestamp(&details.start_timestamp));
         }
         if let Some(format) = player_response.streaming_data.adaptive_formats.first()

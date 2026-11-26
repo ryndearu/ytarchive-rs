@@ -290,6 +290,9 @@ impl Extractor {
             log_general!("Stream started at time {}", local_unix_timestamp(start));
         }
 
+        if self.in_progress {
+            self.live = info.is_live;
+        }
         let sel = self.select(&info.urls).await?;
         if !self.in_progress {
             let page = format!("https://www.youtube.com/watch?v={}", self.video_id);
