@@ -19,7 +19,7 @@ use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
 use crate::log::{finish_inline, report_progress};
 use crate::mux::{MuxInput, ffmpeg_args, mux_file_contents};
-use crate::output::{OutputPlan, ensure_dir, final_location, load_states, state_file, temp_dir};
+use crate::output::{OutputPlan, ensure_dir, final_location, load_states, other_stream_kept, state_file, temp_dir};
 use crate::prepare::{PrepareOutcome, Prepared, prepare, prepared_from_kept};
 use crate::session::Session;
 use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, FormatSelection, Options, PerType, SavedDownload};
@@ -196,6 +196,9 @@ async fn download(
         }
     }
 
+    let itags: Vec<u32> = streams.iter().map(|stream| stream.1).collect();
+    let keep_other_streams = prepared.kept_other_stream
+        || prev_temp.as_deref().is_some_and(|dir| other_stream_kept(&opts, &prepared.video_id, &itags, dir));
     let plan =
         OutputPlan { temp_dir: temp_dir(&opts, prev_temp, &final_dir, &prepared.video_id), final_dir, file_name };
     for state in &mut states {
@@ -209,7 +212,7 @@ async fn download(
         match http.download_to_file_cancellable(&prepared.thumbnail_url, &temp, opts.file_mode, &cancel).await {
             Ok(()) => thumbnail = Some(Moved { temp, dest: plan.final_path(".jpg") }),
             Err(Error::Cancelled) => {
-                if !resuming && !prepared.kept_other_stream {
+                if !resuming && !keep_other_streams {
                     plan.remove_temp_dir(&prepared.video_id);
                 }
                 return interrupt.cancel_code();
@@ -370,7 +373,7 @@ async fn download(
         audio_frags: frags.audio,
         video_frags: frags.video,
         keep_for_retry: retry_until,
-        keep_other_streams: prepared.kept_other_stream,
+        keep_other_streams,
         pending_exports,
         interrupt: Some(&interrupt),
     };

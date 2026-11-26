@@ -216,6 +216,7 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 - `--no-windows-filenames` (default on Linux and macOS) only replaces path separators. On Windows, a title with `?` or `:` can't be saved, and ytarchive stops without merging.
 - Resume state (`{id}.f{itag}.state`) goes to `--temporary-dir`, or the current folder. Resume from the same folder; a different `-o` still finds it by video ID.
 - Data that can't be continued is kept as `{name}.f{itag}.ts.old` (or `.sqlite.old` with `--sqlite`) in the temporary folder. Delete it yourself when done.
+- If you resume with `--no-audio` or `--no-video` and the other stream also has data in the temporary folder, only the finished stream's files are removed, and the folder is kept for the other one.
 - If data can't be stored (full disk, failed `--sqlite` export), ytarchive exits 1 without merging and keeps everything. Run the same command again to continue.
 - If `{name}.mp4` already exists, the new file is `{name}-1`, up to `{name}-10`. Past that, the `.ts` files stay unmuxed.
 

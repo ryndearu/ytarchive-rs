@@ -219,6 +219,33 @@ pub fn state_file(opts: &Options, video_id: &str, itag: u32) -> PathBuf {
     opts.temp_dir.clone().unwrap_or_default().join(format!("{video_id}.f{itag}.state"))
 }
 
+/// Itags with a `{video_id}.f{itag}.state` file in `dir`.
+pub fn state_itags(dir: &Path, video_id: &str) -> Vec<u32> {
+    let prefix = format!("{video_id}.f");
+    let Ok(entries) = fs::read_dir(if dir.as_os_str().is_empty() { Path::new(".") } else { dir }) else {
+        return Vec::new();
+    };
+    let mut itags: Vec<u32> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.strip_prefix(&prefix)?.strip_suffix(".state")?.parse().ok()
+        })
+        .collect();
+    itags.sort_unstable();
+    itags
+}
+
+/// Whether a stream other than `itags` (one `--no-audio`/`--no-video` left
+/// out this run) still has data saved in `temp_dir`.
+pub fn other_stream_kept(opts: &Options, video_id: &str, itags: &[u32], temp_dir: &Path) -> bool {
+    let dir = opts.temp_dir.clone().unwrap_or_default();
+    state_itags(&dir, video_id).into_iter().filter(|itag| !itags.contains(itag)).any(|itag| {
+        load_state(&state_file(opts, video_id, itag))
+            .is_some_and(|state| state.fragments > 0 && state.temp_dir == temp_dir)
+    })
+}
+
 /// Loads saved state for each itag (unless disabled). Returns states and the
 /// temp dir a previous run used, if any.
 pub fn load_states(opts: &Options, video_id: &str, itags: &[u32]) -> (Vec<DownloadState>, Option<PathBuf>) {

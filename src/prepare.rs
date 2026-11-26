@@ -10,8 +10,7 @@
 //! the missing fragments, while the URLs still work.
 
 use std::collections::HashSet;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -20,7 +19,7 @@ use crate::download::{KeptStream, load_state, read_kept};
 use crate::error::Error;
 use crate::http::Http;
 use crate::input_url::{InputUrl, parse_gvideo_url};
-use crate::output::state_file;
+use crate::output::{state_file, state_itags};
 use crate::prompt::get_user_input;
 use crate::types::{
     AUDIO_ITAG, DEFAULT_TARGET_DURATION_SECS, DataType, FormatInfo, FormatSelection, FragmentUrl, MetaInfo, Options,
@@ -165,23 +164,6 @@ async fn gvideo_selection(opts: &Options, input_itag: u32, input_url: FragmentUr
     })
 }
 
-/// Itags with a `{video_id}.f{itag}.state` file in `dir`.
-fn state_itags(dir: &Path, video_id: &str) -> Vec<u32> {
-    let prefix = format!("{video_id}.f");
-    let Ok(entries) = fs::read_dir(if dir.as_os_str().is_empty() { Path::new(".") } else { dir }) else {
-        return Vec::new();
-    };
-    let mut itags: Vec<u32> = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            name.strip_prefix(&prefix)?.strip_suffix(".state")?.parse().ok()
-        })
-        .collect();
-    itags.sort_unstable();
-    itags
-}
-
 /// Rebuilds what `download` needs from a download of `video_id` that was
 /// kept for retrying. `None` if there is none, or without --recover-private.
 pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
@@ -245,24 +227,11 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::download::DbSink;
     use crate::types::{DownloadState, SavedDownload};
-
-    #[test]
-    fn finds_state_files_of_the_video() {
-        let dir = std::env::temp_dir().join(format!("ytarchive-rs-kept-{}", std::process::id()));
-        if dir.exists() {
-            fs::remove_dir_all(&dir).unwrap();
-        }
-        fs::create_dir_all(&dir).unwrap();
-        for name in ["abc.f299.state", "abc.f140.state", "abcd.f1.state", "abc.f140.state.bak", "abc.fx.state"] {
-            fs::write(dir.join(name), b"{}").unwrap();
-        }
-        assert_eq!(state_itags(&dir, "abc"), [140, 299]);
-        assert!(state_itags(&dir, "zzz").is_empty());
-        fs::remove_dir_all(&dir).unwrap();
-    }
 
     #[test]
     fn prepared_from_kept_honors_stream_filters() {

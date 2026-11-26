@@ -149,6 +149,16 @@ fn state_paths_and_loading() {
     assert_eq!(states[0].file, path);
     assert_eq!(states[1].fragments, 0);
     assert_eq!(prev.as_deref(), Some(dir.as_path()));
+    // A stream this run leaves out still has data in the same folder.
+    assert!(other_stream_kept(&options, "vid", &[299], &dir));
+    assert!(!other_stream_kept(&options, "vid", &[140], &dir));
+    assert!(!other_stream_kept(&options, "vid", &[299], &dir.join("elsewhere")));
+
+    for name in ["vid.f299.state", "vida.f1.state", "vid.f140.state.bak", "vid.fx.state"] {
+        fs::write(dir.join(name), b"{}").unwrap();
+    }
+    assert_eq!(state_itags(&dir, "vid"), [140, 299]);
+    assert!(state_itags(&dir, "zzz").is_empty());
 
     let disabled = Options { disable_save_state: true, ..options };
     assert_eq!(load_states(&disabled, "vid", &[140]).0[0].fragments, 0);
