@@ -209,7 +209,7 @@ async fn download(
         match http.download_to_file_cancellable(&prepared.thumbnail_url, &temp, opts.file_mode, &cancel).await {
             Ok(()) => thumbnail = Some(Moved { temp, dest: plan.final_path(".jpg") }),
             Err(Error::Cancelled) => {
-                if !resuming {
+                if !resuming && !prepared.kept_other_stream {
                     plan.remove_temp_dir(&prepared.video_id);
                 }
                 return interrupt.cancel_code();
@@ -370,6 +370,7 @@ async fn download(
         audio_frags: frags.audio,
         video_frags: frags.video,
         keep_for_retry: retry_until,
+        keep_other_streams: prepared.kept_other_stream,
         pending_exports,
         interrupt: Some(&interrupt),
     };

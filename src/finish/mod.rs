@@ -2,7 +2,7 @@
 //! state), moving files to the final directory, and muxing.
 
 use std::mem;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tokio::task::spawn_blocking;
 use tokio_util::sync::CancellationToken;
@@ -42,6 +42,9 @@ pub struct Finish<'a> {
     /// this time (Unix seconds, `u64::MAX` if unknown): keep the temp dir
     /// with the database, and the state files that lead to it.
     pub keep_for_retry: Option<u64>,
+    /// Another kept stream in the temp dir was skipped (`--no-audio`/`--no-video`),
+    /// so cleanup must leave the temp folder intact.
+    pub keep_other_streams: bool,
     /// Deferred SQLite exports when interrupted so cancel prompts run first.
     pub pending_exports: Vec<PendingExport>,
     /// Shared signal state, used to cancel ffmpeg if interrupted during muxing.
@@ -121,9 +124,24 @@ impl Finish<'_> {
         log_warn!("Delete that folder if you don't want to retry.");
     }
 
+    fn remove_temp_dir(&self) {
+        if self.keep_other_streams {
+            let ts: Vec<&Path> = self.audio_ts.iter().chain(&self.video_ts).map(|moved| moved.temp.as_path()).collect();
+            let extra: Vec<&Path> = [&self.thumbnail, &self.description]
+                .into_iter()
+                .flatten()
+                .map(|moved| moved.temp.as_path())
+                .chain([self.mux_file.temp.as_path()])
+                .collect();
+            self.plan.remove_stream_temp_files(self.video_id, &ts, &extra);
+            return;
+        }
+        self.plan.remove_temp_dir(self.video_id);
+    }
+
     fn cleanup_temp(&self, moves_ok: bool) {
         if moves_ok {
-            self.plan.remove_temp_dir(self.video_id);
+            self.remove_temp_dir();
         } else {
             log_error!("At least one error occurred when moving files. Will not delete them.");
         }
@@ -144,7 +162,7 @@ impl Finish<'_> {
             );
         } else {
             log_error!("Nothing was downloaded because a download's storage couldn't be opened.");
-            self.plan.remove_temp_dir(self.video_id);
+            self.remove_temp_dir();
             self.delete_state_files();
         }
         1
@@ -216,7 +234,7 @@ impl Finish<'_> {
         } else {
             self.pending_exports.clear();
             if !save_state {
-                self.plan.remove_temp_dir(self.video_id);
+                self.remove_temp_dir();
                 self.delete_state_files();
             }
         }
@@ -232,7 +250,7 @@ impl Finish<'_> {
             if self.retry_until().is_some() {
                 self.cleanup_or_keep(true);
             } else {
-                self.plan.remove_temp_dir(self.video_id);
+                self.remove_temp_dir();
                 self.delete_state_files();
             }
             return 1;

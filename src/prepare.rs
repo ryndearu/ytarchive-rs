@@ -43,6 +43,9 @@ pub struct Prepared {
     /// Rebuilt from a kept download because the stream can no longer be
     /// looked up; missing fragments go straight to recovery.
     pub unavailable: bool,
+    /// Another stream's kept database remains in the temp dir (excluded by
+    /// `--no-audio`/`--no-video`), so cleanup must not delete that folder.
+    pub kept_other_stream: bool,
 }
 
 pub enum PrepareOutcome {
@@ -77,6 +80,7 @@ pub async fn prepare(
             metadata: MetaInfo::new(),
             thumbnail_url: String::new(),
             unavailable: false,
+            kept_other_stream: false,
         }));
     }
 
@@ -98,6 +102,7 @@ pub async fn prepare(
         metadata: extractor.metadata.clone(),
         thumbnail_url: extractor.thumbnail.clone(),
         unavailable: false,
+        kept_other_stream: false,
         extractor: Some(extractor),
     }))
 }
@@ -202,11 +207,14 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
             .find(|(kept_itag, _)| *kept_itag == itag)
             .and_then(|(_, kept_stream)| kept_stream.urls.last().cloned())
     };
-    let audio_url = url(AUDIO_ITAG);
-    let video_url = info.video_itag.and_then(url);
+    let audio_url = (!opts.video_only).then(|| url(AUDIO_ITAG)).flatten();
+    let video_url = (!opts.audio_only).then(|| info.video_itag.and_then(url)).flatten();
     if audio_url.is_none() && video_url.is_none() {
         return None;
     }
+    let video_itag = video_url.as_ref().and(info.video_itag);
+    let kept_other_stream =
+        kept.iter().any(|(itag, _)| !((*itag == AUDIO_ITAG && audio_url.is_some()) || Some(*itag) == video_itag));
     log_general!(
         "The stream can no longer be looked up; retrying the missing fragments of the download kept in {}",
         temp_dir.display()
@@ -214,9 +222,9 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
     Some(Prepared {
         extractor: None,
         sel: FormatSelection {
-            label: info.label,
+            label: if video_url.is_none() { "audio_only".into() } else { info.label },
             codec: None,
-            video_itag: video_url.as_ref().and(info.video_itag),
+            video_itag,
             audio_url,
             video_url,
         },
@@ -228,12 +236,15 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
         metadata: info.metadata,
         thumbnail_url: info.thumbnail_url,
         unavailable: true,
+        kept_other_stream,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::download::DbSink;
+    use crate::types::{DownloadState, SavedDownload};
 
     #[test]
     fn finds_state_files_of_the_video() {
@@ -247,6 +258,73 @@ mod tests {
         }
         assert_eq!(state_itags(&dir, "abc"), [140, 299]);
         assert!(state_itags(&dir, "zzz").is_empty());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn prepared_from_kept_honors_stream_filters() {
+        let dir = std::env::temp_dir().join(format!("ytarchive-rs-kept-filters-{}", std::process::id()));
+        if dir.exists() {
+            fs::remove_dir_all(&dir).unwrap();
+        }
+        let stream_dir = dir.join("stream");
+        fs::create_dir_all(&stream_dir).unwrap();
+
+        let saved = SavedDownload {
+            video_id: "vid1".into(),
+            label: "1080p60".into(),
+            video_itag: Some(299),
+            target_duration: 5,
+            ..Default::default()
+        };
+        let download_json = serde_json::to_string(&saved).unwrap();
+        let state_bytes = serde_json::to_vec(&DownloadState {
+            start_frag: 0,
+            fragments: 3,
+            size: 100,
+            temp_dir: stream_dir.clone(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        for itag in [140u32, 299] {
+            let db = DbSink::open(&stream_dir.join(format!("out.f{itag}.sqlite")), 0o644).unwrap();
+            db.set_meta("download", &download_json).unwrap();
+            db.set_meta("head", "10").unwrap();
+            let raw_url = format!("https://r.googlevideo.com/videoplayback?itag={itag}&noclen=1");
+            db.save_urls(&[FragmentUrl::with_sq_param(&raw_url)]).unwrap();
+            fs::write(dir.join(format!("vid1.f{itag}.state")), &state_bytes).unwrap();
+        }
+
+        let cases = [
+            ("both", false, false, true, true, Some(299), "1080p60", false),
+            ("video_only", true, false, false, true, Some(299), "1080p60", true),
+            ("audio_only", false, true, true, false, None, "audio_only", true),
+        ];
+        for (name, video_only, audio_only, want_audio, want_video, want_itag, want_label, want_other) in cases {
+            let options = Options {
+                recover_private: true,
+                temp_dir: Some(dir.clone()),
+                video_only,
+                audio_only,
+                ..Default::default()
+            };
+            let prepared = prepared_from_kept(&options, "vid1").unwrap_or_else(|| panic!("{name}: expected Some"));
+            assert_eq!(prepared.sel.audio_url.is_some(), want_audio, "{name}");
+            assert_eq!(prepared.sel.video_url.is_some(), want_video, "{name}");
+            assert_eq!(prepared.sel.video_itag, want_itag, "{name}");
+            assert_eq!(prepared.sel.label, want_label, "{name}");
+            assert_eq!(prepared.kept_other_stream, want_other, "{name}");
+        }
+
+        fs::remove_file(dir.join("vid1.f299.state")).unwrap();
+        let audio_only =
+            Options { recover_private: true, temp_dir: Some(dir.clone()), audio_only: true, ..Default::default() };
+        let prepared = prepared_from_kept(&audio_only, "vid1").unwrap();
+        assert!(!prepared.kept_other_stream);
+        let video_only =
+            Options { recover_private: true, temp_dir: Some(dir.clone()), video_only: true, ..Default::default() };
+        assert!(prepared_from_kept(&video_only, "vid1").is_none());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

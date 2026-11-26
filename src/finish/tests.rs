@@ -45,6 +45,7 @@ fn finish_of<'a>(opts: &'a Options, plan: &'a OutputPlan, state_file: &Path) -> 
         audio_frags: Some(1),
         video_frags: None,
         keep_for_retry: None,
+        keep_other_streams: false,
         pending_exports: Vec::new(),
         interrupt: None,
     }
@@ -236,4 +237,47 @@ async fn zero_fragments_skip_mux_and_keep_only_what_a_retry_needs() {
         assert_eq!(state_file.exists(), kept, "state file kept only for a retry");
         fs::remove_dir_all(&plan.final_dir).unwrap();
     }
+}
+
+#[tokio::test]
+async fn keeps_temp_dir_when_other_kept_stream_was_skipped() {
+    let (plan, state_file) = downloaded("keep-other-finish");
+    fs::write(plan.temp(".f140.sqlite"), b"processed-audio").unwrap();
+    fs::write(plan.temp(".f140.sqlite-wal"), b"processed-wal").unwrap();
+    fs::write(plan.temp(".f299.sqlite"), b"kept-video").unwrap();
+    let opts = Options { write_mux_file: true, ..Default::default() };
+    let mut finish = finish_of(&opts, &plan, &state_file);
+    finish.video_ts = None;
+    finish.keep_other_streams = true;
+    assert_eq!(finish.finish().await, 0);
+    assert!(plan.temp_dir.exists());
+    assert!(!plan.temp(".f140.ts").exists());
+    assert!(!plan.temp(".f140.sqlite").exists());
+    assert!(!plan.temp(".f140.sqlite-wal").exists());
+    assert_eq!(fs::read(plan.temp(".f299.sqlite")).unwrap(), b"kept-video");
+    assert!(!state_file.exists());
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+
+    let (plan, state_file) = downloaded("keep-other-cancel");
+    fs::write(plan.temp(".f140.sqlite"), b"processed-audio").unwrap();
+    fs::write(plan.temp(".f140.sqlite-wal"), b"processed-wal").unwrap();
+    fs::write(plan.temp(".f299.sqlite"), b"kept-video").unwrap();
+    let opts = Options {
+        merge_on_cancel: Action::DoNot,
+        save_files_on_cancel: Action::DoNot,
+        save_state_on_cancel: Action::DoNot,
+        ..Default::default()
+    };
+    let mut finish = finish_of(&opts, &plan, &state_file);
+    finish.video_ts = None;
+    finish.keep_other_streams = true;
+    assert_eq!(finish.on_cancel().await, Some(2));
+    assert!(plan.temp_dir.exists());
+    assert!(!plan.temp(".f140.ts").exists());
+    assert!(!plan.temp(".f140.sqlite").exists());
+    assert!(!plan.temp(".f140.sqlite-wal").exists());
+    assert!(!plan.temp(".jpg").exists());
+    assert_eq!(fs::read(plan.temp(".f299.sqlite")).unwrap(), b"kept-video");
+    assert!(!state_file.exists());
+    fs::remove_dir_all(&plan.final_dir).unwrap();
 }

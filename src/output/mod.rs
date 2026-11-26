@@ -7,7 +7,9 @@ use crate::download::load_state;
 use crate::error::{Error, Result};
 use crate::types::{DownloadState, FormatInfo, Options};
 use crate::util::filename::{MAX_FILENAME_LEN, SUFFIX_ROOM, format_filename_untruncated};
-use crate::util::{NameStyle, apply_mode, create_temp_dir, format_filename, portable_file_name, sterilize_filename};
+use crate::util::{
+    NameStyle, apply_mode, create_temp_dir, format_filename, portable_file_name, sterilize_filename, try_delete,
+};
 use crate::{log_error, log_warn};
 
 #[derive(Debug, Clone)]
@@ -73,6 +75,26 @@ impl OutputPlan {
             "{} still holds data from an earlier download that couldn't be resumed ({} file(s) ending in .old). Delete the folder once you don't need it.",
             self.temp_dir.display(),
             kept.len()
+        );
+    }
+
+    /// Removes only the current stream's files from an owned temp dir,
+    /// leaving another kept stream's files untouched.
+    pub fn remove_stream_temp_files(&self, video_id: &str, ts_files: &[&Path], extra_files: &[&Path]) {
+        if !self.owns_temp_dir(video_id) {
+            return;
+        }
+        for path in ts_files {
+            for ext in ["ts", "sqlite", "sqlite-wal", "sqlite-shm"] {
+                try_delete(&path.with_extension(ext));
+            }
+        }
+        for path in extra_files {
+            try_delete(path);
+        }
+        log_warn!(
+            "Other kept stream data remains in {}; leaving that folder. Delete it once you don't need it.",
+            self.temp_dir.display()
         );
     }
 }
