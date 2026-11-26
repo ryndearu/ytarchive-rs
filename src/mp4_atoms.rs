@@ -13,10 +13,9 @@ pub fn atoms(data: &[u8]) -> Vec<(&str, usize, usize)> {
         if len < 8 || ofs + len > data.len() {
             break;
         }
-        let Ok(name) = std::str::from_utf8(name) else {
-            break;
-        };
-        out.push((name, ofs, len));
+        // A non-UTF-8 name (e.g. `©nam`) can't be one we strip, but the
+        // boxes after it still can.
+        out.push((std::str::from_utf8(name).unwrap_or(""), ofs, len));
         ofs += len;
     }
     out

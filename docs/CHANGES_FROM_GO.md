@@ -111,7 +111,7 @@ Windows, Linux, and macOS, each as x64 and arm64. Go supported Linux and Windows
 8. **One bad fragment ended the download.** On an ended stream, a fragment well behind the head that failed permanently ended it, silently dropping everything after. The port skips it and lists the missing sequence numbers at the end. `Skipped` in the state (omitted when zero) stops resume from re-fetching and duplicating data.
 9. **Slower workers gave up early.** A worker that reached the last sequence or hit a near-head failure marked the stream finished, abandoning other workers' retries. Such failures now only cap later sequences.
 10. **A missing data file produced a broken file.** Go marked the download resumed and wrote into a new empty file. It starts over now. The progress line counts what storage holds, not the state file (v1.0.0 counted the state, pushing past "Max Fragments").
-11. **MP4 box scanning hung and was incomplete.** A zero-length box made `GetAtoms` loop forever, and only the first 8 KiB of each fragment was scanned for `sidx`/`ftyp`.
+11. **MP4 box scanning hung and was incomplete.** A zero-length box made `GetAtoms` loop forever, and only the first 8 KiB of each fragment was scanned for `sidx`/`ftyp`. The port scans whole fragments, past non-UTF-8 box names too.
 12. **ffmpeg could reference a missing thumbnail.** Arguments were built before the thumbnail download. They are built after it now.
 13. **The audio/video mismatch warning never fired.** The fragment counts it compared were never incremented.
 14. **QuickEdit never stayed off.** Go cleared `ENABLE_QUICK_EDIT_MODE` without `ENABLE_EXTENDED_FLAGS`, which Windows requires. The port sets both and restores the original console mode on exit.
