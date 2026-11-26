@@ -67,7 +67,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 ### Files and cleanup
 
 - Only `{video_id}__*` temp directories are deleted. Go deleted whatever directory a state file named.
-- Title truncation reserves room for the `-` and `_` prefixes and for the `.f{itag}.frag{seq}.ts` and `.f{itag}.sqlite-wal` suffixes, all within 255 bytes.
+- Metadata values equal to `..` become `__`. Title truncation measures the name after lookalike characters are substituted and reserves room for the `-` and `_` prefixes and for the `.f{itag}.frag{seq}.ts` and `.f{itag}.sqlite-wal` suffixes, all within 255 bytes.
 - Repaired cookies files get random names (`0600` on Unix) and are removed by an exit guard. Copies older than a day are cleaned up, except ones locked by a running `ytarchive`.
 - The final name (`name.mp4`, `name-1.mp4`, …) is chosen just before muxing, and `.ffmpeg.txt` is updated to match. Go chose it before the download, so a file that appeared meanwhile broke ffmpeg.
 - If `name.mp4` through `name-10.mp4` all exist, ffmpeg isn't run and the `.ts` files are kept. Go ran ffmpeg and reported only its exit code.

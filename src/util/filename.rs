@@ -132,7 +132,12 @@ fn sanitized_vals(vals: &BTreeMap<String, String>, style: NameStyle) -> BTreeMap
     vals.iter()
         .map(|(key, value)| {
             let blacklisted = FILENAME_FORMAT_BLACKLIST.iter().any(|blocked| blocked.eq_ignore_ascii_case(key.trim()));
-            let safe = if blacklisted { String::new() } else { sterilize_filename(value, style) };
+            let safe = if blacklisted {
+                String::new()
+            } else {
+                let cleaned = sterilize_filename(value, style);
+                if cleaned == ".." { "__".to_string() } else { cleaned }
+            };
             (key.clone(), safe)
         })
         .collect()
@@ -158,7 +163,11 @@ pub fn format_filename(
     let mut fname_vals = sanitized_vals(vals, style);
 
     let out = format_python_map(format, &fname_vals)?;
-    let base = Path::new(&out).file_name().map_or("", |name| name.to_str().unwrap_or(""));
+    let raw_base = Path::new(&out).file_name().map_or("", |name| name.to_str().unwrap_or(""));
+    // Literal characters in the template (e.g. `:` with --lookalike-chars)
+    // expand when `final_location` sterilizes the base name, so measure after
+    // sterilizing.
+    let base = sterilize_filename(raw_base, style);
     let mut over_bytes = base.len().saturating_sub(MAX_FILENAME_LEN);
     let mut over_units = max_units.map_or(0, |limit| base.encode_utf16().count().saturating_sub(limit));
     if over_bytes == 0 && over_units == 0 {
