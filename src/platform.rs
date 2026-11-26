@@ -28,7 +28,7 @@ static INPUT_MODE: OnceLock<u32> = OnceLock::new();
 pub fn restore() {
     #[cfg(windows)]
     if let Some(&mode) = INPUT_MODE.get()
-        && let Err(error) = winapi_util::console::set_mode(io::stdin(), mode)
+        && let Err(error) = winapi_util::console::set_mode(io::stdin(), mode | ENABLE_EXTENDED_FLAGS)
     {
         crate::log_debug!("Could not restore the console mode: {error}");
     }
