@@ -23,7 +23,8 @@ Rust port of [dreammu/ytarchive](https://github.com/dreammu/ytarchive) (a fork o
 
 - One module per file. A module with submodules is a folder with `mod.rs`. Shared types live in `src/types/`; update them before the feature that uses them.
 - Split a file over 400 lines only when editing it anyway, and say so in the commit. Don't refactor untouched files unless asked.
-- No crate-wide `allow(dead_code)`. Remove unused code, dependencies, and their tests.
+- No crate-wide `allow(...)`. Fix clippy findings; suppress only a false positive, narrowly, with `reason`. Remove unused code, dependencies, and their tests.
+- Change dependencies with `cargo add`/`cargo remove`; never hand-edit `Cargo.lock`.
 - No `unsafe` unless truly necessary; prefer a maintained safe wrapper. Lifting `#![forbid(unsafe_code)]` in `main.rs` needs a good reason and a `// SAFETY:` comment on each `unsafe` block.
 - Outside tests: no `unwrap()`/`expect()` (use `?`), no unchecked indexing or slicing, no `let _ =` on a `Result` (handle or log it). Clippy enforces this via `[lints.clippy]` in `Cargo.toml`; `clippy.toml` exempts tests. Use `util::lock` for mutexes and `util::apply_mode` for permissions that may fail.
 - Full-word names (`sequence`, not `sq`), closure parameters included.
