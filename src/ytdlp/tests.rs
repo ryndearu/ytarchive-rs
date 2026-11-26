@@ -112,24 +112,6 @@ fn parse_skips_crlf_warnings_and_rejects_bad_json() {
     assert!(parse_output("{not json").is_err());
 }
 
-#[test]
-fn boundary() {
-    assert_eq!(seq_boundary(100, false), Some(100));
-    assert_eq!(seq_boundary(100, true), Some(99));
-    assert_eq!(seq_boundary(1, true), None);
-}
-
-#[test]
-fn stderr_prefers_error_line() {
-    assert_eq!(
-        stderr_error_line("WARNING: old\nERROR: [youtube] abc: Video unavailable\r\nWARNING: hint\n\n"),
-        "ERROR: [youtube] abc: Video unavailable"
-    );
-    assert_eq!(stderr_error_line("ERROR: first\nERROR: second\nTrailing note\n"), "ERROR: second");
-    assert_eq!(stderr_error_line("WARNING: one\n  plain failure  \n\n"), "plain failure");
-    assert_eq!(stderr_error_line("  \n\r\n"), "");
-}
-
 #[tokio::test]
 async fn head_probe_falls_back_across_adaptive_formats() {
     let addr = test_http::serve(|request| {

@@ -132,30 +132,27 @@ mod tests {
     }
 
     #[test]
-    fn now() {
-        assert_eq!(resolve_live_from("NOW", 500, 5).unwrap().start_sq, 500);
-    }
-
-    #[test]
-    fn negative() {
-        // 61s rounds up to 13 fragments of 5s.
-        let live_from = resolve_live_from("-61s", 500, 5).unwrap();
-        assert_eq!(live_from.start_sq, 487);
-        assert!(live_from.message.contains("65 seconds"));
-        assert_eq!(resolve_live_from("-00:10:00", 500, 5).unwrap().start_sq, 380);
-        assert!(resolve_live_from("-1h", 100, 5).is_err());
-        assert!(resolve_live_from("-8d", 10_000_000, 5).is_err());
-    }
-
-    #[test]
-    fn positive() {
-        assert_eq!(resolve_live_from("10m", 500, 5).unwrap().start_sq, 120);
-        assert_eq!(resolve_live_from("00:00:05", 500, 5).unwrap().start_sq, 1);
-        assert!(resolve_live_from("1h", 100, 5).is_err());
+    fn resolves_start() {
         // Older than the 7-day window.
-        let last = LIVE_MAXIMUM_SEEKABLE_SECS / 5 + 1000;
-        assert!(resolve_live_from("1m", last, 5).is_err());
-        assert!(resolve_live_from("garbage", 500, 5).is_err());
+        let past_window = LIVE_MAXIMUM_SEEKABLE_SECS / 5 + 1000;
+        let cases = [
+            ("NOW", 500, Some(500)),
+            // 61s rounds up to 13 fragments of 5s.
+            ("-61s", 500, Some(487)),
+            ("-00:10:00", 500, Some(380)),
+            ("-1h", 100, None),
+            ("-8d", 10_000_000, None),
+            ("10m", 500, Some(120)),
+            ("00:00:05", 500, Some(1)),
+            ("1h", 100, None),
+            ("1m", past_window, None),
+            ("garbage", 500, None),
+        ];
+        for (input, last, expected) in cases {
+            let start = resolve_live_from(input, last, 5).ok().map(|live_from| live_from.start_sq);
+            assert_eq!(start, expected, "{input} at {last}");
+        }
+        assert!(resolve_live_from("-61s", 500, 5).unwrap().message.contains("65 seconds"));
     }
 
     #[test]

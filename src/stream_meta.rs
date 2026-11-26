@@ -154,10 +154,8 @@ mod tests {
         );
         assert_eq!(format_info["publish_date"], "20261106");
         assert_eq!(format_info["description"], "d");
-    }
 
-    #[test]
-    fn missing_start_timestamp_does_not_panic() {
+        // Missing start timestamp: empty dates, no panic.
         let format_info = format_info_from_player_response(&PlayerResponse::default());
         assert_eq!(format_info["upload_date"], "");
         assert_eq!(format_info["start_time"], "");

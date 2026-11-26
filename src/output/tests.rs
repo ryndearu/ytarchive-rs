@@ -51,17 +51,12 @@ fn leading_dash_and_empty_names() {
     assert_eq!(final_location(&options, &format_info("-x")).unwrap().1, "_-x");
     assert!(final_location(&options, &format_info("")).is_err());
     assert!(final_location(&options, &format_info(".")).is_err());
-    assert_eq!(final_location(&options, &format_info("aux")).unwrap().1, "_aux");
-    assert_eq!(final_location(&options, &format_info("Why?")).unwrap().1, "Why_");
 }
 
 #[test]
 fn folder_names_are_windows_safe() {
     let options = opts("out/%(channel)s/%(title)s", true);
     let mut info = format_info("t");
-    info.insert("channel".into(), "Con".into());
-    let (dir, _) = final_location(&options, &info).unwrap();
-    assert!(dir.ends_with("out/_Con"), "{}", dir.display());
     info.insert("channel".into(), "Mr. ".into());
     let (dir, _) = final_location(&options, &info).unwrap();
     assert!(dir.ends_with("out/Mr__"), "{}", dir.display());

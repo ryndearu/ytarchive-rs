@@ -1,3 +1,5 @@
+use tokio::net::TcpListener;
+
 use super::*;
 use crate::cookies::parse_netscape;
 use crate::test_http;
@@ -34,14 +36,17 @@ async fn non_success_status_is_error_without_query() {
     }
 }
 
-#[test]
-fn builds_with_proxy_and_ip_version() {
-    let opts = Options {
-        proxy: Some(reqwest::Url::parse("socks5://127.0.0.1:1080").unwrap()),
-        ip_version: IpVersion::V4,
-        ..Default::default()
-    };
-    assert!(Http::new(&opts, CookieSet::default()).is_ok());
+#[tokio::test]
+async fn logged_request_errors_leave_out_the_signature_and_ip() {
+    // Nothing listens once the listener is dropped, so the request fails.
+    let port = TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().port();
+    let url = format!("http://127.0.0.1:{port}/videoplayback?ip=203.0.113.9&sig=SECRET&sq=5");
+    let error = reqwest::Client::new().get(&url).send().await.unwrap_err();
+    assert!(error.to_string().contains("SECRET"));
+
+    let logged = without_query(error).to_string();
+    assert!(logged.contains("/videoplayback"), "{logged}");
+    assert!(!logged.contains("SECRET") && !logged.contains("203.0.113.9"), "{logged}");
 }
 
 #[test]

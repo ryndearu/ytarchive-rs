@@ -21,20 +21,23 @@ fn opts(args: &[&str]) -> Result<Options> {
 
 #[test]
 fn normalizes_go_style_flags() {
-    assert_eq!(
-        norm(&["y", "-threads", "4", "-td", "/tmp", "-dp=0700", "-w", "URL"]),
-        ["y", "--threads", "4", "--temporary-dir", "/tmp", "--directory-permissions=0700", "-w", "URL"]
-    );
-}
-
-#[test]
-fn normalize_leaves_values_alone() {
-    // `-verbose` is a value of --ytdlp-opts, `-30m` a value of --live-from.
-    assert_eq!(
-        norm(&["y", "--ytdlp-opts", "-verbose", "-live-from", "-30m", "-o", "-debug"]),
-        ["y", "--ytdlp-opts", "-verbose", "--live-from", "-30m", "-o", "-debug"]
-    );
-    assert_eq!(norm(&["y", "--", "-threads"]), ["y", "--", "-threads"]);
+    let cases: [(&str, &[&str], &[&str]); 3] = [
+        (
+            "go-style flags",
+            &["y", "-threads", "4", "-td", "/tmp", "-dp=0700", "-w", "URL"],
+            &["y", "--threads", "4", "--temporary-dir", "/tmp", "--directory-permissions=0700", "-w", "URL"],
+        ),
+        // `-verbose` is a value of --ytdlp-opts, `-30m` a value of --live-from.
+        (
+            "values",
+            &["y", "--ytdlp-opts", "-verbose", "-live-from", "-30m", "-o", "-debug"],
+            &["y", "--ytdlp-opts", "-verbose", "--live-from", "-30m", "-o", "-debug"],
+        ),
+        ("after --", &["y", "--", "-threads"], &["y", "--", "-threads"]),
+    ];
+    for (name, input, expected) in cases {
+        assert_eq!(norm(input), expected, "{name}");
+    }
 }
 
 #[test]

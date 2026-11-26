@@ -54,6 +54,23 @@ async fn stores_out_of_order_and_exports_in_order() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
+#[tokio::test]
+async fn empty_meta_update_keeps_saved_meta() {
+    let dir = env::temp_dir().join(format!("ytarchive-rs-db-meta-{}", process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let mut sink = DbSink::open(&dir.join("x.f140.sqlite"), 0o644).unwrap();
+    let url = FragmentUrl::with_sq_param("https://r1/videoplayback?itag=140");
+
+    sink.push_with_meta(1, Some(frag(1, b"<1>")), MetaUpdate { head: Some(42), urls: vec![url.clone()] })
+        .await
+        .unwrap();
+    sink.push_with_meta(2, Some(frag(2, b"<2>")), MetaUpdate::default()).await.unwrap();
+    assert_eq!(sink.meta("head").unwrap().as_deref(), Some("42"));
+    assert_eq!(sink.urls().unwrap(), [url]);
+    drop(sink);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 /// Another thread holds the database, as a slow insert would. On the
 /// test's single runtime thread the release can only be sent while the
 /// insert waits elsewhere.

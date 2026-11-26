@@ -89,22 +89,25 @@ fn output_name_is_picked_again_before_muxing() {
 }
 
 #[test]
-fn posix_quoting() {
-    assert_eq!(posix_quote("a.ts"), "a.ts");
-    assert_eq!(posix_quote("my file's.ts"), r"'my file'\''s.ts'");
-    assert_eq!(posix_quote(""), "''");
-}
-
-#[test]
-fn windows_quoting() {
-    assert_eq!(windows_quote(r"C:\dir\a.ts"), r"C:\dir\a.ts");
-    assert_eq!(windows_quote(r"C:\my dir\a.ts"), r#""C:\my dir\a.ts""#);
-    assert_eq!(windows_quote(r"C:\my dir\"), r#""C:\my dir\\""#);
-    assert_eq!(windows_quote(r#"say "hi""#), r#""say \"hi\"""#);
-    assert_eq!(windows_quote("TITLE=a&b"), r#""TITLE=a&b""#);
-    assert_eq!(windows_quote("COMMENT=line1\nline2"), r#""COMMENT=line1 line2""#);
-    assert_eq!(windows_quote("COMMENT=line1\r\nline2\rline3"), r#""COMMENT=line1 line2 line3""#);
-    assert_eq!(windows_quote(""), r#""""#);
+fn quoting() {
+    let posix: fn(&str) -> String = posix_quote;
+    let windows: fn(&str) -> String = windows_quote;
+    let cases = [
+        ("posix", posix, "a.ts", "a.ts"),
+        ("posix", posix, "my file's.ts", r"'my file'\''s.ts'"),
+        ("posix", posix, "", "''"),
+        ("windows", windows, r"C:\dir\a.ts", r"C:\dir\a.ts"),
+        ("windows", windows, r"C:\my dir\a.ts", r#""C:\my dir\a.ts""#),
+        ("windows", windows, r"C:\my dir\", r#""C:\my dir\\""#),
+        ("windows", windows, r#"say "hi""#, r#""say \"hi\"""#),
+        ("windows", windows, "TITLE=a&b", r#""TITLE=a&b""#),
+        ("windows", windows, "COMMENT=line1\nline2", r#""COMMENT=line1 line2""#),
+        ("windows", windows, "COMMENT=line1\r\nline2\rline3", r#""COMMENT=line1 line2 line3""#),
+        ("windows", windows, "", r#""""#),
+    ];
+    for (style, quote, input, expected) in cases {
+        assert_eq!(quote(input), expected, "{style}: {input:?}");
+    }
 }
 
 #[tokio::test]

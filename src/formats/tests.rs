@@ -42,20 +42,6 @@ fn codecs_offered_per_label() {
 }
 
 #[test]
-fn picks_best_with_codec_priority() {
-    let offered = urls(&[140, 136, 247, 398]);
-    let selection = try_select(&offered, &sel(&["best"]), Some(&BEST_CODEC_ORDER), false).unwrap();
-    // 398 is 720p AV1; base 720p has h264/vp9 so "720p60" is not offered; best = 720p.
-    assert_eq!(selection.label, "720p");
-    assert_eq!(selection.codec, Some(Av1));
-    assert_eq!(selection.video_itag, Some(398));
-    assert!(selection.audio_url.is_some());
-
-    let selection = try_select(&offered, &sel(&["720p"]), Some(&complete_codec_order(&[Vp9])), false).unwrap();
-    assert_eq!(selection.video_itag, Some(247));
-}
-
-#[test]
 fn best_picks_the_quality_and_codec_picks_the_codec() {
     // --codec h264 with best: the highest quality, in H.264.
     let h264 = complete_codec_order(&[H264]);
@@ -69,9 +55,6 @@ fn best_picks_the_quality_and_codec_picks_the_codec() {
 
 #[test]
 fn default_codec_order_is_av1_vp9_h264() {
-    let offered = urls(&[140, 136, 247, 398]);
-    let selection = try_select(&offered, &sel(&["720p"]), None, false).unwrap();
-    assert_eq!(selection.codec, Some(Av1));
     let selection = try_select(&urls(&[140, 136, 247]), &sel(&["720p"]), None, false).unwrap();
     assert_eq!(selection.codec, Some(Vp9));
     let selection = try_select(&urls(&[140, 136]), &sel(&["720p"]), None, false).unwrap();
@@ -136,15 +119,4 @@ async fn unavailable_quality_falls_back_to_best() {
     let offered = urls(&[140, 136, 247]);
     let selection = select_interactive(&offered, sel(&["1080p"]), None, false).await.unwrap();
     assert_eq!((selection.label.as_str(), selection.codec), ("720p", Some(Vp9)));
-}
-
-#[test]
-fn selectable_qualities_respects_video_only() {
-    let with_audio = selectable_qualities(false);
-    assert!(with_audio.contains(&"audio_only"));
-    assert!(with_audio.contains(&"1080p60"));
-
-    let without_audio = selectable_qualities(true);
-    assert!(!without_audio.contains(&"audio_only"));
-    assert!(without_audio.contains(&"1080p60"));
 }

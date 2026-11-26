@@ -49,6 +49,7 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 - Keep tests essential: every option under "Usage and options", downloads and storage, quality/codec selection, file names, ffmpeg arguments, and parsing of URLs, yt-dlp output, watch pages, durations, and cookies. None for logging, the progress line, help layout, version strings, or small helpers.
 - Minor-feature tests go only in `src/minor_tests.rs` (`#[cfg(test)] mod minor_tests;`, created with the first one), so they can be deleted at once.
 - Download behavior tests use the fake googlevideo server in `src/download/tests/`: `mod.rs`, retries in `retry/` (near-head in `retry/near_head.rs`), `resume.rs`, `sqlite.rs`, `recovery.rs`. Build them from the helpers in `tests/mod.rs` (`session_for`, `download_quickly`, `assert_output`, `assert_complete`, `stored_database`, `fail_inserts`, `forbidden_from`).
+- A unit test goes in the tests of the module it calls (a `DbSink` test in `db_sink/tests.rs`, not `download/tests/`).
 - Don't repeat a test for another input. Add a case to a table-driven test (a `for` over the cases, naming the case in each assert message).
 - Tests that need a local HTTP server use `src/test_http.rs` (`serve`, `path`, `response`), not their own socket loop.
 - Network tests are `#[ignore]`, and no workflow runs them. Run them by hand against a real 24/7 stream: `YTDLP_TEST_OPTS="--js-runtimes node" cargo test -- --ignored` (drop the variable if deno is installed).
