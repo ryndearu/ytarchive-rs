@@ -18,6 +18,7 @@ use crate::{log_debug, log_trace};
 
 pub const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0";
 
+const DEFAULT_CONSENT_COOKIE: &str = "SOCS=CAI; Domain=.youtube.com; Path=/; Secure";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Max idle time between body reads; catches stalled fragment downloads.
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
@@ -44,6 +45,11 @@ impl Http {
             if let Some(url) = cookies::cookie_url(cookie) {
                 jar.add_cookie_str(&cookies::to_set_cookie(cookie), &url);
             }
+        }
+        if needs_default_consent(&cookies)
+            && let Ok(url) = Url::parse("https://www.youtube.com/")
+        {
+            jar.add_cookie_str(DEFAULT_CONSENT_COOKIE, &url);
         }
 
         let mut builder = Client::builder()
@@ -101,6 +107,17 @@ impl Http {
         log_debug!("Writing {} bytes to {}", data.len(), path.display());
         write_file_with_mode(path, &data, mode).await
     }
+}
+
+/// Without a consent answer, EU/EEA requests are redirected to
+/// consent.youtube.com, which has no player response. Same rule as yt-dlp:
+/// not when signed in or already consented (`CAA` means rejected, which is
+/// replaced).
+fn needs_default_consent(cookies: &CookieSet) -> bool {
+    !cookies.cookies.iter().any(|cookie| match cookie.name.as_str() {
+        "SOCS" => !cookie.value.starts_with("CAA"),
+        name => matches!(name, "SAPISID" | "__Secure-3PAPISID" | "__Secure-3PSID"),
+    })
 }
 
 /// Drops the query string from a request error, which for googlevideo URLs

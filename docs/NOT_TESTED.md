@@ -11,3 +11,4 @@
 - **`--sqlite` on a hard disk or network share**: on NVMe limited to 5 MB/s, one insert paused up to about 3.4 s.
 - **Sleep/suspend during waits:** scheduled streams, `-r`, `--monitor-channel`, `--start-delay`, `--recover-private` rounds, and the 15-second extraction cooldown.
 - **Windows rename retries** while antivirus holds a `.state` or storage file.
+- **The default consent cookie from an EU/EEA address.**

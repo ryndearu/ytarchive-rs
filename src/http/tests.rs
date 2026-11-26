@@ -36,6 +36,21 @@ async fn non_success_status_is_error_without_query() {
     }
 }
 
+#[test]
+fn default_consent_cookie_only_without_consent_or_sign_in() {
+    let cases = [
+        ("no cookies", "", true),
+        ("unrelated", "PREF\tf6=8", true),
+        ("rejected", "SOCS\tCAAaBgiA", true),
+        ("consented", "SOCS\tCAESEwgD", false),
+        ("signed in", "SAPISID\tx", false),
+    ];
+    for (name, entry, expected) in cases {
+        let file = if entry.is_empty() { String::new() } else { format!(".youtube.com\tTRUE\t/\tTRUE\t0\t{entry}\n") };
+        assert_eq!(needs_default_consent(&parse_netscape(file.as_bytes())), expected, "{name}");
+    }
+}
+
 #[tokio::test]
 async fn logged_request_errors_leave_out_the_signature_and_ip() {
     // Nothing listens once the listener is dropped, so the request fails.

@@ -28,6 +28,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - `--proxy` accepts `socks5h://` (remote DNS). Go rejected it.
 - `--members-only` warns and is ignored on video URLs (Go skipped the watch page and failed). It warns on channel URLs without `--cookies`. A channel with no members-only stream live is waited on like an offline channel with `-r`, and ends at once without it. Go reported it as a failed lookup: a warning on every poll, or 3 retries.
 - A cookies file yt-dlp can't read (not UTF-8, no Netscape header, a domain column that doesn't match its leading `.`, or a stray JSON-like line) is passed to yt-dlp as a repaired copy in the temp folder, deleted on exit. Go passed the file unchanged and yt-dlp failed.
+- Watch and channel pages are requested with YouTube's consent cookie (`SOCS=CAI`, as yt-dlp sends) unless the cookies already answer it or are signed in. Without it, Go got the consent page from EU/EEA addresses and found no stream.
 - `/live/`, `/shorts/`, and `youtu.be/` URLs: the video ID is the first path segment. Go took the whole rest of the path.
 
 ### Downloading
