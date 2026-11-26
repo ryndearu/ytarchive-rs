@@ -122,6 +122,7 @@ Windows, Linux, and macOS, each as x64 and arm64. Go supported Linux and Windows
 19. **Watch-page JSON extraction failed when more code followed the player response.** Go cut from the first `{` after the `ytInitialPlayerResponse` declaration to the last `};` in the script, so a later `};` left invalid JSON. The port reads one JSON object and stops.
 20. **An ended stream could keep a download waiting.** Go updated `Live` only after yt-dlp returned URLs and a format was selected, so when a stream ended and its URLs were gone, workers still treated it as live and kept waiting on the head. The port updates it as soon as the stream's status is read.
 21. **A stream that became a regular video mid-download kept being refreshed.** Go logged "This video is not a livestream" and fetched the watch page again every 15 seconds. The port treats the stream as unavailable and stops refreshing it.
+22. **yt-dlp's WebP thumbnails couldn't be embedded.** With `--ytdlp-info`, Go saved yt-dlp's `.webp` thumbnail as `.jpg`, and ffmpeg can't put WebP in MP4, so muxing failed. The port fetches the same image as JPEG from i.ytimg.com.
 
 ## Not ported
 

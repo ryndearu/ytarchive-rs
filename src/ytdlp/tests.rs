@@ -68,6 +68,23 @@ fn parses_sample() {
 }
 
 #[test]
+fn thumbnail_is_fetched_as_jpeg() {
+    let cases = [
+        (
+            "webp",
+            "https://i.ytimg.com/vi_webp/abc/maxresdefault_live.webp",
+            "https://i.ytimg.com/vi/abc/maxresdefault_live.jpg",
+        ),
+        ("jpeg", "https://i.ytimg.com/vi/abc/maxresdefault.jpg", "https://i.ytimg.com/vi/abc/maxresdefault.jpg"),
+        ("other host", "https://example.com/vi_webp/abc/x.webp", "https://example.com/vi_webp/abc/x.webp"),
+    ];
+    for (name, thumbnail, expected) in cases {
+        let raw = parse_output(&format!(r#"{{"id":"x","thumbnail":"{thumbnail}"}}"#)).unwrap();
+        assert_eq!(to_extraction(raw).0.thumbnail, expected, "{name}");
+    }
+}
+
+#[test]
 fn prefers_exact_format_id_and_adaptive_target_duration() {
     let raw = parse_output(
         r#"{"id":"x","formats":[

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
+use reqwest::Url;
 use reqwest::header::{ORIGIN, REFERER};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
@@ -192,7 +193,7 @@ pub fn to_extraction(raw: YtdlpRawInfo) -> (YtdlpExtraction, Vec<String>) {
         channel_id: raw.channel_id.unwrap_or_default(),
         channel: raw.channel.unwrap_or_default(),
         description: raw.description.unwrap_or_default(),
-        thumbnail: raw.thumbnail.unwrap_or_default(),
+        thumbnail: raw.thumbnail.map(jpeg_thumbnail).unwrap_or_default(),
         upload_date: raw.upload_date.unwrap_or_default(),
         start_unix,
         live_status,
@@ -282,6 +283,24 @@ pub async fn probe_x_head_seqnum_candidates(http: &Http, urls: &[String], cancel
         }
     }
     None
+}
+
+/// yt-dlp picks YouTube's WebP thumbnail, which the port saves as `.jpg` and
+/// ffmpeg can't embed as an MP4 cover. i.ytimg.com serves the same image as
+/// JPEG under `/vi/`.
+fn jpeg_thumbnail(url: String) -> String {
+    let Ok(mut parsed) = Url::parse(&url) else {
+        return url;
+    };
+    if !parsed.host_str().is_some_and(|host| host == "i.ytimg.com" || host.ends_with(".ytimg.com")) {
+        return url;
+    }
+    let Some(stem) = parsed.path().strip_prefix("/vi_webp/").and_then(|rest| rest.strip_suffix(".webp")) else {
+        return url;
+    };
+    let path = format!("/vi/{stem}.jpg");
+    parsed.set_path(&path);
+    parsed.to_string()
 }
 
 /// Sequence boundary for downloading. Post-live, the last couple of fragments
