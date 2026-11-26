@@ -69,8 +69,8 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
         return Ok(LiveFrom { start_sq: last_sq, message: "Starting download from current time".into() });
     };
     let frags = frags_for(dur.as_secs(), target_duration);
-    let rounded_secs = frags * target;
-    let live_for = || seconds_to_duration_and_time_str(last_sq * target);
+    let rounded_secs = frags.saturating_mul(target);
+    let live_for = || seconds_to_duration_and_time_str(last_sq.saturating_mul(target));
 
     if negative {
         if frags > last_sq {
@@ -97,7 +97,7 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
     if frags < earliest {
         return Err(Error::InvalidArg(format!(
             "YT only retains the livestream 7 days past for seeking; you must specify a --live-from value between {} and {}",
-            seconds_to_duration_and_time_str(earliest * target),
+            seconds_to_duration_and_time_str(earliest.saturating_mul(target)),
             live_for()
         )));
     }
@@ -105,8 +105,8 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
         start_sq: frags,
         message: format!(
             "Starting from stream time '{}' and grabbing '{}' of content (and counting).",
-            seconds_to_duration_and_time_str(frags * target),
-            seconds_to_duration_and_time_str((last_sq - frags) * target)
+            seconds_to_duration_and_time_str(frags.saturating_mul(target)),
+            seconds_to_duration_and_time_str((last_sq - frags).saturating_mul(target))
         ),
     })
 }
@@ -115,7 +115,8 @@ pub fn resolve_live_from(value: &str, last_sq: u64, target_duration: u32) -> Res
 /// both rounded up to whole fragments.
 pub fn start_delay(delay: Duration, last_sq: u64, target_duration: u32) -> (u64, Duration) {
     let frags = frags_for(delay.as_secs(), target_duration);
-    (last_sq + frags, Duration::from_secs(frags * u64::from(target_duration.max(1))))
+    let wait = frags.saturating_mul(u64::from(target_duration.max(1)));
+    (last_sq.saturating_add(frags), Duration::from_secs(wait))
 }
 
 #[cfg(test)]

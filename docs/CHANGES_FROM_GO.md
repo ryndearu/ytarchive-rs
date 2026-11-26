@@ -18,6 +18,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - `--file-permissions` and `--directory-permissions` are always octal (`755` is `0755`). Go read `755` as decimal.
 - New errors: `--metadata` without `=` (Go crashed), `--no-video` with `--no-audio`, `--threads 0`, and unclosed quotes in `--ytdlp-opts`.
 - `--ytdlp-opts` handles single and double quotes (Windows backslashes are kept outside quote escapes). `--live-from` syntax and the 7-day bound are checked at startup. `--metadata` templates with unknown keys warn at startup and keep the literal fallback.
+- Huge `--live-from`, `--start-delay`, and `--capture-duration` values saturate instead of overflowing. Go's integer math could wrap.
 - Scheduled-stream prompt: `1) wait  2) poll  3) no (default 3):`. `wait` and `poll` still work, and Enter or closed stdin means no. Go asked `wait/poll/[no]:`.
 - `--ytdlp-info` asks for the quality while waiting. Go asked once the stream started.
 - If none of the chosen qualities exist, `best` is used. Go asked again, which stalled unattended runs. With `--no-audio`, `audio_only` is never selected or offered.
