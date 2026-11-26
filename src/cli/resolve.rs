@@ -279,6 +279,11 @@ impl Cli {
             .as_deref()
             .map(|text| parse_duration_or_time("--capture-duration", text))
             .transpose()?;
+        // Shorter captures round down to 0 fragments and fail only after
+        // extraction.
+        if capture_duration.is_some_and(|duration| duration < Duration::from_secs(1)) {
+            return Err(Error::InvalidArg("--capture-duration must be at least 1 second".into()));
+        }
 
         let log_level = if self.trace {
             LogLevel::Trace
