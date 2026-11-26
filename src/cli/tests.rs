@@ -162,7 +162,7 @@ fn misc_resolution() {
         "y",
         "--ytdlp-info",
         "--metadata",
-        "title = %(title)s",
+        "Title = %(title)s",
         "--ytdlp-opts",
         "--extractor-args youtube:player_client=web",
         "--capture-duration",

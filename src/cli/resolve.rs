@@ -274,7 +274,9 @@ impl Cli {
             if key.is_empty() {
                 return Err(Error::InvalidArg(format!("--metadata key is empty in '{pair}'")));
             }
-            metadata_overrides.push((key.to_string(), value.trim().to_string()));
+            // ffmpeg keys are case-insensitive (they're written uppercase), so
+            // `TITLE=` must replace the default `title`, not add a second one.
+            metadata_overrides.push((key.to_lowercase(), value.trim().to_string()));
         }
 
         let mut retry_stream =
