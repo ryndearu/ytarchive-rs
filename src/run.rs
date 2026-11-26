@@ -59,7 +59,7 @@ pub async fn run(
         PrepareOutcome::Skipped(id) => {
             return RunResult { code: 0, video_id: Some(id), downloaded: false };
         }
-        PrepareOutcome::Failed => {
+        PrepareOutcome::Failed(failed_id) => {
             // A download kept for retrying missing fragments can still go on
             // with its saved URLs after the stream went private.
             if !interrupt.is_set()
@@ -69,7 +69,12 @@ pub async fn run(
                 let code = download(opts.clone(), http, cancel, prepared, interrupt).await;
                 return RunResult { code, video_id: Some(id.clone()), downloaded: true };
             }
-            return RunResult::code(if interrupt.is_set() { interrupt.cancel_code() } else { 1 });
+            if interrupt.is_set() {
+                return RunResult::code(interrupt.cancel_code());
+            }
+            // A stream that resolved but can't be downloaded counts as a
+            // failed attempt, so the channel monitor gives up on it.
+            return RunResult { code: 1, downloaded: failed_id.is_some(), video_id: failed_id };
         }
     };
     if skip_ids.contains(&prepared.video_id) {

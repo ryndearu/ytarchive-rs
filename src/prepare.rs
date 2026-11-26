@@ -53,8 +53,9 @@ pub enum PrepareOutcome {
     Ready(Box<Prepared>),
     /// Resolved to a stream already recorded by `--monitor-channel`.
     Skipped(String),
-    /// Nothing downloadable was found (already logged).
-    Failed,
+    /// Nothing downloadable was found (already logged). Holds the stream's
+    /// ID once one was resolved, so `--monitor-channel` counts the failure.
+    Failed(Option<String>),
 }
 
 pub async fn prepare(
@@ -66,7 +67,7 @@ pub async fn prepare(
 ) -> PrepareOutcome {
     if let InputUrl::GoogleVideo { id, itag, url } = input {
         let Some(sel) = gvideo_selection(opts, *itag, url.clone()).await else {
-            return PrepareOutcome::Failed;
+            return PrepareOutcome::Failed(None);
         };
         let mut format_info = new_format_info();
         format_info.insert("id".into(), id.clone());
@@ -90,7 +91,7 @@ pub async fn prepare(
         return if extractor.skipped_already_recorded {
             PrepareOutcome::Skipped(extractor.video_id)
         } else {
-            PrepareOutcome::Failed
+            PrepareOutcome::Failed(Some(extractor.video_id).filter(|id| !id.is_empty()))
         };
     };
     PrepareOutcome::Ready(Box::new(Prepared {
