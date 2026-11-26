@@ -21,6 +21,7 @@ use crate::error::Result;
 #[cfg(test)]
 use crate::types::FragData;
 use crate::types::{DownloadState, Fragment};
+use crate::util::rename_with_retry_async;
 use crate::{log_debug, log_info, log_warn};
 
 /// What happened to fragments handed to a sink.
@@ -86,11 +87,12 @@ async fn find_unique_by_suffix(dir: &Path, suffix: &str) -> io::Result<Option<Pa
 /// Renames SQLite `-wal` and `-shm` sidecars alongside a moved database,
 /// removing any stale destination sidecar when the source has none.
 async fn rename_db_sidecars(from: &Path, to: &Path, name: &str) -> io::Result<()> {
+    let mut moved: Vec<(PathBuf, PathBuf)> = Vec::new();
     for suffix in ["-wal", "-shm"] {
         let sidecar_path = with_suffix(from, suffix);
         let dest_sidecar = with_suffix(to, suffix);
-        match tokio::fs::rename(&sidecar_path, &dest_sidecar).await {
-            Ok(()) => {}
+        match rename_with_retry_async(sidecar_path.clone(), dest_sidecar.clone()).await {
+            Ok(()) => moved.push((sidecar_path, dest_sidecar)),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 // Remove any stale sidecar from an earlier file so SQLite
                 // never replays an unrelated WAL onto the moved DB.
@@ -102,6 +104,11 @@ async fn rename_db_sidecars(from: &Path, to: &Path, name: &str) -> io::Result<()
             }
             Err(error) => {
                 log_warn!("{name}: Could not move {}: {error}", sidecar_path.display());
+                for (orig, dest) in moved.into_iter().rev() {
+                    if let Err(rollback_error) = rename_with_retry_async(dest, orig.clone()).await {
+                        log_warn!("{name}: Could not restore {}: {rollback_error}", orig.display());
+                    }
+                }
                 return Err(error);
             }
         }
@@ -118,8 +125,13 @@ async fn adopt_renamed_storage(data_file: &Path, database_path: &Path, name: &st
         return Ok(());
     };
     if let Some(found) = find_unique_by_suffix(dir, &format!("{itag}.sqlite")).await? {
-        tokio::fs::rename(&found, database_path).await?;
-        rename_db_sidecars(&found, database_path, name).await?;
+        rename_with_retry_async(found.clone(), database_path.to_path_buf()).await?;
+        if let Err(error) = rename_db_sidecars(&found, database_path, name).await {
+            if let Err(rollback_error) = rename_with_retry_async(database_path.to_path_buf(), found.clone()).await {
+                log_warn!("{name}: Could not restore {}: {rollback_error}", found.display());
+            }
+            return Err(error);
+        }
         log_info!(
             "{name}: Found previous database {} under a different name; resuming as {}",
             found.display(),
@@ -128,7 +140,7 @@ async fn adopt_renamed_storage(data_file: &Path, database_path: &Path, name: &st
         return Ok(());
     }
     if let Some(found) = find_unique_by_suffix(dir, &format!("{itag}.ts")).await? {
-        tokio::fs::rename(&found, data_file).await?;
+        rename_with_retry_async(found.clone(), data_file.to_path_buf()).await?;
         log_info!(
             "{name}: Found previous data file {} under a different name; resuming as {}",
             found.display(),
@@ -220,7 +232,7 @@ async fn keep_existing_data(data_file: &Path, name: &str) -> io::Result<bool> {
         return Ok(false);
     }
     let old_file = with_suffix(data_file, ".old");
-    tokio::fs::rename(data_file, &old_file).await?;
+    rename_with_retry_async(data_file.to_path_buf(), old_file.clone()).await?;
     log_warn!("{name}: {} has data that can't be resumed; kept it as {}", data_file.display(), old_file.display());
     Ok(true)
 }
@@ -229,7 +241,14 @@ pub(super) async fn keep_existing_db(database_path: &Path, name: &str) -> io::Re
     if !keep_existing_data(database_path, name).await? {
         return Ok(());
     }
-    rename_db_sidecars(database_path, &with_suffix(database_path, ".old"), name).await
+    let old_file = with_suffix(database_path, ".old");
+    if let Err(error) = rename_db_sidecars(database_path, &old_file, name).await {
+        if let Err(rollback_error) = rename_with_retry_async(old_file, database_path.to_path_buf()).await {
+            log_warn!("{name}: Could not restore {}: {rollback_error}", database_path.display());
+        }
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// A SQLite database ready to export to `.ts`, deferred until all streams finish.

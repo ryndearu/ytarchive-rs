@@ -2,7 +2,9 @@
 
 use std::fs;
 
+use super::sqlite::sqlite_opts;
 use super::*;
+use crate::download::sink::keep_existing_db;
 use crate::types::StorageMode;
 
 #[tokio::test]
@@ -131,4 +133,41 @@ async fn does_not_adopt_renamed_file_when_temp_dir_not_owned() {
     assert_eq!(fs::read(dir.join("other-video.f140.ts")).unwrap(), b"other video data");
     assert_eq!(out.state.fragments, 5);
     fs::remove_dir_all(&dir).unwrap();
+}
+
+#[tokio::test]
+async fn rolls_back_db_rename_when_wal_sidecar_move_fails() {
+    let cases = [
+        ("adopt_renamed", "old", "new", "new.f140.sqlite-wal", true),
+        ("keep_existing_db", "out", "out", "out.f140.sqlite.old-wal", false),
+    ];
+    for (name, source_stem, target_stem, blocker_name, via_download) in cases {
+        let dir = temp_dir(&format!("wal-rollback-{name}"));
+        let source_db = dir.join(format!("{source_stem}.f140.sqlite"));
+        let source_wal = dir.join(format!("{source_stem}.f140.sqlite-wal"));
+        stored_database(&source_db, [0]).await;
+        fs::write(&source_wal, b"wal-bytes").unwrap();
+
+        let blocker = dir.join(blocker_name);
+        fs::create_dir(&blocker).unwrap();
+        fs::write(blocker.join("keep"), b"x").unwrap();
+
+        if via_download {
+            let state = DownloadState { start_frag: 0, fragments: 1, ..Default::default() };
+            let (mut stream_params, _receiver) = params(&dir, 6, state);
+            stream_params.data_file = dir.join(format!("{target_stem}.f140.ts"));
+            let err =
+                download_stream(session_for(sqlite_opts(1), UNREACHABLE, false), stream_params).await.unwrap_err();
+            assert!(matches!(err, Error::OpenStorage(_)), "{name}: {err}");
+            assert!(!dir.join(format!("{target_stem}.f140.sqlite")).exists(), "{name}: renamed database left behind");
+        } else {
+            let err = keep_existing_db(&source_db, "audio-download").await.unwrap_err();
+            assert!(err.raw_os_error().is_some(), "{name}: {err}");
+            assert!(!dir.join(format!("{target_stem}.f140.sqlite.old")).exists(), "{name}: .old database left behind");
+        }
+
+        assert!(source_db.exists(), "{name}: main database was not restored");
+        assert_eq!(fs::read(&source_wal).unwrap(), b"wal-bytes", "{name}: WAL sidecar missing");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }

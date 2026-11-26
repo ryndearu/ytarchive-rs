@@ -74,7 +74,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - State files are deleted only after moving the downloaded files succeeds. Partial copies and earlier exports from a failed batch are deleted, and ffmpeg doesn't run when a move fails.
 - `--save` on cancel also moves `.ffmpeg.txt` to the output folder. Go deleted it with the temp folder.
 - Failures applying `--file-permissions` or `--directory-permissions` (exFAT, FAT32, SMB) are logged at debug level, and written files are kept. Go's `os.WriteFile` never failed on a separate chmod, so the port matches that for filesystems that reject permissions.
-- **On Windows, a rename that fails while antivirus or an indexer holds the file is retried** (up to 3 times, with short waits) before a state save or move fails. Go's `os.Rename` failed at once.
+- **On Windows, a rename that fails while antivirus or an indexer holds the file is retried** (up to 3 times, with short waits) before a state save, storage rename, or move fails. Go's `os.Rename` failed at once.
 - `publish_date` is always `YYYYMMDD`. Go kept the raw value, which can include a time and offset.
 - The `.ffmpeg.txt` command uses the platform's quoting. Go always used POSIX quoting. Newlines in metadata values become spaces, so each command stays on one line. Go wrote them as they were, splitting the command across lines.
 

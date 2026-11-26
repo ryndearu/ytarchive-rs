@@ -12,6 +12,7 @@ use std::process;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use tokio::task::spawn_blocking;
 use tokio_util::sync::CancellationToken;
 
 pub use filename::{NameStyle, format_filename, format_python_map, portable_file_name, sterilize_filename};
@@ -154,11 +155,11 @@ pub async fn write_file_with_mode(path: &Path, data: &[u8], mode: u32) -> Result
     res
 }
 
+/// Renames `from` to `to`, retrying briefly on Windows when antivirus or an
+/// indexer holds a transient lock on the state, storage, or temp file
+/// (access-denied 5 or sharing-violation 32).
 #[cfg(windows)]
-fn rename_atomic(from: &Path, to: &Path) -> io::Result<()> {
-    // Antivirus and search indexers on Windows can briefly hold a handle on
-    // the state or temp file, causing transient access-denied (5) or
-    // sharing-violation (32) errors.
+pub fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
     let mut delay = Duration::from_millis(10);
     for _ in 0..3 {
         match fs::rename(from, to) {
@@ -176,8 +177,12 @@ fn rename_atomic(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(windows))]
-fn rename_atomic(from: &Path, to: &Path) -> io::Result<()> {
+pub fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
     fs::rename(from, to)
+}
+
+pub async fn rename_with_retry_async(from: PathBuf, to: PathBuf) -> io::Result<()> {
+    spawn_blocking(move || rename_with_retry(&from, &to)).await.unwrap_or_else(|error| Err(io::Error::other(error)))
 }
 
 /// Replaces `path` with `data` in one step (a temporary file renamed over
@@ -189,7 +194,7 @@ pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
     let temp_path = PathBuf::from(temp_name);
     let res = fs::write(&temp_path, data).and_then(|()| {
         apply_mode(&temp_path, mode);
-        rename_atomic(&temp_path, path)
+        rename_with_retry(&temp_path, path)
     });
     if res.is_err()
         && let Err(error) = fs::remove_file(&temp_path)
@@ -274,7 +279,7 @@ pub fn try_move(src: &Path, dst: &Path) -> io::Result<()> {
         return Ok(());
     }
     crate::log_info!("Moving file {} to {}", src.display(), dst.display());
-    match rename_atomic(src, dst) {
+    match rename_with_retry(src, dst) {
         Ok(()) => return Ok(()),
         Err(error) => crate::log_debug!("Rename failed ({error}); copying {} instead", src.display()),
     }
