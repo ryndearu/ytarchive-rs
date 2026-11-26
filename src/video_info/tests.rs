@@ -169,3 +169,23 @@ async fn ytdlp_mode_mid_download_refresh_skips_head_probe_while_start_delay_prob
     assert!(head_hits.load(Ordering::SeqCst) >= 1);
     assert_eq!(extractor.last_sq, Some(42));
 }
+
+#[tokio::test]
+async fn ended_stream_that_became_a_video_stops_refreshing() {
+    let addr = test_http::serve(|_| {
+        let body = non_livestream_html("vid1");
+        async move { Some(test_http::response("200 OK", "content-type: text/html\r\n", body.as_bytes())) }
+    })
+    .await;
+    let opts = Arc::new(Options { quality: Some("best".into()), ..Default::default() });
+    let http = Http::new(&opts, Default::default()).unwrap();
+    let input = InputUrl::Video { id: "vid1".into() };
+    let mut extractor = Extractor::new(opts, http, CancellationToken::new(), &input, &HashSet::new());
+    extractor.test_base_url = Some(format!("http://{addr}"));
+    extractor.page_url = extractor.watch_url("vid1");
+    extractor.in_progress = true;
+    extractor.live = false;
+
+    assert!(matches!(extractor.get_playable_player_response().await, Outcome::NotUsable));
+    assert!(extractor.unavailable);
+}

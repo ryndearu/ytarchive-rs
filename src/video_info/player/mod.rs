@@ -280,7 +280,12 @@ impl Extractor {
                 continue;
             }
             if not_live {
-                if self.live {
+                if self.in_progress {
+                    // The ended stream became a regular video; its watch page
+                    // won't list live URLs again, so stop refreshing it.
+                    self.live = false;
+                    self.unavailable = true;
+                } else if self.live {
                     self.live = false;
                 } else {
                     log_error!("This video is not a livestream. It would be better to use yt-dlp to download it.");
