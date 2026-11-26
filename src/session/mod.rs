@@ -270,7 +270,7 @@ impl Session {
     async fn periodic_refresh_once(&self) -> bool {
         let Some(mutex) = &self.extractor else { return true };
         // Don't overlap with a retry-triggered refresh.
-        let Ok(_guard) = mutex.try_lock() else { return true };
+        let Ok(mut extractor) = mutex.try_lock() else { return true };
         if self.is_stopping() || self.is_unavailable() {
             return true;
         }
@@ -283,7 +283,13 @@ impl Session {
         if self.is_stopping() || self.is_unavailable() {
             return true;
         }
-        self.apply_periodic_refresh(info)
+        let applied = self.apply_periodic_refresh(info);
+        // A later retry refresh that fails copies `extractor.live` back into
+        // the session, which would mark the ended stream live again.
+        if !self.is_live() {
+            extractor.live = false;
+        }
+        applied
     }
 
     pub(crate) fn apply_periodic_refresh(&self, info: Result<YtdlpExtraction>) -> bool {
