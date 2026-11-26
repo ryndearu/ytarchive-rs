@@ -35,6 +35,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - A yt-dlp run may take 60 seconds (Go: 30) before it's stopped and retried.
 - yt-dlp runs with `--encoding utf-8` (plus `PYTHONIOENCODING=utf-8` and `PYTHONUTF8=1`). `--ytdlp-opts` can override it.
 - `--ytdlp-info`: an exact `format_id` (`140`) wins over a suffixed one (`140-drc`). Without an exact ID, the last suffixed variant is used. `target_duration` prefers adaptive formats.
+- A `target_duration` under 0.5 seconds is 1 second. Go rounded it to 0 and kept its 5-second default.
 - The `X-Head-Seqnum` HEAD probe sends the fragment's `Referer` and retries up to 3 times, 1 second apart, on missing headers or request errors. Go sent one request with no `Referer`.
 - `--ytdlp-info` with `-r` on a channel URL polls once per interval, with no multi-attempt retries. It stops if yt-dlp can't start, and warns once per unexpected error. Negative `--live-from` on upcoming streams is rejected, and an `is_upcoming` report mid-download exits cleanly. Go failed at once on channels with no active stream.
 - **Wall-clock waits:** scheduled waits, `-r` polling, `--monitor-channel` intervals, `--start-delay`, `--recover-private` rounds, and the 5-hour URL refresh track the wall clock, rechecked every 60 seconds, so system sleep doesn't stretch them. Go slept in one monotonic call.
