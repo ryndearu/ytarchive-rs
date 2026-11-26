@@ -7,8 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::SendError;
 
 use super::fragment::{FragOutcome, download_fragment};
+use super::sink::remove_frag_file;
 use crate::error::Error;
 use crate::log_debug;
 use crate::session::Session;
@@ -164,8 +166,17 @@ pub(super) async fn worker(
             FragOutcome::Stopped => break,
             FragOutcome::StorageError(error) => Msg::StorageError(seq, error),
         };
-        if sender.send(msg).await.is_err() || is_storage_error {
-            break;
+        match sender.send(msg).await {
+            Ok(()) if !is_storage_error => {}
+            Ok(()) => break,
+            // The writer stopped (storage error), so nothing else deletes
+            // this fragment's temp file.
+            Err(SendError(unsent)) => {
+                if let Msg::Done(fragment) = unsent {
+                    remove_frag_file(&fragment.data).await;
+                }
+                break;
+            }
         }
     }
     log_debug!("{name}: exiting");
