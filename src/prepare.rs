@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::download::{KeptStream, load_state, read_kept};
+use crate::error::Error;
 use crate::http::Http;
 use crate::input_url::{InputUrl, parse_gvideo_url};
 use crate::output::state_file;
@@ -120,17 +121,19 @@ async fn prompt_url(data_type: DataType) -> Option<(FragmentUrl, u32)> {
     }
 }
 
-fn from_flag(raw: Option<&str>, data_type: DataType) -> Option<(FragmentUrl, u32)> {
-    let raw = raw?;
-    parse_gvideo_url(raw, data_type).inspect_err(|error| log_error!("--{}-url: {error}", data_type.as_str())).ok()
+fn from_flag(raw: Option<&str>, data_type: DataType) -> Result<Option<(FragmentUrl, u32)>, Error> {
+    raw.map(|value| {
+        parse_gvideo_url(value, data_type).inspect_err(|error| log_error!("--{}-url: {error}", data_type.as_str()))
+    })
+    .transpose()
 }
 
 /// Direct googlevideo URLs, no extraction: builds the selection from the
 /// input URL plus `--audio-url`/`--video-url`, prompting for the other
 /// stream if only one was given.
 async fn gvideo_selection(opts: &Options, input_itag: u32, input_url: FragmentUrl) -> Option<FormatSelection> {
-    let mut audio = from_flag(opts.audio_url.as_deref(), DataType::Audio);
-    let mut video = from_flag(opts.video_url.as_deref(), DataType::Video);
+    let mut audio = from_flag(opts.audio_url.as_deref(), DataType::Audio).ok()?;
+    let mut video = from_flag(opts.video_url.as_deref(), DataType::Video).ok()?;
     if input_itag == AUDIO_ITAG {
         audio.get_or_insert((input_url, input_itag));
     } else {
@@ -326,5 +329,12 @@ mod tests {
             Options { recover_private: true, temp_dir: Some(dir.clone()), video_only: true, ..Default::default() };
         assert!(prepared_from_kept(&video_only, "vid1").is_none());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn gvideo_selection_rejects_invalid_flag_without_prompting() {
+        let options = Options { audio_url: Some("https://example.com/bad".into()), ..Default::default() };
+        let input_url = FragmentUrl::with_sq_param("https://r.googlevideo.com/videoplayback?itag=299&noclen=1");
+        assert!(gvideo_selection(&options, 299, input_url).await.is_none());
     }
 }

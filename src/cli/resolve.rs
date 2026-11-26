@@ -12,11 +12,19 @@ use reqwest::Url;
 use super::Cli;
 use crate::duration::parse_duration_or_time;
 use crate::error::{Error, Result};
+use crate::input_url::parse_gvideo_url;
 use crate::live_from::validate_live_from;
 use crate::types::{
-    Action, DEFAULT_MONITOR_SECS, DEFAULT_POLL_SECS, IpVersion, LogLevel, MINIMUM_MONITOR_SECS, Options, StorageMode,
-    VideoCodec, complete_codec_order,
+    Action, DEFAULT_MONITOR_SECS, DEFAULT_POLL_SECS, DataType, IpVersion, LogLevel, MINIMUM_MONITOR_SECS, Options,
+    StorageMode, VideoCodec, complete_codec_order,
 };
+
+fn validate_gvideo_flag(flag: &str, raw: &str, data_type: DataType) -> Result<()> {
+    parse_gvideo_url(raw, data_type).map(|_| ()).map_err(|error| match error {
+        Error::InvalidArg(message) => Error::InvalidArg(format!("{flag}: {message}")),
+        other => other,
+    })
+}
 
 fn is_googlevideo(url: &str) -> bool {
     Url::parse(url)
@@ -229,6 +237,12 @@ impl Cli {
         }
         if self.threads == 0 {
             return Err(Error::InvalidArg("--threads must be at least 1".into()));
+        }
+        if let Some(raw) = &self.video_url {
+            validate_gvideo_flag("--video-url", raw, DataType::Video)?;
+        }
+        if let Some(raw) = &self.audio_url {
+            validate_gvideo_flag("--audio-url", raw, DataType::Audio)?;
         }
 
         // Googlevideo URLs given via flags take precedence over positionals (as in Go).

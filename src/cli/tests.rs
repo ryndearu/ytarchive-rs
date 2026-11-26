@@ -148,6 +148,10 @@ fn validation_errors() {
     assert!(opts(&["y", "--live-from", "garbage", "u"]).is_err());
     assert!(opts(&["y", "--live-from", "-8d", "u"]).is_err());
     assert!(opts(&["y", "--ytdlp-opts", "--cookies \"unclosed", "u"]).is_err());
+    assert!(opts(&["y", "--video-url", "https://example.com/?itag=299&noclen=1"]).is_err());
+    assert!(opts(&["y", "--video-url", "https://r.googlevideo.com/videoplayback?itag=299"]).is_err());
+    assert!(opts(&["y", "--video-url", "https://r.googlevideo.com/videoplayback?itag=140&noclen=1"]).is_err());
+    assert!(opts(&["y", "--audio-url", "https://r.googlevideo.com/videoplayback?itag=299&noclen=1"]).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "--proxy", "ftp://x"])).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "-fp", "999"])).is_err());
 }
@@ -193,7 +197,7 @@ fn ytdlp_opts_parses_quotes_and_windows_backslashes() {
 
 #[test]
 fn googlevideo_flags_override_positionals() {
-    let video_url = "https://rr1---sn-x.googlevideo.com/videoplayback?itag=299";
+    let video_url = "https://rr1---sn-x.googlevideo.com/videoplayback?itag=299&noclen=1";
     let options = opts(&["y", "--video-url", video_url, "--ytdlp-info", "--members-only", "u", "best"]).unwrap();
     assert_eq!(options.url.as_deref(), Some(video_url));
     assert_eq!(options.quality, None);
