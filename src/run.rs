@@ -66,7 +66,7 @@ pub async fn run(
                 && let InputUrl::Video { id } = input
                 && let Some(prepared) = prepared_from_kept(&opts, id)
             {
-                let code = download(opts.clone(), http, cancel, prepared, None, interrupt).await;
+                let code = download(opts.clone(), http, cancel, prepared, interrupt).await;
                 return RunResult { code, video_id: Some(id.clone()), downloaded: true };
             }
             return RunResult::code(if interrupt.is_set() { interrupt.cancel_code() } else { 1 });
@@ -77,27 +77,29 @@ pub async fn run(
         return RunResult { code: 0, video_id: Some(prepared.video_id), downloaded: false };
     }
     let video_id = Some(prepared.video_id.clone());
-
-    let live_from_sq = match (&opts.live_from, prepared.last_sq) {
-        (None, _) => None,
-        (Some(value), Some(last)) => match resolve_live_from(value, last, prepared.target_duration) {
-            Ok(live_from) => {
-                log_general!("{}", live_from.message);
-                Some(live_from.start_sq)
-            }
-            Err(error) => {
-                log_error!("{error}");
-                return RunResult { code: 1, video_id, downloaded: true };
-            }
-        },
-        (Some(_), None) => {
-            log_error!("--live-from needs the current stream position, which could not be determined");
-            return RunResult { code: 1, video_id, downloaded: true };
-        }
-    };
-
-    let code = download(opts, http, cancel, prepared, live_from_sq, interrupt).await;
+    let code = download(opts, http, cancel, prepared, interrupt).await;
     RunResult { code, video_id, downloaded: true }
+}
+
+/// The sequence `--live-from` starts at. `Err` has been logged. Resolved
+/// only for a fresh download, so resuming never fails on a position that
+/// has since left the seek window.
+fn live_from_start(opts: &Options, prepared: &Prepared) -> Result<Option<u64>, ()> {
+    let Some(value) = &opts.live_from else { return Ok(None) };
+    let Some(last) = prepared.last_sq else {
+        log_error!("--live-from needs the current stream position, which could not be determined");
+        return Err(());
+    };
+    match resolve_live_from(value, last, prepared.target_duration) {
+        Ok(live_from) => {
+            log_general!("{}", live_from.message);
+            Ok(Some(live_from.start_sq))
+        }
+        Err(error) => {
+            log_error!("{error}");
+            Err(())
+        }
+    }
 }
 
 fn select_streams(sel: &FormatSelection) -> Vec<(DataType, u32)> {
@@ -115,7 +117,6 @@ async fn download(
     http: Http,
     cancel: CancellationToken,
     mut prepared: Prepared,
-    live_from_sq: Option<u64>,
     interrupt: Arc<Interrupt>,
 ) -> i32 {
     let (dir, file_name) = match final_location(&opts, &prepared.format_info) {
@@ -144,8 +145,18 @@ async fn download(
     let (mut states, mut prev_temp) = load_states(&opts, &prepared.video_id, &itags);
     let mut resuming = states.iter().any(|state| state.fragments > 0);
 
-    // --start-delay (ignored when resuming).
-    let mut start_sq = live_from_sq;
+    // --live-from and --start-delay are ignored when resuming.
+    let mut start_sq = None;
+    if resuming {
+        if opts.live_from.is_some() {
+            log_warn!("Option --live-from is being ignored as a download is being resumed.");
+        }
+    } else {
+        match live_from_start(&opts, &prepared) {
+            Ok(sequence) => start_sq = sequence,
+            Err(()) => return 1,
+        }
+    }
     if let Some(delay) = opts.start_delay {
         if resuming {
             log_warn!("Option --start-delay is being ignored as a download is being resumed.");

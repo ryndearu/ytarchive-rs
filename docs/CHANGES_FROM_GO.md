@@ -121,6 +121,7 @@ Windows, Linux, and macOS, each as x64 and arm64. Go supported Linux and Windows
 18. **A near-head transport error skipped the final fragments.** On an ended stream, Go treated the first transport error within two fragments of the head as end-of-stream, without retrying. The port retries transient errors normally. Immediate end-of-stream is for HTTP 404 and exhausted retries.
 19. **Watch-page JSON extraction failed when more code followed the player response.** Go cut from the first `{` after the `ytInitialPlayerResponse` declaration to the last `};` in the script, so a later `};` left invalid JSON. The port reads one JSON object and stops.
 20. **An ended stream could keep a download waiting.** Go updated `Live` only after yt-dlp returned URLs and a format was selected, so when a stream ended and its URLs were gone, workers still treated it as live and kept waiting on the head. The port updates it as soon as the stream's status is read. A background URL refresh that sees the stream ended also keeps it ended when a later refresh fails.
+21. **Resuming a `--live-from` download could fail.** Go resolved `--live-from` before checking for a download to resume, so rerunning the same command printed the new start position and then ignored it, or exited with 1 once that position had left the 7-day seek window. The port checks for a resume first and only warns that `--live-from` is ignored.
 
 ## Not ported
 
