@@ -10,7 +10,7 @@ use crate::prompt::get_user_input;
 use crate::types::{
     AUDIO_ITAG, BEST_CODEC_ORDER, FormatSelection, FragmentUrl, VIDEO_QUALITIES, VideoCodec, VideoItag, itags_for_label,
 };
-use crate::{log_debug, log_general};
+use crate::{log_debug, log_general, log_warn};
 
 pub const DEFAULT_QUALITY: &str = "best";
 
@@ -238,6 +238,12 @@ pub async fn select_interactive(
     };
     if let Some(codec) = sel.codec {
         log_general!("Selected quality: {} ({})", sel.label, codec.name());
+    } else if sel.is_audio_only() {
+        // e.g. `best` when every video format offered has an unknown itag.
+        if !selected.iter().any(|quality| matches!(quality.as_str(), "audio" | "audio_only")) {
+            log_warn!("No known video format was found for this stream; downloading audio only");
+        }
+        log_general!("Selected quality: {}", sel.label);
     }
     Ok(sel)
 }

@@ -21,7 +21,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - Huge `--live-from`, `--start-delay`, and `--capture-duration` values saturate instead of overflowing. Go's integer math could wrap.
 - Scheduled-stream prompt: `1) wait  2) poll  3) no (default 3):`. `wait` and `poll` still work, and Enter or closed stdin means no. Go asked `wait/poll/[no]:`.
 - `--ytdlp-info` asks for the quality while waiting. Go asked once the stream started.
-- If none of the chosen qualities exist, `best` is used. Go asked again, which stalled unattended runs. With `--no-audio`, `audio_only` is never selected or offered.
+- If none of the chosen qualities exist, `best` is used. Go asked again, which stalled unattended runs. With `--no-audio`, `audio_only` is never selected or offered. When a quality other than `audio`/`audio_only` ends up audio only (every video format has an unknown itag), a warning says so.
 - The version shows the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)`, `v0.1.0+abc1234 (2026-11-07)`.
 - Non-UTF-8 arguments are converted instead of rejected.
 - `-4`/`-6` are forwarded to yt-dlp (`--force-ipv4`/`--force-ipv6`), so extracted URLs match the download's IP family. Go bound only its own HTTP client.
