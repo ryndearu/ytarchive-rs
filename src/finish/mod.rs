@@ -14,7 +14,7 @@ use crate::output::OutputPlan;
 use crate::prompt::read_yes_no;
 use crate::types::{Action, Options};
 use crate::util::{apply_mode, try_delete, try_move, write_file_with_mode};
-use crate::{log_error, log_general, log_warn};
+use crate::{log_debug, log_error, log_general, log_warn};
 
 /// A file produced in the temp dir and where it ends up.
 #[derive(Debug, Clone)]
@@ -273,6 +273,14 @@ impl Finish<'_> {
             self.move_all(&[&self.audio_ts, &self.video_ts, &self.thumbnail, &self.description, &mux_file]).await;
         if self.retry_until().is_none() && moves_ok {
             self.delete_state_files();
+        }
+        // A retry run reuses it: the thumbnail URL often 404s once the stream
+        // is private.
+        if self.retry_until().is_some()
+            && let Some(thumbnail) = &self.thumbnail
+            && let Err(error) = tokio::fs::copy(&thumbnail.dest, &thumbnail.temp).await
+        {
+            log_debug!("Could not keep the thumbnail for a retry: {error}");
         }
 
         // Go kept the output name it chose before the download started.

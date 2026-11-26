@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::download::{KeptStream, load_state, read_kept};
 use crate::error::Error;
+use crate::formats::parse_quality_selection;
 use crate::http::Http;
 use crate::input_url::{InputUrl, parse_gvideo_url};
 use crate::output::state_file;
@@ -212,7 +213,13 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
             .and_then(|(_, kept_stream)| kept_stream.urls.last().cloned())
     };
     let audio_url = (!opts.video_only).then(|| url(AUDIO_ITAG)).flatten();
-    let video_url = (!opts.audio_only).then(|| info.video_itag.and_then(url)).flatten();
+    // A quality of only `audio`/`audio_only` asks for no video, like --no-video.
+    let audio_quality = opts.quality.as_deref().is_some_and(|quality| {
+        let selections = parse_quality_selection(quality);
+        !selections.is_empty()
+            && selections.iter().all(|selection| matches!(selection.as_str(), "audio" | "audio_only"))
+    });
+    let video_url = (!opts.audio_only && !audio_quality).then(|| info.video_itag.and_then(url)).flatten();
     if audio_url.is_none() && video_url.is_none() {
         return None;
     }
@@ -301,16 +308,20 @@ mod tests {
         }
 
         let cases = [
-            ("both", false, false, true, true, Some(299), "1080p60", false),
-            ("video_only", true, false, false, true, Some(299), "1080p60", true),
-            ("audio_only", false, true, true, false, None, "audio_only", true),
+            ("both", false, false, None, true, true, Some(299), "1080p60", false),
+            ("video_only", true, false, None, false, true, Some(299), "1080p60", true),
+            ("audio_only", false, true, None, true, false, None, "audio_only", true),
+            ("audio quality", false, false, Some("audio_only"), true, false, None, "audio_only", true),
+            ("audio or best", false, false, Some("audio/best"), true, true, Some(299), "1080p60", false),
         ];
-        for (name, video_only, audio_only, want_audio, want_video, want_itag, want_label, want_other) in cases {
+        for (name, video_only, audio_only, quality, want_audio, want_video, want_itag, want_label, want_other) in cases
+        {
             let options = Options {
                 recover_private: true,
                 temp_dir: Some(dir.clone()),
                 video_only,
                 audio_only,
+                quality: quality.map(String::from),
                 ..Default::default()
             };
             let prepared = prepared_from_kept(&options, "vid1").unwrap_or_else(|| panic!("{name}: expected Some"));

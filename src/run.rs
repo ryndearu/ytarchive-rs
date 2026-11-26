@@ -3,6 +3,7 @@
 //! handle an interrupt).
 
 use std::collections::HashSet;
+use std::fs;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -222,7 +223,15 @@ async fn download(
     let mut thumbnail = None;
     if (opts.embed_thumbnail || opts.write_thumbnail) && !prepared.thumbnail_url.is_empty() {
         let temp = plan.temp(".jpg");
-        match http.download_to_file_cancellable(&prepared.thumbnail_url, &temp, opts.file_mode, &cancel).await {
+        // Kept by a run that left fragments to retry.
+        let kept = resuming && fs::metadata(&temp).is_ok_and(|metadata| metadata.len() > 0);
+        let fetched = if kept {
+            log_debug!("Reusing the thumbnail kept in {}", plan.temp_dir.display());
+            Ok(())
+        } else {
+            http.download_to_file_cancellable(&prepared.thumbnail_url, &temp, opts.file_mode, &cancel).await
+        };
+        match fetched {
             Ok(()) => thumbnail = Some(Moved { temp, dest: plan.final_path(".jpg") }),
             Err(Error::Cancelled) => {
                 if !resuming && !prepared.kept_other_stream {

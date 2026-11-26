@@ -281,3 +281,19 @@ async fn keeps_temp_dir_when_other_kept_stream_was_skipped() {
     assert!(!state_file.exists());
     fs::remove_dir_all(&plan.final_dir).unwrap();
 }
+
+/// Kept for retrying missing fragments: a copy of the thumbnail stays in
+/// the temp folder for the next run.
+#[tokio::test]
+async fn kept_for_retry_keeps_a_thumbnail_copy() {
+    let (plan, state_file) = downloaded("retry-thumbnail");
+    let opts = Options { write_mux_file: true, write_thumbnail: true, ..Default::default() };
+    let mut finish = finish_of(&opts, &plan, &state_file);
+    finish.video_ts = None;
+    finish.keep_for_retry = Some(u64::MAX);
+    assert_eq!(finish.finish().await, 0);
+    assert_eq!(fs::read(plan.final_path(".jpg")).unwrap(), b"thumbnail");
+    assert_eq!(fs::read(plan.temp(".jpg")).unwrap(), b"thumbnail");
+    assert!(state_file.exists());
+    fs::remove_dir_all(&plan.final_dir).unwrap();
+}
