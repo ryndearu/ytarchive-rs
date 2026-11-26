@@ -76,9 +76,17 @@ fn is_tty() -> bool {
     *TTY.get_or_init(|| io::stderr().is_terminal())
 }
 
+/// Cleared when the console can't show ANSI escapes.
+static ANSI: AtomicBool = AtomicBool::new(true);
+
+pub fn disable_ansi() {
+    ANSI.store(false, Ordering::Relaxed);
+}
+
 fn use_color() -> bool {
     static COLOR: OnceLock<bool> = OnceLock::new();
-    *COLOR.get_or_init(|| is_tty() && env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()))
+    ANSI.load(Ordering::Relaxed)
+        && *COLOR.get_or_init(|| is_tty() && env::var_os("NO_COLOR").is_none_or(|value| value.is_empty()))
 }
 
 pub fn set_newlines(on: bool) {

@@ -42,6 +42,9 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = cli::Cli::parse_normalized();
+    if !platform::enable_ansi() {
+        log::disable_ansi();
+    }
     let mut options = match cli.into_options() {
         Ok(options) => options,
         Err(error) => {

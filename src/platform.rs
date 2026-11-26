@@ -46,11 +46,21 @@ const ENABLE_QUICK_EDIT_MODE: u32 = 0x0040;
 #[cfg(windows)]
 const ENABLE_EXTENDED_FLAGS: u32 = 0x0080;
 
+/// Turns on ANSI escapes for the console; `false` when it can't (a legacy
+/// console). Called before the first log line, so startup errors aren't
+/// printed with raw escape codes.
+#[cfg(windows)]
+pub fn enable_ansi() -> bool {
+    enable_ansi_support::enable_ansi_support().is_ok()
+}
+
+#[cfg(not(windows))]
+pub fn enable_ansi() -> bool {
+    true
+}
+
 #[cfg(windows)]
 pub fn setup() -> ConsoleGuard {
-    if let Err(error) = enable_ansi_support::enable_ansi_support() {
-        crate::log_debug!("Could not enable ANSI colors: {error}");
-    }
     // Same as Go's SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED),
     // made from the main thread, which lives for the whole run.
     let awake = keepawake::Builder::default()

@@ -82,7 +82,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 ### Output and signals
 
 - The progress line goes to stderr (Go: stdout).
-- Without a TTY, there are no ANSI escapes or `\r` rewrites. Under `--quiet`, `--newline`, or non-TTY stderr, there are no trailing inline newlines. `NO_COLOR` is respected.
+- Without a TTY, there are no ANSI escapes or `\r` rewrites. Under `--quiet`, `--newline`, or non-TTY stderr, there are no trailing inline newlines. `NO_COLOR` is respected. On Windows, ANSI support is turned on before the first message, so startup errors aren't printed as raw escape codes, and colors are off on a console that can't show them.
 - ffmpeg inherits stdout and stderr (silenced under `--quiet`) instead of being read through lossy UTF-8 chunks.
 - A second Ctrl-C exits at once, like Go's `signal.Reset`.
 - On Linux and macOS, `SIGTERM` stops the download without prompts, keeps the temp folder and state files, and exits 143. A second signal exits at once. Signals during ffmpeg muxing cancel it, remove partial output, keep the `.ts` files, and exit 143 (`SIGTERM`) or 2 (Ctrl-C). Prompts share the main signal listener.

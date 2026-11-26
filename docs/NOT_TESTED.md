@@ -12,3 +12,4 @@
 - **Sleep/suspend during waits:** scheduled streams, `-r`, `--monitor-channel`, `--start-delay`, `--recover-private` rounds, and the 15-second extraction cooldown.
 - **Windows rename retries** while antivirus holds a `.state` or storage file.
 - **The default consent cookie from an EU/EEA address.**
+- **A Windows console without ANSI support** (colors should turn off).
