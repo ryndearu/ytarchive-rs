@@ -163,6 +163,27 @@ impl Extractor {
                     }
                 }
                 Err(Error::Cancelled) => return Outcome::NotUsable,
+                // An idle channel, like an offline one: wait quietly, or stop
+                // without retrying a lookup that already succeeded.
+                Err(Error::NoMembersStream) => {
+                    if wait_on_channel {
+                        log_debug!("No members-only stream is live on the channel yet");
+                        if !self
+                            .reset_and_wait_on_channel(
+                                &mut wait_state.live_waited,
+                                &mut wait_state.retry_count,
+                                newlines,
+                            )
+                            .await
+                        {
+                            return Outcome::NotUsable;
+                        }
+                        continue;
+                    }
+                    log::finish_inline();
+                    log_error!("{}", Error::NoMembersStream);
+                    return Outcome::NotFound;
+                }
                 Err(error) => {
                     let transient = is_transient_http(&error);
                     (Err(error.to_string()), transient)

@@ -136,7 +136,7 @@ pub async fn get_video_html(
         }
     }
     if members_only {
-        return Err(Error::NoUrls("members-only stream".into()));
+        return Err(Error::NoMembersStream);
     }
     match http.get_bytes_cancellable(page_url, cancel).await {
         Ok(page) => Ok(String::from_utf8_lossy(&page).into_owned()),

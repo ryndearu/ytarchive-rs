@@ -129,6 +129,68 @@ async fn channel_wait_returns_to_live_when_the_found_stream_is_unusable() {
     }
 }
 
+fn streams_html(items: &[(&str, bool)]) -> String {
+    let items: Vec<_> = items
+        .iter()
+        .map(|(id, members)| {
+            let badges = if *members {
+                serde_json::json!([{"metadataBadgeRenderer": {"style": "BADGE_STYLE_TYPE_MEMBERS_ONLY"}}])
+            } else {
+                serde_json::json!([])
+            };
+            serde_json::json!({"richItemRenderer": {"content": {"videoRenderer": {
+                "videoId": id,
+                "thumbnailOverlays": [{"thumbnailOverlayTimeStatusRenderer": {"style": "LIVE"}}],
+                "badges": badges
+            }}}})
+        })
+        .collect();
+    let data = serde_json::json!({"contents": {"twoColumnBrowseResultsRenderer": {"tabs": [
+        {"tabRenderer": {"endpoint": {"commandMetadata": {"webCommandMetadata": {"url": "/@chan/streams"}}},
+         "content": {"richGridRenderer": {"contents": items}}}}
+    ]}}});
+    format!("<html><script>var ytInitialData = {data};</script></html>")
+}
+
+/// An idle channel under --members-only is polled like an offline one (here
+/// until cancelled), and without -r it ends at once instead of retrying.
+#[tokio::test]
+async fn members_only_idle_channel_is_not_an_error() {
+    for (case, waits) in [("waiting", true), ("not-waiting", false)] {
+        let streams_hits = Arc::new(AtomicUsize::new(0));
+        let cancel = CancellationToken::new();
+        let addr = test_http::serve({
+            let (streams_hits, cancel) = (streams_hits.clone(), cancel.clone());
+            move |request| {
+                let path = test_http::path(&request).to_string();
+                assert_eq!(path, "/@chan/streams", "case {case}");
+                if streams_hits.fetch_add(1, Ordering::SeqCst) == 2 {
+                    cancel.cancel();
+                }
+                let body = streams_html(&[("public", false)]);
+                let response =
+                    test_http::response("200 OK", "content-type: text/html; charset=utf-8\r\n", body.as_bytes());
+                async move { Some(response) }
+            }
+        })
+        .await;
+
+        let mut extractor = channel_extractor(&format!("http://{addr}"));
+        extractor.members_only = true;
+        extractor.cancel = cancel;
+        if !waits {
+            extractor.retry_secs = None;
+        }
+        let outcome = extractor.get_playable_player_response().await;
+        let hits = streams_hits.load(Ordering::SeqCst);
+        match (waits, outcome) {
+            (true, Outcome::NotUsable) => assert_eq!(hits, 3, "case {case}"),
+            (false, Outcome::NotFound) => assert_eq!(hits, 1, "case {case}"),
+            _ => panic!("unexpected outcome in case {case} after {hits} lookups"),
+        }
+    }
+}
+
 #[tokio::test]
 async fn ytdlp_mode_mid_download_refresh_skips_head_probe_while_start_delay_probes() {
     let head_hits = Arc::new(AtomicUsize::new(0));

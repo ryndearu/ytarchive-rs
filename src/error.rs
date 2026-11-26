@@ -26,6 +26,11 @@ pub enum Error {
     #[error("no download urls found for {0}")]
     NoUrls(String),
 
+    /// `--members-only` on a channel with no members-only stream live yet:
+    /// the channel is idle, not broken.
+    #[error("no members-only stream is live on the channel")]
+    NoMembersStream,
+
     #[error("invalid filename format: {0}")]
     InvalidFormat(String),
 
