@@ -54,6 +54,10 @@ pub async fn run(
     skip_ids: &HashSet<String>,
 ) -> RunResult {
     let cancel = interrupt.child_token();
+    if let Some(duration) = opts.capture_duration {
+        let length = seconds_to_duration_and_time_str(duration.as_secs());
+        log_general!("Downloading a minimum of {length} of content and then exiting...");
+    }
     let prepared = match prepare(&opts, &http, &cancel, input, skip_ids).await {
         PrepareOutcome::Ready(prepared) => *prepared,
         PrepareOutcome::Skipped(id) => {
