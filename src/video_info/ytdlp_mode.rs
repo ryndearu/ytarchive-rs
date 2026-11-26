@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY};
+use super::{ENDED_MESSAGE, Extractor, MAX_RETRIES, RETRY_DELAY, until_start};
 use crate::error::Error;
 use crate::stream_meta::{apply_metadata, default_metadata, format_info_from_ytdlp, local_unix_timestamp};
 use crate::types::{FormatSelection, LiveStatus, YtdlpExtraction};
@@ -180,9 +180,13 @@ impl Extractor {
                 }
                 retries = 0;
                 self.print_info(&info.channel, &info.title);
-                let interval = self.upcoming_wait_interval(info.start_unix).await?;
+                let mut interval = self.upcoming_wait_interval(info.start_unix).await?;
                 if !polling_announced {
                     self.ask_ahead().await;
+                    // The quality prompt can outlast the wait computed before it.
+                    if self.retry_secs.is_none() {
+                        interval = until_start(info.start_unix);
+                    }
                 }
                 let secs = interval.as_secs().max(1);
                 let mut polling = true;

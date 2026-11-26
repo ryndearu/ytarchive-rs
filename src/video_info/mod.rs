@@ -341,9 +341,14 @@ impl Extractor {
                 return Some(Duration::from_secs(seconds));
             }
         }
-        let until_start = start_unix.map(|time| time - chrono::Utc::now().timestamp()).filter(|seconds| *seconds > 0);
-        Some(Duration::from_secs(until_start.map_or(DEFAULT_POLL_SECS, |seconds| seconds as u64)))
+        Some(until_start(start_unix))
     }
+}
+
+/// Time left until `start_unix`, or the poll interval once it has passed.
+fn until_start(start_unix: Option<i64>) -> Duration {
+    let left = start_unix.map(|time| time - chrono::Utc::now().timestamp()).filter(|seconds| *seconds > 0);
+    Duration::from_secs(left.map_or(DEFAULT_POLL_SECS, |seconds| seconds as u64))
 }
 
 /// Sleeps until `unix` in chunks of at most 60 s, re-checking the wall clock
