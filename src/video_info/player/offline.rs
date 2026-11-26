@@ -3,7 +3,7 @@ use std::time::Duration;
 use chrono::Utc;
 
 use super::{Extractor, Outcome, POLL, sleep_until_unix};
-use crate::stream_meta::local_timestamp;
+use crate::stream_meta::local_unix_timestamp;
 use crate::types::player_response::PLAYABLE_OFFLINE;
 use crate::types::{Action, DEFAULT_POLL_SECS, PlayerResponse};
 use crate::util::sleep_wall_clock;
@@ -72,7 +72,6 @@ impl Extractor {
         }
 
         let streamability = &player_response.playability_status.live_streamability.live_streamability_renderer;
-        let broadcast = &player_response.microformat.player_microformat_renderer.live_broadcast_details;
         let scheduled =
             streamability.offline_slate.live_stream_offline_slate_renderer.scheduled_start_time.parse::<i64>();
         let Ok(scheduled) = scheduled else {
@@ -93,7 +92,9 @@ impl Extractor {
             state.secs_late = 0;
             log_general!(
                 "Stream starts at {} in {until} seconds. Waiting for this time to elapse...",
-                local_timestamp(&broadcast.start_timestamp)
+                // The time actually waited for; `startTimestamp` can be empty
+                // or stale after a reschedule.
+                local_unix_timestamp(scheduled)
             );
             if !sleep_until_unix(&self.cancel, scheduled).await {
                 return OfflineStep::Return(Outcome::NotUsable);
