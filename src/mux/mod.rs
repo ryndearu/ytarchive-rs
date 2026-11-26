@@ -134,41 +134,46 @@ pub fn ffmpeg_args(mux_input: &MuxInput<'_>) -> MuxCommand {
     }
 }
 
-/// POSIX shell quoting, for the human-readable `.ffmpeg.txt` command on
-/// Linux/macOS.
-pub fn posix_quote(arg: &str) -> String {
-    let safe = !arg.is_empty()
-        && arg.chars().all(|character| character.is_ascii_alphanumeric() || "-_./=:,+@%".contains(character));
-    if safe { arg.to_string() } else { format!("'{}'", arg.replace('\'', r"'\''")) }
-}
-
-/// Windows command-line quoting (the rules ffmpeg's argument parser uses),
-/// so the `.ffmpeg.txt` command can be pasted into cmd or PowerShell.
-/// Embedded newlines (e.g. in `COMMENT` metadata) are flattened to spaces so
-/// each command stays on a single line.
-pub fn windows_quote(arg: &str) -> String {
-    if !arg.is_empty() && !arg.contains([' ', '\t', '\r', '\n', '"', '&', '|', '<', '>', '^']) {
-        return arg.to_string();
-    }
-    let mut out = String::from("\"");
-    let mut backslashes = 0;
+/// Replaces `\r\n`, `\r`, and `\n` with spaces so embedded newlines (e.g. in
+/// `COMMENT` metadata) stay on one line in `.ffmpeg.txt`.
+fn flatten_newlines(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
     let mut prev_cr = false;
-    for character in arg.chars() {
+    for character in text.chars() {
         if character == '\n' && prev_cr {
             prev_cr = false;
             continue;
         }
         prev_cr = character == '\r';
+        out.push(if matches!(character, '\r' | '\n') { ' ' } else { character });
+    }
+    out
+}
+
+/// POSIX shell quoting, for the human-readable `.ffmpeg.txt` command on
+/// Linux/macOS.
+pub fn posix_quote(arg: &str) -> String {
+    let flat = flatten_newlines(arg);
+    let safe = !flat.is_empty()
+        && flat.chars().all(|character| character.is_ascii_alphanumeric() || "-_./=:,+@%".contains(character));
+    if safe { flat } else { format!("'{}'", flat.replace('\'', r"'\''")) }
+}
+
+/// Windows command-line quoting (the rules ffmpeg's argument parser uses),
+/// so the `.ffmpeg.txt` command can be pasted into cmd or PowerShell.
+pub fn windows_quote(arg: &str) -> String {
+    let flat = flatten_newlines(arg);
+    if !flat.is_empty() && !flat.contains([' ', '\t', '"', '&', '|', '<', '>', '^']) {
+        return flat;
+    }
+    let mut out = String::from("\"");
+    let mut backslashes = 0;
+    for character in flat.chars() {
         match character {
             '\\' => backslashes += 1,
             '"' => {
                 out.push_str(&"\\".repeat(backslashes * 2 + 1));
                 out.push('"');
-                backslashes = 0;
-            }
-            '\r' | '\n' => {
-                out.push_str(&"\\".repeat(backslashes));
-                out.push(' ');
                 backslashes = 0;
             }
             _ => {

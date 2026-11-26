@@ -95,6 +95,8 @@ fn quoting() {
     let cases = [
         ("posix", posix, "a.ts", "a.ts"),
         ("posix", posix, "my file's.ts", r"'my file'\''s.ts'"),
+        ("posix", posix, "COMMENT=line1\nline2", "'COMMENT=line1 line2'"),
+        ("posix", posix, "COMMENT=line1\r\nline2\rline3", "'COMMENT=line1 line2 line3'"),
         ("posix", posix, "", "''"),
         ("windows", windows, r"C:\dir\a.ts", r"C:\dir\a.ts"),
         ("windows", windows, r"C:\my dir\a.ts", r#""C:\my dir\a.ts""#),
@@ -103,6 +105,7 @@ fn quoting() {
         ("windows", windows, "TITLE=a&b", r#""TITLE=a&b""#),
         ("windows", windows, "COMMENT=line1\nline2", r#""COMMENT=line1 line2""#),
         ("windows", windows, "COMMENT=line1\r\nline2\rline3", r#""COMMENT=line1 line2 line3""#),
+        ("windows", windows, "a\\\nb", r#""a\ b""#),
         ("windows", windows, "", r#""""#),
     ];
     for (style, quote, input, expected) in cases {
