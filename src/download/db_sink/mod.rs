@@ -66,13 +66,6 @@ fn stored_and_size_with(conn: &Connection) -> Result<(HashSet<u64>, u64)> {
     Ok((stored, total_size))
 }
 
-#[cfg(test)]
-fn totals_with(conn: &Connection) -> Result<(u64, u64)> {
-    Ok(conn.query_row("SELECT COUNT(*), COALESCE(SUM(LENGTH(data)), 0) FROM segments", [], |row| {
-        Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
-    })?)
-}
-
 fn save_urls_with(conn: &Connection, urls: &[FragmentUrl]) -> rusqlite::Result<()> {
     let mut stmt = conn.prepare_cached("INSERT OR IGNORE INTO urls (prefix, suffix) VALUES (?1, ?2)")?;
     for url in urls {
@@ -140,11 +133,6 @@ impl DbSink {
     }
 
     /// Sequence numbers already stored.
-    #[cfg(test)]
-    pub fn stored(&self) -> Result<HashSet<u64>> {
-        stored_with(&lock(&self.conn))
-    }
-
     pub async fn stored_async(&self) -> Result<HashSet<u64>> {
         run_blocking(&self.conn, |conn| stored_with(conn)).await
     }
@@ -170,12 +158,6 @@ impl DbSink {
     #[cfg(test)]
     pub fn meta(&self, key: &str) -> Result<Option<String>> {
         meta_with(&lock(&self.conn), key)
-    }
-
-    /// (fragment count, total bytes) stored.
-    #[cfg(test)]
-    pub fn totals(&self) -> Result<(u64, u64)> {
-        totals_with(&lock(&self.conn))
     }
 
     pub async fn stored_and_size_async(&self) -> Result<(HashSet<u64>, u64)> {

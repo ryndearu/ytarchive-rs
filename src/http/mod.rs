@@ -70,12 +70,6 @@ impl Http {
         Ok(Self { client: builder.build()? })
     }
 
-    /// GETs `url` and returns the body; non-2xx statuses are errors.
-    #[cfg(test)]
-    pub async fn get_bytes(&self, url: &str) -> Result<Bytes> {
-        self.get_bytes_cancellable(url, &CancellationToken::new()).await
-    }
-
     /// GETs `url` and returns the body, stopping immediately if `cancel` triggers.
     pub async fn get_bytes_cancellable(&self, url: &str, cancel: &CancellationToken) -> Result<Bytes> {
         let resp = tokio::select! {

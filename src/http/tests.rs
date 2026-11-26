@@ -21,14 +21,14 @@ async fn sends_cookies_and_reads_body() {
     let url = serve_once("200 OK").await;
     let cookies = parse_netscape(b"127.0.0.1\tFALSE\t/\tFALSE\t0\tA\tb\n");
     let http = Http::new(&Options::default(), cookies).unwrap();
-    assert_eq!(&http.get_bytes(&url).await.unwrap()[..], b"A=b");
+    assert_eq!(&http.get_bytes_cancellable(&url, &CancellationToken::new()).await.unwrap()[..], b"A=b");
 }
 
 #[tokio::test]
 async fn non_success_status_is_error_without_query() {
     let url = serve_once("403 Forbidden").await;
     let http = Http::new(&Options::default(), CookieSet::default()).unwrap();
-    match http.get_bytes(&url).await {
+    match http.get_bytes_cancellable(&url, &CancellationToken::new()).await {
         Err(Error::HttpStatus { status: 403, what }) => assert!(!what.contains("secret")),
         other => panic!("unexpected: {other:?}"),
     }

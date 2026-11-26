@@ -32,9 +32,9 @@ async fn stores_out_of_order_and_exports_in_order() {
 
     // Reopen: data persisted, duplicates replaced.
     let mut sink = DbSink::open(&database_path, 0o644).unwrap();
-    assert_eq!(sink.stored().unwrap(), HashSet::from([1, 2, 3]));
+    assert_eq!(sink.stored_async().await.unwrap(), HashSet::from([1, 2, 3]));
     sink.push(2, Some(frag(2, b"<2>"))).await.unwrap();
-    assert_eq!(sink.totals().unwrap(), (3, 9));
+    assert_eq!(sink.stored_and_size_async().await.unwrap(), (HashSet::from([1, 2, 3]), 9));
 
     let out = dir.join("x.f140.ts");
     assert_eq!(sink.export(&out, 0o644).unwrap(), (3, 9));
@@ -80,7 +80,7 @@ async fn insert_leaves_the_runtime_thread_free() {
     let (events, ()) = tokio::join!(sink.push(1, Some(frag(1, b"<1>"))), async { release_sender.send(()).unwrap() });
     assert!(matches!(events.unwrap()[..], [Event::Wrote(3)]));
     assert!(holder.join().unwrap(), "the insert held the runtime thread until the database was free");
-    assert_eq!(sink.stored().unwrap(), HashSet::from([1]));
+    assert_eq!(sink.stored_async().await.unwrap(), HashSet::from([1]));
     drop(sink);
     fs::remove_dir_all(&dir).unwrap();
 }
