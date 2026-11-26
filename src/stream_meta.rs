@@ -92,7 +92,9 @@ pub fn format_info_from_ytdlp(info: &YtdlpExtraction, page_url: &str) -> FormatI
         }
         None => String::new(),
     };
-    set_date_parts(&mut format_info, &start_date);
+    // Without a start time, the date parts still come from the upload date.
+    let date_source = if start_date.is_empty() { digits(&info.upload_date) } else { start_date.clone() };
+    set_date_parts(&mut format_info, &date_source);
 
     format_info.insert("id".into(), info.id.clone());
     format_info.insert("url".into(), page_url.into());
@@ -175,6 +177,15 @@ mod tests {
         assert_eq!(format_info["start_time"], "010203");
         assert_eq!(format_info["upload_date"], "20261106");
         assert_eq!(format_info["publish_date"], "20261106");
+        assert_eq!(format_info["year"], "2025");
+
+        // No start time: the date parts come from the upload date.
+        let format_info = format_info_from_ytdlp(&YtdlpExtraction { start_unix: None, ..info }, "");
+        assert_eq!(format_info["start_date"], "");
+        assert_eq!(
+            (format_info["year"].as_str(), format_info["month"].as_str(), format_info["day"].as_str()),
+            ("2026", "11", "06")
+        );
     }
 
     #[test]
