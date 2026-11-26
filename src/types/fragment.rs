@@ -61,6 +61,9 @@ pub struct StreamProgress {
     /// behind one that is missing, or every fragment of the capture has
     /// been handed out.
     pub held: bool,
+    /// Every fragment of a `--capture-duration` download has been handed
+    /// out, so nothing may download again to show a fragment is stuck.
+    pub capture_done: bool,
     /// Newest known head sequence number across the stream.
     pub max_seq: Option<u64>,
 }

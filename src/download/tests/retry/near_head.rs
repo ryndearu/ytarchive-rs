@@ -40,7 +40,7 @@ fn retry_judges_distance_against_current_max_seq() {
         continue_fragment_download(
             &session,
             &mut state,
-            StreamProgress { downloaded: 40, held: false, max_seq: Some(50) }
+            StreamProgress { downloaded: 40, max_seq: Some(50), ..Default::default() }
         ),
         RetryDecision::Retry
     );

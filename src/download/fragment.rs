@@ -36,7 +36,15 @@ fn stuck_while_live(state: &mut FragThreadState, progress: StreamProgress) -> bo
     }
     state.downloaded_at_round = progress.downloaded;
     let behind = progress.downloaded.saturating_sub(state.downloaded_at_start);
-    let enough = if progress.held { 1 } else { STUCK_BEHIND };
+    // Once a capture's last fragment has started, nothing else may ever
+    // download, and an outage can't be told apart: give up after the rounds.
+    let enough = if progress.capture_done {
+        0
+    } else if progress.held {
+        1
+    } else {
+        STUCK_BEHIND
+    };
     state.stuck_rounds >= STUCK_ROUNDS && behind >= enough
 }
 

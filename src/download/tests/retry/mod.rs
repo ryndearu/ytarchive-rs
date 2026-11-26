@@ -109,26 +109,29 @@ async fn a_live_fragment_is_given_up_only_while_the_rest_downloads() {
 }
 
 fn moved(downloaded: u64) -> StreamProgress {
-    StreamProgress { downloaded, held: false, max_seq: None }
+    StreamProgress { downloaded, ..Default::default() }
 }
 
 #[tokio::test]
 async fn stuck_fragments_do_not_keep_a_capture_from_finishing() {
-    // Fragments 50 and 55 never download, and after the capture's last
-    // fragment nothing else downloads to count against them.
-    let url = serve(200, vec![50, 55]).await;
-    let dir = temp_dir("capture-stuck");
-    let session = session_for(opts(4, true), &url, true);
-    let (mut stream_params, _rx) = params(&dir, 200, DownloadState::default());
-    stream_params.start_sq = Some(0);
-    stream_params.capture_duration = Some(Duration::from_secs(60));
-    stream_params.retry_sleep = Duration::from_millis(1);
-    let download = download_stream(session, stream_params);
-    let out = timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
+    // After the capture's last fragment (59) has started, nothing else
+    // downloads to count against the ones that never arrive.
+    let cases: [(&str, Vec<u64>, usize); 2] = [("middle", vec![50, 55], 4), ("last", vec![59], 1)];
+    for (name, failing, threads) in cases {
+        let url = serve(200, failing.clone()).await;
+        let dir = temp_dir(&format!("capture-stuck-{name}"));
+        let session = session_for(opts(threads, true), &url, true);
+        let (mut stream_params, _rx) = params(&dir, 200, DownloadState::default());
+        stream_params.start_sq = Some(0);
+        stream_params.capture_duration = Some(Duration::from_secs(60));
+        stream_params.retry_sleep = Duration::from_millis(1);
+        let download = download_stream(session, stream_params);
+        let out = timeout(Duration::from_secs(30), download).await.expect(name).unwrap();
 
-    assert_eq!(out.skipped, [50, 55]);
-    assert_eq!(out.state.fragments, 58);
-    fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(out.skipped, failing, "{name}");
+        assert_eq!(out.state.fragments, 60 - failing.len() as u64, "{name}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 #[tokio::test]

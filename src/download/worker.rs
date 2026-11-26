@@ -87,7 +87,12 @@ impl Dispatch {
         // fragment, so nothing else downloads to show that the ones still
         // being tried are stuck.
         let none_left = self.end_seq.is_some_and(|end| self.next >= end);
-        StreamProgress { downloaded: self.downloaded, held: self.held() || none_left, max_seq: self.max_seq }
+        StreamProgress {
+            downloaded: self.downloaded,
+            held: self.held() || none_left,
+            capture_done: none_left,
+            max_seq: self.max_seq,
+        }
     }
 
     fn stop_from(&mut self, seq: u64) {
