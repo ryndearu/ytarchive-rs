@@ -134,6 +134,7 @@ impl Extractor {
         let mut response_retries = 0u32;
         let mut all_transient = true;
         let mut details_retries = 0u32;
+        let mut last_warned: Option<String> = None;
 
         loop {
             if self.cancel.is_cancelled() {
@@ -176,6 +177,17 @@ impl Extractor {
                 }
                 Err(err) => {
                     if wait_on_channel {
+                        // An offline channel still returns a player response, so
+                        // this is a mistyped channel, expired cookies, or a page
+                        // change: warn once per distinct error instead of
+                        // polling silently forever.
+                        if transient || last_warned.as_deref() == Some(err.as_str()) {
+                            log_debug!("Error while waiting on channel: {err}");
+                        } else {
+                            log::finish_inline();
+                            log_warn!("Error while waiting on channel: {err}");
+                            last_warned = Some(err);
+                        }
                         if !self
                             .reset_and_wait_on_channel(
                                 &mut wait_state.live_waited,
