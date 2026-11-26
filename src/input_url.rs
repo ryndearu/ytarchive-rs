@@ -49,11 +49,11 @@ pub fn parse_input_url(raw: &str) -> Result<InputUrl> {
             // desktop HTTPS so mobile links (m.youtube.com) still serve desktop /streams.
             let mut segs = path.trim_matches('/').split('/');
             let first = segs.next().unwrap_or("");
-            let channel_path = if first.starts_with('@') {
-                format!("/{first}")
-            } else {
-                format!("/{first}/{}", segs.next().unwrap_or(""))
-            };
+            let name = if first.starts_with('@') { first.get(1..) } else { segs.next() }.unwrap_or("");
+            if name.is_empty() {
+                return Err(Error::InvalidArg("youtube channel URL is missing a handle or channel ID".into()));
+            }
+            let channel_path = if first.starts_with('@') { format!("/{first}") } else { format!("/{first}/{name}") };
             return Ok(InputUrl::Channel { live_url: format!("https://www.youtube.com{channel_path}/live") });
         }
         for prefix in ["/live/", "/shorts/"] {
