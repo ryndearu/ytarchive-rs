@@ -17,7 +17,8 @@ jobs:
       matrix:
         # Linux builds are static musl.
         target: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '["x86_64-pc-windows-msvc","aarch64-pc-windows-msvc","x86_64-unknown-linux-musl","aarch64-unknown-linux-musl","aarch64-apple-darwin","x86_64-apple-darwin"]' || '["x86_64-pc-windows-msvc","x86_64-unknown-linux-musl"]') }}
-    # Every target builds natively, arm64 Linux on GitHub's arm64 runner.
+    # Each target builds on a runner of its OS: arm64 Linux on GitHub's arm64
+    # runner; Windows arm64 (on x64) and macOS x64 (on arm64) cross-compile.
     runs-on: ${{ contains(matrix.target, 'windows') && 'windows-latest' || contains(matrix.target, 'apple') && 'macos-latest' || startsWith(matrix.target, 'aarch64') && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     env:
       # Set only for releases; build.rs then leaves the commit out of the version.

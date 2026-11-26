@@ -179,7 +179,7 @@ With `--video-url`/`--audio-url` ytarchive gets no stream info, so it assumes 5-
 
 ### Quality and codec
 
-`QUALITY` is a `/`-separated list, most wanted first: `audio_only`, `144p`, `240p`, `360p`, `480p`, `720p`, `720p60`, `1080p`, `1080p60`, `1440p`, `1440p60`, `2160p`, `2160p60`, `best`. The first one the stream offers wins. If it offers none, `best` is used without asking (e.g. when the quality was picked while waiting for a scheduled stream).
+`QUALITY` is a `/`-separated list, most wanted first: `audio_only` (or `audio`), `144p`, `240p`, `360p`, `480p`, `720p`, `720p60`, `1080p`, `1080p60`, `1440p`, `1440p60`, `2160p`, `2160p60`, `best`. The first one the stream offers wins. If it offers none, `best` is used without asking (e.g. when the quality was picked while waiting for a scheduled stream).
 
 `--codec` is a `/`-separated list of `av1`, `vp9`, `h264`, or `best` (= `av1/vp9/h264`). Codecs are tried in the order listed, so `vp9/best` tries VP9 first, then AV1 and H.264. Unlisted codecs are a fallback when none of the listed ones are offered. Without the option, `best` is used and the codec is never asked for.
 
@@ -215,7 +215,7 @@ On Windows, use double quotes instead of single quotes around templates, e.g. `-
 - `--no-path-limit` keeps full titles. ffmpeg and other tools may then need Windows' `LongPathsEnabled` setting.
 - `--no-windows-filenames` (default on Linux and macOS) only replaces path separators. On Windows, a title with `?` or `:` can't be saved, and ytarchive stops without merging.
 - Resume state (`{id}.f{itag}.state`) goes to `--temporary-dir`, or the current folder. Resume from the same folder; a different `-o` still finds it by video ID.
-- Data that can't be continued is kept as `{name}.f{itag}.ts.old` (or `.sqlite.old` with `--sqlite`) in the temporary folder. Delete it yourself when done.
+- Data that can't be continued is kept as `{name}.f{itag}.ts.old` (or `.sqlite.old` with `--sqlite`) in the temporary folder, or `.1.old`, `.2.old`, … if an earlier one is still there. Delete them yourself when done.
 - If you resume with `--no-audio` or `--no-video` and the other stream also has data in the temporary folder, only the finished stream's files are removed, and the folder is kept for the other one.
 - If data can't be stored (full disk, failed `--sqlite` export), ytarchive exits 1 without merging and keeps everything. Run the same command again to continue.
 - If `{name}.mp4` already exists, the new file is `{name}-1`, up to `{name}-10`. Past that, the `.ts` files stay unmuxed.
