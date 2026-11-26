@@ -17,7 +17,7 @@ use crate::types::{
     AUDIO_ITAG, DataType, FormatSelection, FragmentUrl, LiveStatus, Options, PerType, URL_REFRESH_INTERVAL_SECS,
     YtdlpExtraction,
 };
-use crate::util::lock;
+use crate::util::{clock_now, elapsed_at_least, lock};
 use crate::video_info::Extractor;
 use crate::{log_debug, log_warn, ytdlp};
 
@@ -25,17 +25,6 @@ const REFRESH_CHECK_INTERVAL: Duration = Duration::from_secs(60);
 /// A failed scheduled refresh is tried again this soon rather than after
 /// another full interval, by which time the URLs would have expired.
 const FAILED_REFRESH_RETRY: Duration = Duration::from_secs(5 * 60);
-
-fn clock_now() -> (SystemTime, Instant) {
-    (SystemTime::now(), Instant::now())
-}
-
-/// True when either monotonic or wall-clock time has advanced by `interval`:
-/// `SystemTime` counts system sleep/suspend, while `Instant` still triggers
-/// if the system clock moves backwards.
-fn elapsed_at_least((wall, mono): (SystemTime, Instant), interval: Duration) -> bool {
-    mono.elapsed() >= interval || wall.elapsed().is_ok_and(|elapsed| elapsed >= interval)
-}
 
 #[cfg(test)]
 type RefreshHook = Arc<dyn Fn() -> Option<FragmentUrl> + Send + Sync>;

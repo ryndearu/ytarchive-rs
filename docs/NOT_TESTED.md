@@ -9,5 +9,5 @@
 - **`--recover-private` against a real stream going private** (only the fake server was used).
 - **The 5-hour background URL refresh.**
 - **`--sqlite` on a hard disk or network share**: on NVMe limited to 5 MB/s, one insert paused up to about 3.4 s.
-- **Sleep/suspend during waits:** scheduled streams, `-r`, `--monitor-channel`, `--start-delay`, `--recover-private` rounds.
+- **Sleep/suspend during waits:** scheduled streams, `-r`, `--monitor-channel`, `--start-delay`, `--recover-private` rounds, and the 15-second extraction cooldown.
 - **Windows rename retries** while antivirus holds a `.state` file.

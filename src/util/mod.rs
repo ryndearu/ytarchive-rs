@@ -10,13 +10,24 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::{Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio_util::sync::CancellationToken;
 
 pub use filename::{NameStyle, format_filename, format_python_map, portable_file_name, sterilize_filename};
 
 use crate::error::Result;
+
+pub fn clock_now() -> (SystemTime, Instant) {
+    (SystemTime::now(), Instant::now())
+}
+
+/// True when either monotonic or wall-clock time has advanced by `interval`:
+/// `SystemTime` counts system sleep/suspend, while `Instant` still triggers
+/// if the system clock moves backwards.
+pub fn elapsed_at_least((wall, mono): (SystemTime, Instant), interval: Duration) -> bool {
+    mono.elapsed() >= interval || wall.elapsed().is_ok_and(|elapsed| elapsed >= interval)
+}
 
 /// Sleeps unless cancelled first. Returns `false` if cancelled.
 pub async fn sleep_or_cancel(cancel: &CancellationToken, dur: Duration) -> bool {

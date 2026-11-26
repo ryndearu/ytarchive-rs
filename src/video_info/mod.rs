@@ -9,7 +9,7 @@ mod ytdlp_mode;
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use tokio_util::sync::CancellationToken;
 
@@ -23,7 +23,7 @@ use crate::types::{
     Action, DEFAULT_POLL_SECS, DEFAULT_TARGET_DURATION_SECS, FormatInfo, FormatSelection, MetaInfo, Options,
     VideoCodec, new_format_info,
 };
-use crate::util::sleep_or_cancel;
+use crate::util::{clock_now, elapsed_at_least, sleep_or_cancel};
 use crate::{log_error, log_general, log_warn, ytdlp};
 
 /// Minimum time between two extractions; little changes faster than this.
@@ -67,7 +67,9 @@ pub struct Extractor {
     pub in_progress: bool,
     pub live: bool,
     pub unavailable: bool,
-    last_updated: Option<Instant>,
+    /// Both clocks, so a suspend (e.g. during `--start-delay`) counts as
+    /// time passed and doesn't block the next extraction.
+    last_updated: Option<(SystemTime, Instant)>,
 
     pub target_duration: u32,
     pub last_sq: Option<u64>,
@@ -134,7 +136,7 @@ impl Extractor {
     fn due(&self) -> bool {
         !self.unavailable
             && !self.cancel.is_cancelled()
-            && self.last_updated.is_none_or(|updated| updated.elapsed() >= MIN_UPDATE_INTERVAL)
+            && self.last_updated.is_none_or(|updated| elapsed_at_least(updated, MIN_UPDATE_INTERVAL))
     }
 
     /// Before waiting for a scheduled stream, ask for the quality so nobody
@@ -194,7 +196,7 @@ impl Extractor {
         };
         // A failed extraction can take minutes, and the workers queued on the
         // refresh lock would each run another one right away.
-        self.last_updated = Some(Instant::now());
+        self.last_updated = Some(clock_now());
         selection
     }
 
