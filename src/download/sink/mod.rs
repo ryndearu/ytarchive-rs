@@ -220,28 +220,43 @@ pub async fn open(
     Ok(Opened { sink: Sink::Ts(sink), cur: start, skip: Default::default(), state })
 }
 
+/// First of `{path}.old`, `{path}.1.old`, ... that isn't already a file,
+/// so an earlier `.old` backup is never overwritten.
+fn unused_old_path(data_file: &Path) -> PathBuf {
+    let first = with_suffix(data_file, ".old");
+    if !first.is_file() {
+        return first;
+    }
+    for number in 1u32.. {
+        let candidate = with_suffix(data_file, &format!(".{number}.old"));
+        if !candidate.is_file() {
+            return candidate;
+        }
+    }
+    first
+}
+
 /// Data that can't be resumed (its state file is missing, unreadable, or
 /// doesn't match) is set aside as `{file}.old` rather than overwritten by
 /// the new download. That only happens in a folder that is reused: the
 /// other stream's state was still good, or the file is shorter than its
 /// state says. With no usable state at all the run gets a new folder, and
 /// the old one is left as it is.
-async fn keep_existing_data(data_file: &Path, name: &str) -> io::Result<bool> {
+async fn keep_existing_data(data_file: &Path, name: &str) -> io::Result<Option<PathBuf>> {
     let has_data = tokio::fs::metadata(data_file).await.is_ok_and(|metadata| metadata.len() > 0);
     if !has_data {
-        return Ok(false);
+        return Ok(None);
     }
-    let old_file = with_suffix(data_file, ".old");
+    let old_file = unused_old_path(data_file);
     rename_with_retry_async(data_file.to_path_buf(), old_file.clone()).await?;
     log_warn!("{name}: {} has data that can't be resumed; kept it as {}", data_file.display(), old_file.display());
-    Ok(true)
+    Ok(Some(old_file))
 }
 
 pub(super) async fn keep_existing_db(database_path: &Path, name: &str) -> io::Result<()> {
-    if !keep_existing_data(database_path, name).await? {
+    let Some(old_file) = keep_existing_data(database_path, name).await? else {
         return Ok(());
-    }
-    let old_file = with_suffix(database_path, ".old");
+    };
     if let Err(error) = rename_db_sidecars(database_path, &old_file, name).await {
         if let Err(rollback_error) = rename_with_retry_async(old_file, database_path.to_path_buf()).await {
             log_warn!("{name}: Could not restore {}: {rollback_error}", database_path.display());

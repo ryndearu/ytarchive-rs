@@ -171,3 +171,33 @@ async fn rolls_back_db_rename_when_wal_sidecar_move_fails() {
         fs::remove_dir_all(&dir).unwrap();
     }
 }
+
+#[tokio::test]
+async fn keep_existing_db_does_not_overwrite_earlier_old_file() {
+    let dir = temp_dir("keep-old-unique");
+    let source_db = dir.join("out.f140.sqlite");
+    let source_wal = dir.join("out.f140.sqlite-wal");
+    let earlier_old = dir.join("out.f140.sqlite.old");
+    stored_database(&source_db, [0]).await;
+    fs::write(&source_wal, b"wal-new").unwrap();
+    fs::write(&earlier_old, b"earlier-old").unwrap();
+
+    let blocker = dir.join("out.f140.sqlite.1.old-wal");
+    fs::create_dir(&blocker).unwrap();
+    fs::write(blocker.join("keep"), b"x").unwrap();
+
+    let err = keep_existing_db(&source_db, "audio-download").await.unwrap_err();
+    assert!(err.raw_os_error().is_some(), "{err}");
+    assert!(source_db.exists());
+    assert_eq!(fs::read(&source_wal).unwrap(), b"wal-new");
+    assert_eq!(fs::read(&earlier_old).unwrap(), b"earlier-old");
+    assert!(!dir.join("out.f140.sqlite.1.old").exists());
+
+    fs::remove_dir_all(&blocker).unwrap();
+    keep_existing_db(&source_db, "audio-download").await.unwrap();
+    assert!(!source_db.exists());
+    assert_eq!(fs::read(&earlier_old).unwrap(), b"earlier-old");
+    assert!(dir.join("out.f140.sqlite.1.old").exists());
+    assert_eq!(fs::read(dir.join("out.f140.sqlite.1.old-wal")).unwrap(), b"wal-new");
+    fs::remove_dir_all(&dir).unwrap();
+}
