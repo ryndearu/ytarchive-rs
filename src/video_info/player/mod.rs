@@ -326,6 +326,8 @@ impl Extractor {
                         if wait_on_channel && self.channel_url.is_some() {
                             let secs = self.retry_secs.unwrap_or(DEFAULT_POLL_SECS);
                             if wait_state.live_waited == 0 {
+                                log::finish_inline();
+                                self.ask_ahead().await;
                                 log_general!(
                                     "The stream on the channel's /live page has not started. Checking the channel every {secs} seconds."
                                 );
