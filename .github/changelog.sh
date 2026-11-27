@@ -4,7 +4,14 @@
 set -euo pipefail
 sha=$1
 end=$2
-last=$(git describe --tags --abbrev=0 --match 'v*' ${3:+--exclude "$3"} "$sha" 2>/dev/null || true)
+exclude=()
+if [ -n "${3:-}" ]; then
+  exclude+=(--exclude "$3")
+  # A stable release lists everything since the previous stable one, not
+  # only what came after its own release candidates.
+  if [[ "$3" != *-* ]]; then exclude+=(--exclude 'v*-*'); fi
+fi
+last=$(git describe --tags --abbrev=0 --match 'v*' "${exclude[@]}" "$sha" 2>/dev/null || true)
 repo="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
 range=$sha
 echo "<details>"
