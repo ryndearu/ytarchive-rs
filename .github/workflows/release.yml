@@ -6,8 +6,10 @@ on:
   push:
     tags: ["v*"]
 
+# Only publish writes; the build jobs run build.rs, proc macros, and
+# third-party actions.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -16,6 +18,8 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.ref_name }}

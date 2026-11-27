@@ -5,8 +5,10 @@ name: Nightly
 on:
   workflow_dispatch:
 
+# Only publish writes; the build jobs run build.rs, proc macros, and
+# third-party actions.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: nightly
@@ -23,6 +25,8 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       SHA: ${{ github.sha }}

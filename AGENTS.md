@@ -90,7 +90,7 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 
 ## Releases and CI
 
-- **Releases** are manual: push a `v*` tag. `release.yml` builds x64 and arm64 for every OS and uploads `SHA256SUMS` with the zips. A tag with a suffix (`v1.2.0-rc.1`) is published as a prerelease, any other as Latest.
+- **Releases** are manual: push a `v*` tag. `release.yml` builds x64 and arm64 for every OS and uploads `SHA256SUMS` with the zips. Workflows default to `contents: read`; only the `publish` jobs get `contents: write`, since the build jobs run `build.rs`, proc macros, and third-party actions. A tag with a suffix (`v1.2.0-rc.1`) is published as a prerelease, any other as Latest.
 - **Nightly** (`nightly.yml`) runs only by hand, on `main`. It builds Windows x64 and Linux x64, stages the zips and `SHA256SUMS` as a draft, then replaces the `nightly` pre-release so its publish time refreshes. Choose targets in `build.yml`'s target list, not with a matrix `exclude` (an `include` brings excluded combinations back).
 - Both list the commits since the last `v*` tag with `.github/changelog.sh`, and build with `build.yml`: one zip per platform, `ytarchive_<windows|linux|macos>_<x64|arm64>.zip`, holding only the executable. Every target builds natively (arm64 Linux on GitHub's arm64 runner). A `v*` tag selects every target and sets `YTARCHIVE_VERSION` for `build.rs`, which then leaves the commit out of the version. The commit and date come from git.
 - **CI** (`ci.yml`) runs on pushes and pull requests to `main` that touch the code or what builds and checks it. Add any new such file to its `paths`. Tests run on Windows x64 and Linux x64; macOS and the arm64 targets are built only by releases.
