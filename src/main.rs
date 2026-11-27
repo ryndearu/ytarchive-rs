@@ -94,7 +94,14 @@ async fn main() -> ExitCode {
                     Ok(copy) => options.ytdlp_cookies_file = copy,
                     Err(error) => log_warn!("Couldn't write a repaired cookies file for yt-dlp: {error}"),
                 }
-                cookies::parse_netscape(&data)
+                let parsed = cookies::parse_netscape(&data);
+                if parsed.cookies.is_empty() {
+                    log_warn!(
+                        "No cookies found in {}; it must be in Netscape format (a JSON export won't work)",
+                        path.display()
+                    );
+                }
+                parsed
             }
             Err(error) => {
                 log_error!("Failed to load cookies file: {error}");
