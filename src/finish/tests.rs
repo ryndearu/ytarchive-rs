@@ -255,6 +255,7 @@ async fn keeps_temp_dir_when_other_kept_stream_was_skipped() {
     assert!(!plan.temp(".f140.sqlite").exists());
     assert!(!plan.temp(".f140.sqlite-wal").exists());
     assert_eq!(fs::read(plan.temp(".f299.sqlite")).unwrap(), b"kept-video");
+    assert_eq!(fs::read(plan.temp(".jpg")).unwrap(), b"thumbnail", "kept for the other stream's retry");
     assert!(!state_file.exists());
     fs::remove_dir_all(&plan.final_dir).unwrap();
 
@@ -276,7 +277,7 @@ async fn keeps_temp_dir_when_other_kept_stream_was_skipped() {
     assert!(!plan.temp(".f140.ts").exists());
     assert!(!plan.temp(".f140.sqlite").exists());
     assert!(!plan.temp(".f140.sqlite-wal").exists());
-    assert!(!plan.temp(".jpg").exists());
+    assert_eq!(fs::read(plan.temp(".jpg")).unwrap(), b"thumbnail", "kept for the other stream's retry");
     assert_eq!(fs::read(plan.temp(".f299.sqlite")).unwrap(), b"kept-video");
     assert!(!state_file.exists());
     fs::remove_dir_all(&plan.final_dir).unwrap();

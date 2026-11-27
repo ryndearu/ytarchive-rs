@@ -127,9 +127,10 @@ impl Finish<'_> {
     fn remove_temp_dir(&self) {
         if self.keep_other_streams {
             let ts: Vec<&Path> = self.audio_ts.iter().chain(&self.video_ts).map(|moved| moved.temp.as_path()).collect();
-            let extra: Vec<&Path> = [&self.thumbnail, &self.description]
-                .into_iter()
-                .flatten()
+            // The thumbnail stays for the other stream's retry.
+            let extra: Vec<&Path> = self
+                .description
+                .iter()
                 .map(|moved| moved.temp.as_path())
                 .chain([self.mux_file.temp.as_path()])
                 .collect();
@@ -275,8 +276,8 @@ impl Finish<'_> {
             self.delete_state_files();
         }
         // A retry run reuses it: the thumbnail URL often 404s once the stream
-        // is private.
-        if self.retry_until().is_some()
+        // is private. That includes the run for another kept stream.
+        if (self.retry_until().is_some() || self.keep_other_streams)
             && let Some(thumbnail) = &self.thumbnail
             && let Err(error) = tokio::fs::copy(&thumbnail.dest, &thumbnail.temp).await
         {
