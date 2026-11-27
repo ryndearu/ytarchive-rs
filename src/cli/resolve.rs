@@ -27,7 +27,7 @@ fn validate_gvideo_flag(flag: &str, raw: &str, data_type: DataType) -> Result<()
     })
 }
 
-fn is_googlevideo(url: &str) -> bool {
+pub fn is_googlevideo(url: &str) -> bool {
     Url::parse(url)
         .ok()
         .and_then(|parsed| parsed.host_str().map(|host| host.ends_with(".googlevideo.com")))

@@ -73,6 +73,15 @@ async fn main() -> ExitCode {
             log_warn!("--metadata {key}: {error}; value will be kept literally");
         }
     }
+    // Otherwise a missing yt-dlp shows only once the stream is live, maybe
+    // hours into a wait, and the channel monitor gives up on every stream.
+    let direct_download = options.video_url.is_some()
+        || options.audio_url.is_some()
+        || options.url.as_deref().is_some_and(cli::is_googlevideo);
+    if !direct_download && util::resolve_program(&options.ytdlp_path).is_none() {
+        log_error!("{} not found. Install yt-dlp or give its location with --ytdlp-path", options.ytdlp_path);
+        return ExitCode::FAILURE;
+    }
     if let Some(quality) = &options.quality {
         let known = formats::parse_quality_selection(quality);
         let unknown: Vec<&str> = quality

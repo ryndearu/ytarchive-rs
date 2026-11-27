@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
 
-pub use resolve::normalize_args;
+pub use resolve::{is_googlevideo, normalize_args};
 
 use crate::types::{DEFAULT_FILENAME_FORMAT, DEFAULT_FRAG_MAX_TRIES, VideoCodec, parse_codec_list};
 
