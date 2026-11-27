@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::mem;
+use std::path;
 use std::time::Duration;
 
 use clap::CommandFactory;
@@ -361,7 +362,9 @@ impl Cli {
             audio_only: self.no_video,
             video_only: self.no_audio,
             output_format: self.output,
-            temp_dir: self.temporary_dir,
+            // Saved into state files, so a run from another working
+            // directory must still find it.
+            temp_dir: self.temporary_dir.map(|dir| path::absolute(&dir).unwrap_or(dir)),
             lookalike_chars: self.lookalike_chars,
             // Explicit flag wins; otherwise on for Windows builds only.
             windows_filenames: self.windows_filenames || (!self.no_windows_filenames && cfg!(windows)),

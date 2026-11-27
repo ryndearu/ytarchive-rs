@@ -72,6 +72,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - Repaired cookies files get random names (`0600` on Unix) and are removed by an exit guard. Copies older than a day are cleaned up, except ones locked by a running `ytarchive`.
 - The final name (`name.mp4`, `name-1.mp4`, …) is chosen just before muxing, and `.ffmpeg.txt` is updated to match. Go chose it before the download, so a file that appeared meanwhile broke ffmpeg.
 - If `name.mp4` through `name-10.mp4` all exist, ffmpeg isn't run and the `.ts` files are kept. Go ran ffmpeg and reported only its exit code.
+- A relative `--temporary-dir` is made absolute, so the temp folder saved in a state file is still found from another working directory. Go saved it as given.
 - State files are deleted only after moving the downloaded files succeeds. Partial copies and earlier exports from a failed batch are deleted, and ffmpeg doesn't run when a move fails.
 - `--save` on cancel also moves `.ffmpeg.txt` to the output folder. Go deleted it with the temp folder.
 - Failures applying `--file-permissions` or `--directory-permissions` (exFAT, FAT32, SMB) are logged at debug level, and written files are kept. Go's `os.WriteFile` never failed on a separate chmod, so the port matches that for filesystems that reject permissions.

@@ -65,6 +65,9 @@ fn storage_flags() {
     assert_eq!((options.storage, options.recover_private), (StorageMode::Sqlite, false));
     let options = opts(&["y", "--recover-private", "u"]).unwrap();
     assert_eq!((options.storage, options.recover_private), (StorageMode::Sqlite, true));
+    // State files record it, and a later run may start elsewhere.
+    let temp_dir = opts(&["y", "-td", "tmp", "u"]).unwrap().temp_dir.unwrap();
+    assert!(temp_dir.is_absolute() && temp_dir.ends_with("tmp"), "{}", temp_dir.display());
 }
 
 #[test]
