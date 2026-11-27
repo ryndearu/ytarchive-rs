@@ -38,6 +38,10 @@ fn watch_html(video_id: &str, status: &str, is_live_now: bool) -> String {
     page(video_id, &payload)
 }
 
+fn ended_html(video_id: &str) -> String {
+    watch_html(video_id, "OK", false).replace(r#""endTimestamp":"""#, r#""endTimestamp":"2026-11-07T03:00:00+00:00""#)
+}
+
 fn non_livestream_html(video_id: &str) -> String {
     let payload = serde_json::json!({
         "playabilityStatus": {"status": "OK"},
@@ -90,6 +94,8 @@ async fn channel_wait_returns_to_live_when_the_found_stream_is_unusable() {
         ("error", true, ok(watch_html("vid1", "ERROR", false)), 2, Some("ERROR")),
         ("unplayable", true, ok(watch_html("vid1", "UNPLAYABLE", false)), 2, Some("UNPLAYABLE")),
         ("non-livestream", true, ok(non_livestream_html("vid1")), 2, Some("NOT_LIVE")),
+        ("ended", false, ok(ended_html("vid1")), 2, Some("ENDED")),
+        ("login-required", true, ok(watch_html("vid1", "LOGIN_REQUIRED", false)), 2, Some("LOGIN_REQUIRED")),
     ] {
         let seen = Arc::new(Mutex::new(Vec::<String>::new()));
         let live_hits = AtomicUsize::new(0);

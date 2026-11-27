@@ -90,9 +90,16 @@ impl Extractor {
     /// while waiting on a channel, returning `true` when polling should reset to `/live`.
     fn report_channel_unusable(&mut self, player_response: &PlayerResponse, not_live: bool) -> bool {
         let status = player_response.playability_status.status.as_str();
+        let broadcast = &player_response.microformat.player_microformat_renderer.live_broadcast_details;
+        // /live can still show the stream that just ended (only judged on
+        // the resolved watch page; /live's own response is incomplete).
+        let ended =
+            !self.is_channel && status == PLAYABLE_OK && !broadcast.is_live_now && !broadcast.end_timestamp.is_empty();
         let reason_key = if not_live {
             "NOT_LIVE"
-        } else if matches!(status, PLAYABLE_ERROR | PLAYABLE_UNPLAYABLE) {
+        } else if ended {
+            "ENDED"
+        } else if !matches!(status, PLAYABLE_OK | PLAYABLE_OFFLINE) {
             status
         } else {
             return false;
@@ -103,16 +110,17 @@ impl Extractor {
             log::finish_inline();
             if not_live {
                 log_warn!("This video ({video_id}) is not a livestream; continuing to check the channel.");
+            } else if ended {
+                log_general!(
+                    "The stream on the channel's /live page ({video_id}) has ended; continuing to check the channel."
+                );
+            } else if status == PLAYABLE_UNPLAYABLE {
+                log_unplayable(player_response, !broadcast.end_timestamp.is_empty(), self.in_progress);
             } else if status == PLAYABLE_ERROR {
                 log_error!("Playability status: ERROR. Reason: {reason}");
             } else {
-                let ended = !player_response
-                    .microformat
-                    .player_microformat_renderer
-                    .live_broadcast_details
-                    .end_timestamp
-                    .is_empty();
-                log_unplayable(player_response, ended, self.in_progress);
+                // LOGIN_REQUIRED, AGE_CHECK_REQUIRED, and the like.
+                log_warn!("Playability status: {status}. Reason: {reason}; continuing to check the channel.");
             }
         } else {
             log_debug!("{reason_key} ({reason}); returning to /live");

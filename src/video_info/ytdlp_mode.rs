@@ -94,6 +94,29 @@ impl Extractor {
 
     /// Runs yt-dlp until the stream is no longer upcoming (waiting as
     /// configured) and has usable URLs and a sequence boundary.
+    /// Waits one poll interval on a channel, announcing the wait the first
+    /// time. Returns `false` if cancelled.
+    async fn wait_channel_poll(
+        &mut self,
+        secs: u64,
+        poll_count: &mut u32,
+        total_waited: &mut u64,
+        newlines: bool,
+    ) -> bool {
+        if *poll_count == 0 {
+            log::finish_inline();
+            self.ask_ahead().await;
+            log_general!("You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds.");
+        }
+        if !sleep_wall_clock(&self.cancel, Duration::from_secs(secs)).await {
+            return false;
+        }
+        *poll_count += 1;
+        *total_waited += secs;
+        log::retry_status(*poll_count, *total_waited, newlines);
+        true
+    }
+
     async fn extract_usable(&mut self, probe_head: bool) -> Option<YtdlpExtraction> {
         let newlines = self.opts.status_newlines;
         let waiting_on_channel = self.is_channel && !self.in_progress && self.retry_secs.is_some();
@@ -137,19 +160,9 @@ impl Extractor {
                         } else {
                             log_debug!("yt-dlp extraction failed while waiting on channel: {error}");
                         }
-                        if poll_count == 0 {
-                            log::finish_inline();
-                            self.ask_ahead().await;
-                            log_general!(
-                                "You have opted to wait for a livestream to be scheduled. Retrying every {secs} seconds."
-                            );
-                        }
-                        if !sleep_wall_clock(&self.cancel, Duration::from_secs(secs)).await {
+                        if !self.wait_channel_poll(secs, &mut poll_count, &mut total_waited, newlines).await {
                             return None;
                         }
-                        poll_count += 1;
-                        total_waited += secs;
-                        log::retry_status(poll_count, total_waited, newlines);
                         continue;
                     }
                     if is_transient_error(&error) {
@@ -222,6 +235,27 @@ impl Extractor {
             }
 
             self.print_info(&info.channel, &info.title);
+
+            // /live can still show the stream that just ended; wait for the
+            // next one instead.
+            if waiting_on_channel
+                && let Some(secs) = self.retry_secs
+                && matches!(info.live_status, LiveStatus::WasLive | LiveStatus::PostLive | LiveStatus::NotLive)
+            {
+                let text = format!(
+                    "The video on the channel's /live page ({}) has ended or is not a livestream; continuing to check the channel.",
+                    info.id
+                );
+                if last_warned.as_deref() != Some(text.as_str()) {
+                    log::finish_inline();
+                    log_general!("{text}");
+                    last_warned = Some(text);
+                }
+                if !self.wait_channel_poll(secs, &mut poll_count, &mut total_waited, newlines).await {
+                    return None;
+                }
+                continue;
+            }
 
             if info.urls.is_empty() {
                 match info.live_status {
