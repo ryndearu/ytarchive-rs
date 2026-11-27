@@ -168,7 +168,7 @@ pub struct Cli {
     /// Write basic metadata to the final file.
     #[arg(long, help_heading = POST)]
     pub add_metadata: bool,
-    /// Override metadata, KEY=VALUE (VALUE is a format template; empty omits the key).
+    /// Override metadata written by --add-metadata, KEY=VALUE (VALUE is a format template; empty omits the key).
     #[arg(long, value_name = "KEY=VALUE", help_heading = POST)]
     pub metadata: Vec<String>,
     /// Mux into mkv instead of mp4 (ignored for audio only) [default: mp4].

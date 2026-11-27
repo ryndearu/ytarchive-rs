@@ -135,7 +135,7 @@ Flag names match Go ytarchive, and Go-style single-dash long flags (`-threads 4`
 ### Post-Processing Options:
     -t, --thumbnail             Embed the thumbnail into the final file
         --add-metadata          Write basic metadata to the final file
-        --metadata <KEY=VALUE>  Override metadata, KEY=VALUE (VALUE is a format template; empty omits the key)
+        --metadata <KEY=VALUE>  Override metadata written by --add-metadata, KEY=VALUE (VALUE is a format template; empty omits the key)
         --mkv                   Mux into mkv instead of mp4 (ignored for audio only) [default: mp4]
         --separate-audio        Also save the audio as a separate file
         --write-mux-file        Write the ffmpeg mux command to a file instead of muxing

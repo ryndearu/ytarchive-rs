@@ -73,6 +73,18 @@ async fn main() -> ExitCode {
             log_warn!("--metadata {key}: {error}; value will be kept literally");
         }
     }
+    // Without --add-metadata, only `comment` is used, as the description file.
+    if !options.add_metadata {
+        let unused: Vec<&str> = options
+            .metadata_overrides
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .filter(|key| !(options.write_description && *key == "comment"))
+            .collect();
+        if !unused.is_empty() {
+            log_warn!("--metadata {} has no effect without --add-metadata", unused.join(", "));
+        }
+    }
     // Otherwise a missing yt-dlp shows only once the stream is live, maybe
     // hours into a wait, and the channel monitor gives up on every stream.
     let direct_download = options.video_url.is_some()
