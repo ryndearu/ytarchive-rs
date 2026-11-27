@@ -48,10 +48,14 @@ enum Take {
 }
 
 impl Dispatch {
-    fn take(&mut self, live: bool) -> Take {
+    fn skip_stored(&mut self) {
         while self.skip.remove(&self.next) {
             self.next += 1;
         }
+    }
+
+    fn take(&mut self, live: bool) -> Take {
+        self.skip_stored();
         if self.end_seq.is_some_and(|end| self.next >= end) {
             log_debug!("Reached the maximum duration specified by --capture-duration.");
             return Take::Done;
@@ -74,6 +78,10 @@ impl Dispatch {
         }
         let seq = self.next;
         self.next += 1;
+        // Stored fragments after this one count as done now, or a capture
+        // whose last missing fragment is stuck never looks finished while
+        // its only worker retries it.
+        self.skip_stored();
         self.in_flight += 1;
         Take::Seq(seq, self.max_seq)
     }

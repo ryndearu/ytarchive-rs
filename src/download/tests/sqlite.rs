@@ -3,6 +3,7 @@
 use std::fs;
 
 use rusqlite::Connection;
+use tokio::time::timeout;
 
 use super::*;
 use crate::error::Error;
@@ -51,6 +52,26 @@ async fn sqlite_resume_fills_gap() {
         assert_output(&dir.join(format!("{new_name}.f140.ts")), 0..10);
         fs::remove_dir_all(&dir).unwrap();
     }
+}
+
+#[tokio::test]
+async fn resumed_capture_finishes_when_its_last_missing_fragment_is_stuck() {
+    // Only fragment 5 is missing, and it never downloads. Its one worker is
+    // the only one left, so nothing else downloads to count against it.
+    let dir = temp_dir("sqlite-capture-stuck");
+    stored_database(&dir.join("out.f140.sqlite"), (0..10).filter(|sequence| *sequence != 5)).await;
+    let url = serve(200, vec![5]).await;
+    let state = DownloadState { start_frag: 0, fragments: 9, ..Default::default() };
+    let (mut stream_params, _rx) = params(&dir, 200, state);
+    stream_params.start_sq = Some(0);
+    stream_params.capture_duration = Some(Duration::from_secs(10));
+    stream_params.retry_sleep = Duration::from_millis(1);
+    let download = download_stream(session_for(sqlite_opts(1), &url, true), stream_params);
+    let out = timeout(Duration::from_secs(30), download).await.expect("download hangs").unwrap();
+    assert_eq!(out.skipped, [5]);
+    out.pending_export.unwrap().export().await.unwrap();
+    assert_output(&dir.join("out.f140.ts"), (0..10).filter(|sequence| *sequence != 5));
+    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]
