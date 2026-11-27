@@ -328,6 +328,8 @@ impl Extractor {
     /// mode). `None` = don't wait.
     async fn upcoming_wait_interval(&mut self, start_unix: Option<i64>) -> Option<Duration> {
         if self.wait == Action::DoNot {
+            // As the watch-page path says it.
+            log_error!("Stream has not started, and you have opted not to wait.");
             return None;
         }
         if let Some(seconds) = self.retry_secs {

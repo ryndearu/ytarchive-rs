@@ -20,7 +20,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - `--ytdlp-opts` handles single and double quotes (Windows backslashes are kept outside quote escapes). `--live-from` syntax and the 7-day bound are checked at startup. `--metadata` templates with unknown keys warn at startup and keep the literal fallback. `--metadata` keys are case-insensitive: `TITLE=x` replaces the default title, and `COMMENT=` feeds `--write-description`. Go kept the user's case, so `TITLE=x` was added next to the default and could lose to it.
 - Huge `--live-from`, `--start-delay`, and `--capture-duration` values saturate instead of overflowing. Go's integer math could wrap.
 - Scheduled-stream prompt: `1) wait  2) poll  3) no (default 3):`. `wait` and `poll` still work, and Enter or closed stdin means no. Go asked `wait/poll/[no]:`.
-- `--ytdlp-info` asks for the quality while waiting. Go asked once the stream started.
+- `--ytdlp-info` asks for the quality while waiting. Go asked once the stream started. With `-n` on an upcoming stream it says it won't wait, as the watch-page path does; Go exited with code 1 and no message.
 - If none of the chosen qualities exist, `best` is used. Go asked again, which stalled unattended runs. With `--no-audio`, `audio_only` is never selected or offered. When a quality other than `audio`/`audio_only` ends up audio only (every video format has an unknown itag), a warning says so.
 - The version shows the build date, and the commit for non-release builds: `v0.1.0 (2026-11-07)`, `v0.1.0+abc1234 (2026-11-07)`.
 - Non-UTF-8 arguments are converted instead of rejected.
