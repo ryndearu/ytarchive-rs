@@ -114,9 +114,6 @@ pub async fn download_stream(session: Arc<Session>, mut params: StreamParams) ->
     let name = format!("{}-download", data_type.as_str());
     let mode = session.opts.file_mode;
 
-    if params.state.fragments > 0 && params.start_sq.is_some() {
-        log_warn!("{name}: Options --live-from/--start-delay are ignored as a download is being resumed.");
-    }
     let target = session.target_duration();
     let state = std::mem::take(&mut params.state);
     let want_sqlite = session.opts.storage == StorageMode::Sqlite;

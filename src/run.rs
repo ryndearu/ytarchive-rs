@@ -212,6 +212,11 @@ async fn download(
             }
         }
     }
+    // A stream with nothing stored yet starts where the resumed one did;
+    // from the stream's beginning the two would cover different parts.
+    if resuming {
+        start_sq = states.iter().filter(|state| state.fragments > 0).map(|state| state.start_frag).min();
+    }
 
     let plan =
         OutputPlan { temp_dir: temp_dir(&opts, prev_temp, &final_dir, &prepared.video_id), final_dir, file_name };
