@@ -219,11 +219,18 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
         !selections.is_empty()
             && selections.iter().all(|selection| matches!(selection.as_str(), "audio" | "audio_only"))
     });
-    let video_url = (!opts.audio_only && !audio_quality).then(|| info.video_itag.and_then(url)).flatten();
+    // From the video stream's own database: an audio-only retry rewrites the
+    // audio one without the video itag.
+    let kept_video = kept
+        .iter()
+        .find(|(itag, _)| *itag != AUDIO_ITAG)
+        .map(|(itag, kept_stream)| (*itag, kept_stream.info.label.clone()));
+    let video_url =
+        (!opts.audio_only && !audio_quality).then(|| kept_video.as_ref().and_then(|(itag, _)| url(*itag))).flatten();
     if audio_url.is_none() && video_url.is_none() {
         return None;
     }
-    let video_itag = video_url.as_ref().and(info.video_itag);
+    let video_itag = video_url.as_ref().and(kept_video.as_ref().map(|(itag, _)| *itag));
     let kept_other_stream =
         kept.iter().any(|(itag, _)| !((*itag == AUDIO_ITAG && audio_url.is_some()) || Some(*itag) == video_itag));
     log_general!(
@@ -233,7 +240,10 @@ pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
     Some(Prepared {
         extractor: None,
         sel: FormatSelection {
-            label: if video_url.is_none() { "audio_only".into() } else { info.label },
+            label: match &kept_video {
+                Some((_, label)) if video_url.is_some() => label.clone(),
+                _ => "audio_only".into(),
+            },
             codec: None,
             video_itag,
             audio_url,
@@ -289,6 +299,9 @@ mod tests {
             ..Default::default()
         };
         let download_json = serde_json::to_string(&saved).unwrap();
+        // As an earlier audio-only retry leaves the audio database.
+        let audio_only_saved = SavedDownload { label: "audio_only".into(), video_itag: None, ..saved };
+        let audio_json = serde_json::to_string(&audio_only_saved).unwrap();
         let state_bytes = serde_json::to_vec(&DownloadState {
             start_frag: 0,
             fragments: 3,
@@ -300,7 +313,7 @@ mod tests {
 
         for itag in [140u32, 299] {
             let db = DbSink::open(&stream_dir.join(format!("out.f{itag}.sqlite")), 0o644).unwrap();
-            db.set_meta("download", &download_json).unwrap();
+            db.set_meta("download", if itag == 140 { &audio_json } else { &download_json }).unwrap();
             db.set_meta("head", "10").unwrap();
             let raw_url = format!("https://r.googlevideo.com/videoplayback?itag={itag}&noclen=1");
             db.save_urls(&[FragmentUrl::with_sq_param(&raw_url)]).unwrap();
