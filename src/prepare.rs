@@ -187,7 +187,7 @@ fn state_itags(dir: &Path, video_id: &str) -> Vec<u32> {
 /// Rebuilds what `download` needs from a download of `video_id` that was
 /// kept for retrying. `None` if there is none, or without --recover-private.
 pub fn prepared_from_kept(opts: &Options, video_id: &str) -> Option<Prepared> {
-    if !opts.recover_private || opts.disable_save_state {
+    if !opts.recover_private {
         return None;
     }
     let dir = opts.temp_dir.clone().unwrap_or_default();

@@ -100,10 +100,10 @@ impl Finish<'_> {
         }
     }
 
-    /// `keep_for_retry`, unless state files are disabled (a later run
-    /// couldn't find the data then).
+    /// `--disable-save-state` can't be combined with `--recover-private`, so
+    /// a later run can always find kept data through the state files.
     fn retry_until(&self) -> Option<u64> {
-        self.keep_for_retry.filter(|_| !self.opts.disable_save_state)
+        self.keep_for_retry
     }
 
     /// After merging: removes the temp dir, or keeps it for retrying.

@@ -239,6 +239,10 @@ impl Cli {
         if self.threads == 0 {
             return Err(Error::InvalidArg("--threads must be at least 1".into()));
         }
+        // A later run finds kept data through the state files.
+        if self.recover_private && self.disable_save_state {
+            return Err(Error::InvalidArg("--recover-private needs state files; drop --disable-save-state".into()));
+        }
         if let Some(raw) = &self.video_url {
             validate_gvideo_flag("--video-url", raw, DataType::Video)?;
         }
