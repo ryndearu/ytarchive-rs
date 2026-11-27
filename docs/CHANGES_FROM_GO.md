@@ -109,6 +109,7 @@ Windows, Linux, and macOS, each as x64 and arm64. Go supported Linux and Windows
 5. **The `--live-from` 7-day check compared different units**: a fragment count against seconds.
 6. **Missing timestamps crashed.** Slicing an empty timestamp panicked, and so did malformed googlevideo `id` parameters.
 7. **"Try N more times" never retried.** `ContinueFragmentDownload` didn't reset the try counter, so the fragment was dropped.
+   The 3 extra rounds also ran out early. Go counted them down on every exhausted round, live ones included, and before checking, so a fragment that kept failing while the stream was live had none left once it ended, and a fresh one got 2. The port counts only the extra rounds themselves.
 8. **One bad fragment ended the download.** On an ended stream, a fragment well behind the head that failed permanently ended it, silently dropping everything after. The port skips it and lists the missing sequence numbers at the end. `Skipped` in the state (omitted when zero) stops resume from re-fetching and duplicating data.
 9. **Slower workers gave up early.** A worker that reached the last sequence or hit a near-head failure marked the stream finished, abandoning other workers' retries. Such failures now only cap later sequences.
 10. **A missing data file produced a broken file.** Go marked the download resumed and wrote into a new empty file. It starts over now. The progress line counts what storage holds, not the state file (v1.0.0 counted the state, pushing past "Max Fragments").

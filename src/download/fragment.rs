@@ -84,7 +84,6 @@ pub fn continue_fragment_download(
         return RetryDecision::Retry;
     }
 
-    state.full_retries = state.full_retries.saturating_sub(1);
     if max > 0 {
         log_debug!("{}: Fragment {}: {}/{max} retries", state.name, state.seq, state.tries);
     } else {
@@ -132,9 +131,12 @@ pub fn continue_fragment_download(
         if max == 0 {
             return RetryDecision::Retry;
         }
+        // Go counted these rounds down on every exhausted round, live ones
+        // included, so a fragment that failed while live had none left.
         if state.full_retries > 0 {
             log_debug!("{}: More than two fragments away from the highest known fragment", state.name);
             log_debug!("{}: Will try grabbing the fragment {} more times", state.name, state.full_retries);
+            state.full_retries -= 1;
             // Go didn't reset the count here, so its loop exited immediately
             // and the fragment was dropped without the extra attempts.
             state.tries = 0;

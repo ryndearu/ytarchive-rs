@@ -108,6 +108,24 @@ async fn a_live_fragment_is_given_up_only_while_the_rest_downloads() {
     assert!(!session.is_finished(DataType::Audio));
 }
 
+#[test]
+fn live_rounds_leave_the_extra_rounds_for_after_the_stream_ends() {
+    let session = Session::for_test(opts(2, false), None, true);
+    let mut state = FragThreadState::new("audio1", DataType::Audio, Duration::from_millis(10));
+    state.reset_for(3, Some(100), 4);
+    for _ in 0..5 {
+        exhausted(&mut state);
+        assert_eq!(continue_fragment_download(&session, &mut state, moved(4)), RetryDecision::Retry);
+    }
+    session.set_live(false);
+    for round in 1..=3 {
+        exhausted(&mut state);
+        assert_eq!(continue_fragment_download(&session, &mut state, moved(4)), RetryDecision::Retry, "round {round}");
+    }
+    exhausted(&mut state);
+    assert_eq!(continue_fragment_download(&session, &mut state, moved(4)), RetryDecision::GiveUp);
+}
+
 fn moved(downloaded: u64) -> StreamProgress {
     StreamProgress { downloaded, ..Default::default() }
 }
