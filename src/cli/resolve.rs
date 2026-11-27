@@ -243,6 +243,12 @@ impl Cli {
         if self.recover_private && self.disable_save_state {
             return Err(Error::InvalidArg("--recover-private needs state files; drop --disable-save-state".into()));
         }
+        if self.video_url.is_some() && self.no_video {
+            return Err(Error::InvalidArg("--video-url and --no-video cannot be combined".into()));
+        }
+        if self.audio_url.is_some() && self.no_audio {
+            return Err(Error::InvalidArg("--audio-url and --no-audio cannot be combined".into()));
+        }
         if let Some(raw) = &self.video_url {
             validate_gvideo_flag("--video-url", raw, DataType::Video)?;
         }
@@ -259,10 +265,13 @@ impl Cli {
         let direct_download =
             self.video_url.is_some() || self.audio_url.is_some() || url.as_deref().is_some_and(is_googlevideo);
         // Go printed "No valid qualities selected" and prompted; unattended
-        // runs then waited on stdin or fell back to best.
+        // runs then waited on stdin or fell back to best. Audio alone under
+        // --no-audio leaves nothing to download.
         if !direct_download
             && let Some(raw) = quality.as_deref()
-            && parse_quality_selection(raw).is_empty()
+            && parse_quality_selection(raw)
+                .iter()
+                .all(|item| self.no_audio && matches!(item.as_str(), "audio" | "audio_only"))
         {
             return Err(Error::InvalidArg(format!(
                 "no valid quality in \"{raw}\"; choose from {}",

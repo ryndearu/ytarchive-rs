@@ -156,6 +156,13 @@ fn validation_errors() {
     assert!(opts(&["y", "u", "1080"]).is_err());
     assert!(opts(&["y", "u", "4k/1080"]).is_err());
     assert!(opts(&["y", "u", "4k/720p"]).is_ok(), "one known label is enough");
+    assert!(opts(&["y", "--no-audio", "u", "audio_only"]).is_err());
+    assert!(opts(&["y", "--no-audio", "u", "audio"]).is_err());
+    assert!(opts(&["y", "--no-audio", "u", "audio/720p"]).is_ok(), "a video label is enough");
+    let video_url = "https://r.googlevideo.com/videoplayback?itag=299&noclen=1";
+    assert!(opts(&["y", "--video-url", video_url, "--no-video"]).is_err());
+    let audio_url = "https://r.googlevideo.com/videoplayback?itag=140&noclen=1";
+    assert!(opts(&["y", "--audio-url", audio_url, "--no-audio"]).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "--proxy", "ftp://x"])).is_err());
     assert!(Cli::try_parse_from(os_args(&["y", "-fp", "999"])).is_err());
 }
