@@ -26,6 +26,7 @@ allow = [
 
 [bans]
 wildcards = "deny"
+multiple-versions = "warn"
 
 [sources]
 unknown-registry = "deny"
