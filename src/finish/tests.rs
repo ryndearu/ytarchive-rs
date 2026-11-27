@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use super::*;
-use crate::mux::MuxInput;
+use crate::mux::{self, MuxInput};
 
 /// A finished audio download with a thumbnail in a temp folder, and its
 /// state file.

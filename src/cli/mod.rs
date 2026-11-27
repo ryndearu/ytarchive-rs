@@ -2,6 +2,7 @@
 //! work, including Go-style single-dash long flags (`-threads 4`, `-td DIR`).
 //! Options are grouped under headings like yt-dlp's help output.
 
+mod args;
 mod resolve;
 #[cfg(test)]
 mod tests;
@@ -10,7 +11,8 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
 
-pub use resolve::{is_googlevideo, normalize_args};
+pub use args::normalize_args;
+pub use resolve::is_googlevideo;
 
 use crate::types::{DEFAULT_FILENAME_FORMAT, DEFAULT_FRAG_MAX_TRIES, VideoCodec, parse_codec_list};
 

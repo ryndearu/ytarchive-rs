@@ -1,11 +1,8 @@
-//! Top-level flow for one stream: resolve the URL, fetch info, download
-//! (output paths, the audio/video download tasks), and finish (merge or
-//! handle an interrupt).
+//! One stream's download once its info is known: output paths, the
+//! audio/video download tasks, and handing over to `Finish`.
 
-use std::collections::HashSet;
 use std::fs;
 use std::mem;
-use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,77 +13,16 @@ use crate::download::{MEMORY_LIMIT, PendingExport, StreamParams, download_stream
 use crate::error::Error;
 use crate::finish::{Finish, Moved};
 use crate::http::Http;
-use crate::input_url::InputUrl;
 use crate::interrupt::Interrupt;
 use crate::live_from::{resolve_live_from, start_delay};
 use crate::log::{finish_inline, report_progress};
 use crate::mux::{MuxInput, ffmpeg_args, mux_file_contents};
 use crate::output::{OutputPlan, ensure_dir, final_location, load_states, state_file, temp_dir};
-use crate::prepare::{PrepareOutcome, Prepared, prepare, prepared_from_kept};
+use crate::prepare::Prepared;
 use crate::session::Session;
 use crate::types::{AUDIO_ITAG, DEFAULT_POLL_SECS, DataType, FormatSelection, Options, PerType, SavedDownload};
 use crate::util::{seconds_to_duration_and_time_str, sleep_wall_clock, write_file_with_mode};
 use crate::{log_debug, log_error, log_general, log_info, log_warn};
-
-pub fn exit_code(code: i32) -> ExitCode {
-    ExitCode::from(u8::try_from(code).unwrap_or(1))
-}
-
-/// Result of one run: exit code, the video it was for (if resolved), and
-/// whether a download was attempted.
-pub struct RunResult {
-    pub code: i32,
-    pub video_id: Option<String>,
-    pub downloaded: bool,
-}
-
-impl RunResult {
-    fn code(code: i32) -> Self {
-        Self { code, video_id: None, downloaded: false }
-    }
-}
-
-/// Downloads one stream. `skip_ids`: videos already recorded by the channel
-/// monitor, which are not downloaded again.
-pub async fn run(
-    opts: Arc<Options>,
-    http: Http,
-    input: &InputUrl,
-    interrupt: Arc<Interrupt>,
-    skip_ids: &HashSet<String>,
-) -> RunResult {
-    let cancel = interrupt.child_token();
-    let prepared = match prepare(&opts, &http, &cancel, input, skip_ids).await {
-        PrepareOutcome::Ready(prepared) => *prepared,
-        PrepareOutcome::Skipped(id) => {
-            return RunResult { code: 0, video_id: Some(id), downloaded: false };
-        }
-        PrepareOutcome::Failed(failed_id) => {
-            // A download kept for retrying missing fragments can still go on
-            // with its saved URLs after the stream went private.
-            if !interrupt.is_set()
-                && let InputUrl::Video { id } = input
-                && let Some(prepared) = prepared_from_kept(&opts, id)
-            {
-                let code = download(opts.clone(), http, cancel, prepared, interrupt).await;
-                return RunResult { code, video_id: Some(id.clone()), downloaded: true };
-            }
-            if interrupt.is_set() {
-                return RunResult::code(interrupt.cancel_code());
-            }
-            // A stream that resolved but can't be downloaded counts as a
-            // failed attempt, so the channel monitor gives up on it.
-            return RunResult { code: 1, downloaded: failed_id.is_some(), video_id: failed_id };
-        }
-    };
-    if skip_ids.contains(&prepared.video_id) {
-        log_info!("{} was already downloaded; not downloading it again", prepared.video_id);
-        return RunResult { code: 0, video_id: Some(prepared.video_id), downloaded: false };
-    }
-    let video_id = Some(prepared.video_id.clone());
-    let code = download(opts, http, cancel, prepared, interrupt).await;
-    RunResult { code, video_id, downloaded: true }
-}
 
 /// The sequence `--live-from` starts at. `Err` has been logged. Resolved
 /// only for a fresh download, so resuming never fails on a position that
@@ -119,7 +55,7 @@ fn select_streams(sel: &FormatSelection) -> Vec<(DataType, u32)> {
     .collect()
 }
 
-async fn download(
+pub(super) async fn download(
     mut opts: Arc<Options>,
     http: Http,
     cancel: CancellationToken,

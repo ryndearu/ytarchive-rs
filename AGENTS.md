@@ -63,7 +63,7 @@ cargo build --release --locked   # only when Cargo.toml, dependencies, or build.
 
 - A live fragment is given up on only while other fragments download, while the stream is held at `MEMORY_LIMIT`, or once a `--capture-duration` download has started its last fragment. Keep all three working, or a download can wait forever.
 - The state file may be behind the data, never ahead: save a state only after its fragment is stored.
-- Don't merge a download that returned an error, since merging moves data away from its state. `run.rs` treats every error from `download_stream` as a storage error.
+- Don't merge a download that returned an error, since merging moves data away from its state. `run/download.rs` treats every error from `download_stream` as a storage error.
 - No `sync_all` before the rename in `util::write_atomic` (tried and reverted). A state save went from about 0.03 ms to 0.6 ms on NVMe ext4, once per fragment, for no safer resume: the `.ts` data isn't synced either, and `TsSink::resume` starts over when the `.ts` file is smaller than its state.
 - Measure on a slow or throttled disk before changing `wal_autocheckpoint` in `src/download/db_sink/mod.rs`. A larger value makes single inserts pause longer.
 - Don't rename the SQLite `urls`/`meta` tables or their keys without handling old databases; `--recover-private` reads them in later runs.
