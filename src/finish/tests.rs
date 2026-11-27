@@ -218,23 +218,31 @@ async fn finish_skips_muxing_when_move_fails() {
 
 #[tokio::test]
 async fn zero_fragments_skip_mux_and_keep_only_what_a_retry_needs() {
-    for keep_for_retry in [None, Some(u64::MAX)] {
-        let (plan, state_file) = downloaded(&format!("zero-frags-{}", keep_for_retry.is_some()));
+    // A Ctrl-C with --merge doesn't report a failure: nothing was asked for yet.
+    let cases = [(None, false), (Some(u64::MAX), false), (None, true), (Some(u64::MAX), true)];
+    for (keep_for_retry, cancelled) in cases {
+        let name = format!("zero-frags-{}-{cancelled}", keep_for_retry.is_some());
+        let (plan, state_file) = downloaded(&name);
         let pending = PendingExport::for_test(&plan.temp(".f140.sqlite"), plan.temp(".f140.ts.exported")).await;
-        let opts = Options { ffmpeg_path: "nonexistent-ffmpeg-binary".into(), ..Default::default() };
+        let opts = Options {
+            ffmpeg_path: "nonexistent-ffmpeg-binary".into(),
+            merge_on_cancel: Action::Do,
+            ..Default::default()
+        };
         let mut finish = finish_of(&opts, &plan, &state_file);
         finish.audio_frags = Some(0);
         finish.video_frags = Some(0);
         finish.keep_for_retry = keep_for_retry;
         finish.pending_exports.push(pending);
 
-        assert_eq!(finish.finish().await, 1);
-        assert!(!plan.temp(".f140.ts.exported").exists(), "0-fragment finish must not export SQLite");
-        assert!(!plan.final_path(".f140.ts").exists(), "0-fragment finish must not move files");
+        let code = if cancelled { finish.on_cancel().await } else { Some(finish.finish().await) };
+        assert_eq!(code, Some(if cancelled { 2 } else { 1 }), "{name}");
+        assert!(!plan.temp(".f140.ts.exported").exists(), "{name}: must not export SQLite");
+        assert!(!plan.final_path(".f140.ts").exists(), "{name}: must not move files");
         let kept = keep_for_retry.is_some();
-        assert_eq!(plan.temp(".f140.sqlite").exists(), kept, "database kept for a retry");
-        assert_eq!(plan.temp_dir.exists(), kept, "temp dir kept only for a retry");
-        assert_eq!(state_file.exists(), kept, "state file kept only for a retry");
+        assert_eq!(plan.temp(".f140.sqlite").exists(), kept, "{name}: database kept for a retry");
+        assert_eq!(plan.temp_dir.exists(), kept, "{name}: temp dir kept only for a retry");
+        assert_eq!(state_file.exists(), kept, "{name}: state file kept only for a retry");
         fs::remove_dir_all(&plan.final_dir).unwrap();
     }
 }

@@ -175,6 +175,22 @@ impl Finish<'_> {
         143
     }
 
+    fn total_frags(&self) -> u64 {
+        self.audio_frags.into_iter().chain(self.video_frags).sum()
+    }
+
+    /// Cleans up after a download that stored nothing, keeping only what a
+    /// `--recover-private` retry needs.
+    fn discard_empty(&mut self) {
+        self.pending_exports.clear();
+        if self.retry_until().is_some() {
+            self.cleanup_or_keep(true);
+        } else {
+            self.remove_temp_dir();
+            self.delete_state_files();
+        }
+    }
+
     fn keep_for_resume(&mut self) -> i32 {
         self.pending_exports.clear();
         log_warn!(
@@ -187,6 +203,13 @@ impl Finish<'_> {
     /// Handles a user interrupt. Returns `Some(exit code)` if done, `None`
     /// if the user chose to merge what was downloaded.
     pub async fn on_cancel(&mut self) -> Option<i32> {
+        // Nothing to merge or save, so there's nothing to ask; --merge would
+        // otherwise report "No fragments were downloaded" and exit 1.
+        if self.total_frags() == 0 {
+            log_warn!("Download stopped before any fragment was downloaded.");
+            self.discard_empty();
+            return Some(2);
+        }
         let options = self.opts;
         let Some(merge) = decide(
             options.merge_on_cancel,
@@ -244,16 +267,9 @@ impl Finish<'_> {
 
     /// Moves files into place and muxes. Returns the exit code.
     pub async fn finish(&mut self) -> i32 {
-        let total_frags: u64 = self.audio_frags.into_iter().chain(self.video_frags).sum();
-        if total_frags == 0 {
-            self.pending_exports.clear();
+        if self.total_frags() == 0 {
             log_error!("No fragments were downloaded.");
-            if self.retry_until().is_some() {
-                self.cleanup_or_keep(true);
-            } else {
-                self.remove_temp_dir();
-                self.delete_state_files();
-            }
+            self.discard_empty();
             return 1;
         }
         if !self.export_pending().await {

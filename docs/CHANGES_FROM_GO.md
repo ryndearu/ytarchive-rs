@@ -85,6 +85,7 @@ Based on [dreammu/ytarchive](https://github.com/dreammu/ytarchive) at `010de44` 
 - Without a TTY, there are no ANSI escapes or `\r` rewrites. Under `--quiet`, `--newline`, or non-TTY stderr, there are no trailing inline newlines. `NO_COLOR` is respected. On Windows, ANSI support is turned on before the first message, so startup errors aren't printed as raw escape codes, and colors are off on a console that can't show them.
 - ffmpeg inherits stdout and stderr (silenced under `--quiet`) instead of being read through lossy UTF-8 chunks.
 - A second Ctrl-C exits at once, like Go's `signal.Reset`.
+- Ctrl-C before any fragment is stored skips the merge, save, and resume prompts and exits 2. Go asked them anyway, and with `--merge` it ran ffmpeg on the empty files and exited 1.
 - On Linux and macOS, `SIGTERM` stops the download without prompts, keeps the temp folder and state files, and exits 143. A second signal exits at once. Signals during ffmpeg muxing cancel it, remove partial output, keep the `.ts` files, and exit 143 (`SIGTERM`) or 2 (Ctrl-C). Prompts share the main signal listener.
 - A download with 0 fragments exits 1 without running ffmpeg, and removes its empty temp folder unless `--recover-private` kept it.
 - Ctrl-C at a prompt with closed stdin keeps temp files and state for resuming. Go treated EOF as "no" to every prompt and deleted the download.
