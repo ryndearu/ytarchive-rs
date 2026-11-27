@@ -20,11 +20,13 @@ fn args() {
     };
     let args = build_args(&opts, "https://youtu.be/x", true);
     assert_eq!(
-        &args[..11],
+        &args[..13],
         [
             "--encoding",
             "utf-8",
             "--live-from-start",
+            "--no-download-archive",
+            "--no-match-filters",
             "--cookies",
             "c.txt",
             "--proxy",
@@ -38,7 +40,7 @@ fn args() {
     assert_eq!(&args[args.len() - 2..], ["--", "https://youtu.be/x"]);
     assert!(!build_args(&Options::default(), "u", false).contains(&"--ignore-no-formats-error".to_string()));
     let repaired = Options { ytdlp_cookies_file: Some("fixed.txt".into()), ..opts };
-    assert_eq!(&build_args(&repaired, "u", false)[3..5], ["--cookies", "fixed.txt"]);
+    assert_eq!(&build_args(&repaired, "u", false)[5..7], ["--cookies", "fixed.txt"]);
     let v4 = Options { ip_version: IpVersion::V4, ..Options::default() };
     assert!(build_args(&v4, "u", false).contains(&"--force-ipv4".to_string()));
     let v6 = Options { ip_version: IpVersion::V6, ..Options::default() };

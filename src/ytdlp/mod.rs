@@ -34,7 +34,16 @@ pub const DEFAULT_ATTEMPTS: u32 = 3;
 pub fn build_args(opts: &Options, url: &str, ignore_no_formats: bool) -> Vec<String> {
     // UTF-8 output regardless of the console code page (Windows), so titles
     // aren't mangled; user --ytdlp-opts come later and can override it.
-    let mut args = vec!["--encoding".to_string(), "utf-8".into(), "--live-from-start".into()];
+    // A user's yt-dlp config with an archive or a match filter (often
+    // `!is_live`) would make yt-dlp skip the stream and print nothing. The
+    // config isn't ignored outright: it can hold --js-runtimes or PO tokens.
+    let mut args = vec![
+        "--encoding".to_string(),
+        "utf-8".into(),
+        "--live-from-start".into(),
+        "--no-download-archive".into(),
+        "--no-match-filters".into(),
+    ];
     if let Some(path) = opts.ytdlp_cookies_file.as_ref().or(opts.cookies_file.as_ref()) {
         args.push("--cookies".into());
         args.push(path.to_string_lossy().into_owned());
