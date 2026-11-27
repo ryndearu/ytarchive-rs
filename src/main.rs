@@ -73,6 +73,17 @@ async fn main() -> ExitCode {
             log_warn!("--metadata {key}: {error}; value will be kept literally");
         }
     }
+    if let Some(quality) = &options.quality {
+        let known = formats::parse_quality_selection(quality);
+        let unknown: Vec<&str> = quality
+            .split('/')
+            .map(str::trim)
+            .filter(|label| !label.is_empty() && !known.contains(&label.to_lowercase()))
+            .collect();
+        if !unknown.is_empty() {
+            log_warn!("Ignoring unknown qualities: {}", unknown.join(", "));
+        }
+    }
 
     let _cookies = ytdlp_cookies::guard();
     let cookie_set = match options.cookies_file.clone() {

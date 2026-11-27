@@ -12,6 +12,7 @@ use reqwest::Url;
 use super::Cli;
 use crate::duration::parse_duration_or_time;
 use crate::error::{Error, Result};
+use crate::formats::{parse_quality_selection, quality_list_string, selectable_qualities};
 use crate::input_url::parse_gvideo_url;
 use crate::live_from::validate_live_from;
 use crate::types::{
@@ -253,6 +254,17 @@ impl Cli {
         };
         let direct_download =
             self.video_url.is_some() || self.audio_url.is_some() || url.as_deref().is_some_and(is_googlevideo);
+        // Go printed "No valid qualities selected" and prompted; unattended
+        // runs then waited on stdin or fell back to best.
+        if !direct_download
+            && let Some(raw) = quality.as_deref()
+            && parse_quality_selection(raw).is_empty()
+        {
+            return Err(Error::InvalidArg(format!(
+                "no valid quality in \"{raw}\"; choose from {}",
+                quality_list_string(&selectable_qualities(self.no_audio))
+            )));
+        }
 
         if self.ytdlp_info && !direct_download {
             if self.monitor_channel {
