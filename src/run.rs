@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::mem;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -181,7 +182,13 @@ async fn download(
             {
                 match extractor.get_video_info().await {
                     Some(sel) => {
+                        // The video itag is fixed by now, and a fixed selection
+                        // has no label; the saved download keeps the chosen one.
+                        let label = mem::take(&mut prepared.sel.label);
                         prepared.sel = sel;
+                        if prepared.sel.label.is_empty() {
+                            prepared.sel.label = label;
+                        }
                         prepared.live = extractor.live;
                         if let Some(latest) = extractor.last_sq {
                             prepared.last_sq = Some(latest);
