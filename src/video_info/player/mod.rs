@@ -106,6 +106,9 @@ impl Extractor {
         };
         let video_id = &player_response.video_details.video_id;
         let reason = &player_response.playability_status.reason;
+        // Or /streams keeps offering it first, and another stream that is
+        // live on the channel at the same time is never tried.
+        self.channel_skip_ids.insert(video_id.clone());
         if self.reported_unusable.insert((video_id.clone(), reason_key.to_string())) {
             log::finish_inline();
             if not_live {
@@ -153,7 +156,7 @@ impl Extractor {
                 &self.page_url,
                 self.is_channel,
                 self.members_only,
-                &self.skip_ids,
+                &self.channel_skip_ids,
                 &self.cancel,
             )
             .await

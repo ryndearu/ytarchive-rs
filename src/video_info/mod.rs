@@ -49,6 +49,9 @@ pub struct Extractor {
     pub video_id: String,
     /// Video IDs already recorded by `--monitor-channel`, skipped before yt-dlp.
     pub skip_ids: HashSet<String>,
+    /// `skip_ids` plus live streams found unusable while waiting on the
+    /// channel, passed over when picking one from /streams.
+    pub(super) channel_skip_ids: HashSet<String>,
     pub skipped_already_recorded: bool,
 
     pub wait: Action,
@@ -100,6 +103,7 @@ impl Extractor {
             members_only: opts.members_only && is_channel,
             video_id,
             skip_ids: skip_ids.clone(),
+            channel_skip_ids: skip_ids.clone(),
             skipped_already_recorded: false,
             wait: opts.wait,
             retry_secs: opts.retry_stream.map(|duration| duration.as_secs()),

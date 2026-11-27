@@ -131,6 +131,8 @@ async fn channel_wait_returns_to_live_when_the_found_stream_is_unusable() {
         assert_eq!(count("/watch?v=vid1"), vid1_hits, "case {case}: {paths:?}");
         if let Some(reason) = reported {
             assert_eq!(extractor.reported_unusable, HashSet::from([("vid1".into(), reason.into())]), "case {case}");
+            // /streams then offers the next live stream instead.
+            assert!(extractor.channel_skip_ids.contains("vid1"), "case {case}");
         }
     }
 }
