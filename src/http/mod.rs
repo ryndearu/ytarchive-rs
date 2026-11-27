@@ -114,7 +114,13 @@ impl Http {
 /// not when signed in or already consented (`CAA` means rejected, which is
 /// replaced).
 fn needs_default_consent(cookies: &CookieSet) -> bool {
-    !cookies.cookies.iter().any(|cookie| match cookie.name.as_str() {
+    // Only YouTube's own cookies count, as yt-dlp reads them for
+    // www.youtube.com: Google-only exports still need the consent cookie.
+    let for_youtube = |domain: &str| {
+        let host = domain.trim_start_matches('.').to_ascii_lowercase();
+        host == "youtube.com" || host.ends_with(".youtube.com")
+    };
+    !cookies.cookies.iter().filter(|cookie| for_youtube(&cookie.domain)).any(|cookie| match cookie.name.as_str() {
         "SOCS" => !cookie.value.starts_with("CAA"),
         name => matches!(name, "SAPISID" | "__Secure-3PAPISID" | "__Secure-3PSID"),
     })

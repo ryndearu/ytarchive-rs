@@ -39,14 +39,17 @@ async fn non_success_status_is_error_without_query() {
 #[test]
 fn default_consent_cookie_only_without_consent_or_sign_in() {
     let cases = [
-        ("no cookies", "", true),
-        ("unrelated", "PREF\tf6=8", true),
-        ("rejected", "SOCS\tCAAaBgiA", true),
-        ("consented", "SOCS\tCAESEwgD", false),
-        ("signed in", "SAPISID\tx", false),
+        ("no cookies", ".youtube.com", "", true),
+        ("unrelated", ".youtube.com", "PREF\tf6=8", true),
+        ("rejected", ".youtube.com", "SOCS\tCAAaBgiA", true),
+        ("consented", ".youtube.com", "SOCS\tCAESEwgD", false),
+        ("signed in", ".youtube.com", "SAPISID\tx", false),
+        ("signed in on www", "www.youtube.com", "SAPISID\tx", false),
+        ("signed in to google only", ".google.com", "SAPISID\tx", true),
+        ("consented on google only", ".google.com", "SOCS\tCAESEwgD", true),
     ];
-    for (name, entry, expected) in cases {
-        let file = if entry.is_empty() { String::new() } else { format!(".youtube.com\tTRUE\t/\tTRUE\t0\t{entry}\n") };
+    for (name, domain, entry, expected) in cases {
+        let file = if entry.is_empty() { String::new() } else { format!("{domain}\tTRUE\t/\tTRUE\t0\t{entry}\n") };
         assert_eq!(needs_default_consent(&parse_netscape(file.as_bytes())), expected, "{name}");
     }
 }
